@@ -11,6 +11,8 @@
   },
   "scripts": {
     "build": "tsc -b tsconfig.build.json && chmod +x apps/cli/dist/bin/laud.js",
+    "laud": "pnpm run build && node --disable-warning=ExperimentalWarning apps/cli/dist/bin/laud.js",
+    "watch": "tsc -b tsconfig.build.json --watch",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
     "lint": "eslint .",

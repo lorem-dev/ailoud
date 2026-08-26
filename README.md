@@ -59,6 +59,19 @@ before its actual output:
 node --disable-warning=ExperimentalWarning apps/cli/dist/bin/laud.js --help
 ```
 
+While working on laud itself, `pnpm laud` builds and runs in one step and
+forwards its arguments, so there is no separate build to remember:
+
+```shell
+pnpm laud doctor
+pnpm laud import ./recordings
+```
+
+The build it runs is incremental -- `tsc -b` recompiles only the packages
+whose inputs changed -- so an unchanged tree costs a fraction of a second.
+Its progress line goes to stderr, leaving `pnpm laud ls --json` safe to
+pipe.
+
 To get a real `laud` on your `PATH`, link the package globally:
 
 ```shell
@@ -151,6 +164,9 @@ pnpm lint
 pnpm typecheck
 pnpm test:cov
 ```
+
+`pnpm watch` keeps `tsc -b` running in the background and rebuilds on save,
+which pairs well with `pnpm test:watch` in a second terminal.
 
 ## License
 

@@ -86,6 +86,12 @@ All of these must pass before a pull request is ready. Run the full gate as a
 single step at the end of a change, not after every task; while iterating,
 run only the focused test or typecheck for what you changed.
 
+Two commands exist for driving the CLI while working on it. `pnpm laud <args>`
+builds and runs in one step, forwarding its arguments; `pnpm watch` leaves
+`tsc -b` rebuilding on save. Both rely on the same incremental build as the
+gate, so neither recompiles a package whose inputs have not changed. The
+build progress line goes to stderr, so `pnpm laud ls --json` still pipes.
+
 `pnpm test:e2e` (Jest, the built binary against `fixtures/`) is not part of
 this gate and is not wired into CI: it needs a real `ffmpeg`, a whisper.cpp
 binary, and a model file. On a machine missing any of those, the specs that
