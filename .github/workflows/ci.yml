@@ -1,0 +1,74 @@
+# CI: the project-references build, a Prettier format check, ESLint,
+# typecheck, and coverage-gated tests for the pnpm workspace, in that order
+# (build first: cross-package types resolve through dist). Runs on every
+# push to main/develop and on all pull requests.
+#
+# The end-to-end suite (`pnpm test:e2e`, Jest driving the built binary
+# against fixtures/) is deliberately NOT run here. It needs a real ffmpeg,
+# a whisper.cpp build, and a model file of roughly 150 MB, none of which
+# this runner provides. Wiring those in is future work, not an oversight;
+# see the check-fixtures skill for how to read that suite's failures on a
+# machine without them.
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+
+# One run per branch (or per pull request), and only the newest of them.
+# Keyed on the pull request when there is one, so the pull-request run and
+# the push run of the same branch stay separate (their github.ref differs
+# anyway) and each cancels only its own predecessor.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Build, format check, lint, typecheck, test
+    runs-on: ubuntu-latest
+    # This gate takes well under a minute today; anything near this bound
+    # is stuck, and failing then beats holding a runner for the six-hour
+    # default.
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          lfs: true
+
+      - name: Enable pnpm via corepack
+        run: corepack enable
+
+      - name: Set up Node.js 24 with pnpm cache
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        # Cross-package types resolve through dist, so nothing can typecheck
+        # before it exists.
+        run: pnpm build
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type-check
+        run: pnpm typecheck
+
+      - name: Test with coverage (90% gate, packages/core)
+        # vitest run --coverage enforces the thresholds defined in
+        # vitest.config.ts.
+        run: pnpm test:cov
