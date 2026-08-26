@@ -1,0 +1,125 @@
+import { describe, expect, it } from 'vitest';
+import type { Recording, Segment, Transcript } from '@laud/core';
+import { SCHEMA_VERSION } from '@laud/core';
+import { openStore } from './sqliteStore.js';
+
+const recording: Recording = {
+  id: 'R1',
+  sha256: 'abc',
+  sourcePath: '/in/a.mp3',
+  mediaPath: 'ab/abc.mp3',
+  durationMs: 1000,
+  mime: 'audio/mpeg',
+  title: null,
+  notes: null,
+  importedAt: '2026-01-01T00:00:00.000Z',
+};
+
+const transcript: Transcript = {
+  id: 'T1',
+  recordingId: 'R1',
+  provider: 'whisper-cpp',
+  model: 'base',
+  language: 'en',
+  text: 'hello world',
+  createdAt: '2026-01-01T00:01:00.000Z',
+};
+
+const segments: Segment[] = [
+  {
+    id: 'S1',
+    transcriptId: 'T1',
+    idx: 0,
+    startMs: 0,
+    endMs: 500,
+    text: 'hello',
+    speaker: null,
+    language: null,
+  },
+  {
+    id: 'S2',
+    transcriptId: 'T1',
+    idx: 1,
+    startMs: 500,
+    endMs: 1000,
+    text: 'world',
+    speaker: null,
+    language: null,
+  },
+];
+
+describe('SqliteStore', () => {
+  it('migrates a fresh database to the current version', () => {
+    const store = openStore(':memory:');
+    expect(store.schemaVersion()).toBe(SCHEMA_VERSION);
+    store.close();
+  });
+
+  it('round-trips a recording', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    expect(await store.getRecording('R1')).toEqual(recording);
+    expect(await store.findRecordingBySha('abc')).toEqual(recording);
+    expect(await store.findRecordingBySha('nope')).toBeNull();
+    store.close();
+  });
+
+  it('rejects a second recording with the same hash', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await expect(store.insertRecording({ ...recording, id: 'R2' })).rejects.toThrow();
+    store.close();
+  });
+
+  it('writes a transcript and its segments together', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await store.insertTranscript(transcript, segments);
+    expect(await store.latestTranscript('R1')).toEqual(transcript);
+    expect(await store.listSegments('T1')).toEqual(segments);
+    store.close();
+  });
+
+  it('leaves no transcript behind when a segment insert fails', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    const duplicated = [segments[0]!, { ...segments[1]!, idx: 0 }];
+    await expect(store.insertTranscript(transcript, duplicated)).rejects.toThrow();
+    expect(await store.latestTranscript('R1')).toBeNull();
+    store.close();
+  });
+
+  it('returns the newest transcript per recording', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await store.insertTranscript(transcript, segments);
+    const newer: Transcript = {
+      ...transcript,
+      id: 'T2',
+      createdAt: '2026-01-02T00:00:00.000Z',
+      model: 'large-v3',
+    };
+    await store.insertTranscript(newer, []);
+    expect((await store.latestTranscript('R1'))?.id).toBe('T2');
+    store.close();
+  });
+
+  it('looks up a transcript by its own id', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await store.insertTranscript(transcript, segments);
+    expect(await store.getTranscript('T1')).toEqual(transcript);
+    expect(await store.getTranscript('nope')).toBeNull();
+    store.close();
+  });
+
+  it('lists recordings that have no transcript', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await store.insertRecording({ ...recording, id: 'R2', sha256: 'def' });
+    await store.insertTranscript(transcript, segments);
+    const pending = await store.listRecordings({ withoutTranscript: true });
+    expect(pending.map((r) => r.id)).toEqual(['R2']);
+    store.close();
+  });
+});
