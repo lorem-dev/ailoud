@@ -1,0 +1,20 @@
+{
+  "name": "laud",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "laud": "./dist/bin/laud.js"
+  },
+  "dependencies": {
+    "@laud/core": "workspace:*",
+    "@laud/providers": "workspace:*",
+    "commander": "15.0.0",
+    "yaml": "2.9.0",
+    "zod": "4.4.3"
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json && chmod +x dist/bin/laud.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}
