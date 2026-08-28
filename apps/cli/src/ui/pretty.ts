@@ -14,15 +14,6 @@ const TABLE_HEAD = ['id', 'duration', 'lang', 'preview'] as const;
 const GUTTER_WIDTH = 3;
 
 /**
- * The status markers a doctor check puts in place of its gutter character.
- * Two shapes, not one shape in two colors: a monochrome terminal, a
- * color-blind reader, or a screenshot pasted into a ticket all lose the
- * color and keep the silhouette.
- */
-const OK_MARK = '\u25cf';
-const FAIL_MARK = '\u25a0';
-
-/**
  * `@clack/prompts` plus `cli-table3`, selected when stdout is a real,
  * wide-enough terminal (see `createUi` in `./index.ts`). This is the
  * implementation the end-to-end suite never exercises -- it always runs
@@ -201,12 +192,10 @@ export class PrettyUi implements Ui {
     const detailIndent = nameWidth + 8;
     const FIX_PREFIX = '      fix: ';
     for (const check of checks) {
-      // One call per check, each carrying its own symbol: clack draws the
-      // symbol in place of the gutter character, so the status reads down
-      // the frame itself. That is worth the blank gutter line clack puts
-      // between separate calls -- grouping the checks into a single message
-      // would leave one symbol for the whole list.
-      const dot = check.ok ? styleText('green', OK_MARK) : styleText('red', FAIL_MARK);
+      // One call per check: clack draws its glyph in place of the gutter
+      // character, so the status reads down the frame itself. That is worth
+      // the blank gutter line clack puts between separate calls -- grouping
+      // them into one message would leave one glyph for the whole list.
       const status = check.ok ? styleText('green', 'ok  ') : styleText('red', 'FAIL');
       const detail = this.wrap(check.detail, detailIndent);
       const lines = [`${status}  ${check.name.padEnd(nameWidth)}  ${detail}`];
@@ -215,7 +204,14 @@ export class PrettyUi implements Ui {
         // part of the check above rather than as an entry of its own.
         lines.push(`${FIX_PREFIX}${this.wrap(check.fix, FIX_PREFIX.length)}`);
       }
-      log.message(lines.join('\n'), { symbol: dot });
+      // clack's own log.success / log.error rather than a custom symbol: it
+      // owns these glyphs -- a diamond for pass, a square for failure -- and
+      // colors them itself, so the checklist matches every other framed tool
+      // the user runs instead of inventing a private vocabulary. The first
+      // line takes the glyph in place of the gutter; a fix line inside the
+      // same message takes a plain gutter and reads as part of the check.
+      const emit = check.ok ? log.success : log.error;
+      emit(lines.join('\n'));
     }
   }
 }

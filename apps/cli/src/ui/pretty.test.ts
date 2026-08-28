@@ -216,13 +216,16 @@ describe('PrettyUi.recordings at a narrow width', () => {
 
 describe('PrettyUi.checks wrapping', () => {
   it('wraps a long detail so every line fits under the gutter, indenting the continuation under the detail column', () => {
-    log.message.mockClear();
+    log.success.mockClear();
+    log.error.mockClear();
     const longDetail =
       'ffmpeg version 9.0.1 Copyright (c) 2000-2026 the FFmpeg developers built with a very long list of configure options';
     // 75 columns, matching the reported terminal, minus the 3-column gutter
     // leaves 72.
     new PrettyUi(75).checks([{ name: 'ffmpeg', ok: true, detail: longDetail }]);
-    const rendered = log.message.mock.calls[0]?.[0] as string;
+    // checks() emits through clack's own log.success / log.error so the
+    // glyph lands in place of the gutter; whichever fired carries the text.
+    const rendered = (log.success.mock.calls[0]?.[0] ?? log.error.mock.calls[0]?.[0]) as string;
     const lines = rendered.split('\n');
     expect(lines.length).toBeGreaterThan(1);
     for (const line of lines) {
@@ -238,13 +241,16 @@ describe('PrettyUi.checks wrapping', () => {
   });
 
   it('wraps a long fix line and indents its continuation under the fix text', () => {
-    log.message.mockClear();
+    log.success.mockClear();
+    log.error.mockClear();
     const longFix =
       'set stt.whisperCpp.model in the laud config file to a model path that points at a downloaded ggml model file on disk';
     new PrettyUi(75).checks([
       { name: 'whisper model', ok: false, detail: 'not configured', fix: longFix },
     ]);
-    const rendered = log.message.mock.calls[0]?.[0] as string;
+    // checks() emits through clack's own log.success / log.error so the
+    // glyph lands in place of the gutter; whichever fired carries the text.
+    const rendered = (log.success.mock.calls[0]?.[0] ?? log.error.mock.calls[0]?.[0]) as string;
     const lines = rendered.split('\n');
     for (const line of lines) {
       expect(stringWidth(line)).toBeLessThanOrEqual(72);
@@ -258,10 +264,13 @@ describe('PrettyUi.checks wrapping', () => {
   });
 
   it('hard-wraps a path with no spaces at a narrow 60-column width', () => {
-    log.message.mockClear();
+    log.success.mockClear();
+    log.error.mockClear();
     const longPath = '/Users/donat/.local/share/laud/models/ggml-small-and-a-much-longer-name.bin';
     new PrettyUi(60).checks([{ name: 'whisper model', ok: true, detail: longPath }]);
-    const rendered = log.message.mock.calls[0]?.[0] as string;
+    // checks() emits through clack's own log.success / log.error so the
+    // glyph lands in place of the gutter; whichever fired carries the text.
+    const rendered = (log.success.mock.calls[0]?.[0] ?? log.error.mock.calls[0]?.[0]) as string;
     const lines = rendered.split('\n');
     expect(lines.length).toBeGreaterThan(1);
     // 60 columns minus the 3-column gutter leaves 57.
@@ -271,10 +280,13 @@ describe('PrettyUi.checks wrapping', () => {
   });
 
   it('wraps a path far longer than the terminal into many gutter-safe lines', () => {
-    log.message.mockClear();
+    log.success.mockClear();
+    log.error.mockClear();
     const longPath = `/Users/donat/${'very-long-directory-name/'.repeat(10)}model.bin`;
     new PrettyUi(80).checks([{ name: 'whisper model', ok: true, detail: longPath }]);
-    const rendered = log.message.mock.calls[0]?.[0] as string;
+    // checks() emits through clack's own log.success / log.error so the
+    // glyph lands in place of the gutter; whichever fired carries the text.
+    const rendered = (log.success.mock.calls[0]?.[0] ?? log.error.mock.calls[0]?.[0]) as string;
     const lines = rendered.split('\n');
     expect(lines.length).toBeGreaterThan(3);
     // 80 columns minus the 3-column gutter leaves 77.
