@@ -14,11 +14,13 @@ const TABLE_HEAD = ['id', 'duration', 'lang', 'preview'] as const;
 const GUTTER_WIDTH = 3;
 
 /**
- * The status marker each doctor check puts in place of its gutter
- * character. A filled circle rather than a box-drawing glyph: it has to
- * read as a status at a glance, not as part of the border it replaces.
+ * The status markers a doctor check puts in place of its gutter character.
+ * Two shapes, not one shape in two colors: a monochrome terminal, a
+ * color-blind reader, or a screenshot pasted into a ticket all lose the
+ * color and keep the silhouette.
  */
-const DOT = '\u25cf';
+const OK_MARK = '\u25cf';
+const FAIL_MARK = '\u25a0';
 
 /**
  * `@clack/prompts` plus `cli-table3`, selected when stdout is a real,
@@ -204,7 +206,7 @@ export class PrettyUi implements Ui {
       // the frame itself. That is worth the blank gutter line clack puts
       // between separate calls -- grouping the checks into a single message
       // would leave one symbol for the whole list.
-      const dot = styleText(check.ok ? 'green' : 'red', DOT);
+      const dot = check.ok ? styleText('green', OK_MARK) : styleText('red', FAIL_MARK);
       const status = check.ok ? styleText('green', 'ok  ') : styleText('red', 'FAIL');
       const detail = this.wrap(check.detail, detailIndent);
       const lines = [`${status}  ${check.name.padEnd(nameWidth)}  ${detail}`];
