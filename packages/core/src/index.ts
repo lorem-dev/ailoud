@@ -16,6 +16,10 @@ export type {
 
 export type { Migration } from './db/schema.js';
 
+export type { DetectedSpan, LanguageRun } from './transcribe/merge.js';
+
+export { MIN_RUN_DURATION_MS, mergeRuns } from './transcribe/merge.js';
+
 export { LaudError, FailureError, UsageError, EnvironmentError } from './domain/errors.js';
 
 export { encodeUlid } from './domain/ulid.js';
