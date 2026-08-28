@@ -32,16 +32,18 @@ const WER_THRESHOLD = 0.25;
 const GIT_STATUS_TIMEOUT_MS = 10_000;
 
 /**
- * Real, working whisper.cpp models this suite needs for the mixed-language
- * spec below: unlike the doctor specs, which only check that a path exists,
- * that spec runs `--multilingual` end to end and inspects what it produces,
- * so a placeholder file will not do. There is no packaged fixture model --
- * whisper.cpp models are hundreds of megabytes -- so this points at the
- * same manual-install location the maintainer's own `~/.config/laud/config.yaml`
- * uses: a `models/` directory under the real, unsandboxed XDG data dir.
- * `process.env.HOME` here is deliberately the *outer* test-runner process's
- * HOME, not a sandbox's -- `makeSandbox()` only overrides the child
- * process's environment, never this file's own.
+ * Real, working whisper.cpp models this suite needs for every spec that
+ * actually runs a transcription: unlike the doctor specs, which only check
+ * that a path exists, these specs run whisper.cpp end to end and inspect
+ * what it produces, so a placeholder file will not do. There is no packaged
+ * fixture model -- whisper.cpp models are hundreds of megabytes -- so this
+ * points at the same manual-install location the maintainer's own
+ * `~/.config/laud/config.yaml` uses: a `models/` directory under the real,
+ * unsandboxed XDG data dir. `process.env.HOME` here is deliberately the
+ * *outer* test-runner process's HOME, not a sandbox's -- `makeSandbox()`
+ * only overrides the child process's environment, never this file's own.
+ * `VAD_MODEL` is only needed by the `--multilingual` specs; the others
+ * configure `WHISPER_MODEL` alone.
  */
 const REAL_HOME = process.env['HOME'] ?? '';
 const WHISPER_MODEL = join(REAL_HOME, '.local', 'share', 'laud', 'models', 'ggml-small.bin');
@@ -210,6 +212,7 @@ describe('laud end-to-end', () => {
   });
 
   it('transcribe produces a transcript within 0.25 word error rate of the reference', async () => {
+    await sandbox.writeConfig(`stt:\n  whisperCpp:\n    model: ${WHISPER_MODEL}\n`);
     const imported = await sandbox.run(['import', EN_WAV]);
     const id = parseImportLine(imported.stdout.trim()).id;
 
@@ -231,6 +234,7 @@ describe('laud end-to-end', () => {
   });
 
   it('the Russian fixture transcribes with a detected language of "ru"', async () => {
+    await sandbox.writeConfig(`stt:\n  whisperCpp:\n    model: ${WHISPER_MODEL}\n`);
     const imported = await sandbox.run(['import', RU_WAV]);
     const id = parseImportLine(imported.stdout.trim()).id;
 
@@ -309,6 +313,7 @@ describe('laud end-to-end', () => {
   });
 
   it('show --format srt parses as SRT with increasing timestamps', async () => {
+    await sandbox.writeConfig(`stt:\n  whisperCpp:\n    model: ${WHISPER_MODEL}\n`);
     const imported = await sandbox.run(['import', EN_WAV]);
     const id = parseImportLine(imported.stdout.trim()).id;
     const transcribed = await sandbox.run(['transcribe', id]);
@@ -320,6 +325,7 @@ describe('laud end-to-end', () => {
   });
 
   it('show --format json round-trips and matches the segment count from ls --json', async () => {
+    await sandbox.writeConfig(`stt:\n  whisperCpp:\n    model: ${WHISPER_MODEL}\n`);
     const imported = await sandbox.run(['import', EN_WAV]);
     const id = parseImportLine(imported.stdout.trim()).id;
     const transcribed = await sandbox.run(['transcribe', id]);
