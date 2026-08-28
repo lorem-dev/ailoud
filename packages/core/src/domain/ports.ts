@@ -59,9 +59,11 @@ export interface TranscriptionProvider {
    * Detects the language spoken in `audioPath` without transcribing it.
    * Present only when `capabilities.supportsLanguageDetection` is true; the
    * multilingual pipeline refuses a provider that lacks it rather than
-   * guessing.
+   * guessing. Takes the same `model` override its sibling `transcribe` does,
+   * so a `--model` override reaches detection as well as transcription
+   * rather than leaving detection pinned to the configured default.
    */
-  detectLanguage?(audioPath: string): Promise<string>;
+  detectLanguage?(audioPath: string, opts: { readonly model?: string }): Promise<string>;
 }
 
 /**

@@ -54,9 +54,13 @@ export class WhisperVadSegmenter implements SpeechSegmenter {
     }
     const spans = parseVadSegments(result.stdout);
     if (spans.length === 0) {
-      throw new FailureError(
-        `no speech found in ${audioPath}; transcribe it without --multilingual`,
-      );
+      // Not `audioPath`: that names the pipeline's own scratch wav, which
+      // `Fs.tempFile`'s cleanup has already removed by the time this
+      // message reaches a user -- pointing them at a directory that no
+      // longer exists. Nothing else here identifies the source recording
+      // (see transcribe.ts's own "no speech" message for that), so this
+      // stays generic instead of naming a path at all.
+      throw new FailureError('no speech found; transcribe it without --multilingual');
     }
     return spans;
   }

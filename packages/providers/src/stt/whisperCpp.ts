@@ -142,13 +142,14 @@ export class WhisperCppProvider implements TranscriptionProvider {
     return { ...parsed, model: basename(modelPath) };
   }
 
-  async detectLanguage(audioPath: string): Promise<string> {
+  async detectLanguage(audioPath: string, opts: { readonly model?: string } = {}): Promise<string> {
     // -dl exits after detecting, without transcribing. It costs about the
     // same as a short transcription because almost all of it is loading the
     // model; detection itself does not grow with clip length.
+    const modelPath = opts.model ?? this.options.modelPath;
     const result = await this.runner(
       this.options.binary,
-      ['-m', this.options.modelPath, '-f', audioPath, '-dl'],
+      ['-m', modelPath, '-f', audioPath, '-dl'],
       { timeoutMs: 10 * 60_000 },
     );
     if (result.code !== 0) {

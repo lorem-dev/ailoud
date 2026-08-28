@@ -153,7 +153,9 @@ async function transcribeMultilingual(
       const slice = await deps.fs.tempFile('.wav');
       try {
         await deps.audio.slice(tempWav.path, slice.path, window.startMs, window.endMs);
-        const language = await detectLanguage(slice.path);
+        const language = await detectLanguage(slice.path, {
+          ...(options.model === undefined ? {} : { model: options.model }),
+        });
         detected.push({ ...window, language });
       } finally {
         await slice.remove();

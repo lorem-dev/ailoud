@@ -78,6 +78,21 @@ describe('laud transcribe', () => {
     expect(ctx.lines[1]).toBe('ID001  ru  1 segment');
   });
 
+  it('refuses --stt-lang together with --multilingual', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
+    await expect(
+      buildProgram(ctx).parseAsync([
+        'node',
+        'laud',
+        'transcribe',
+        '--stt-lang',
+        'ru',
+        '--multilingual',
+      ]),
+    ).rejects.toThrow(/--stt-lang and --multilingual contradict/);
+  });
+
   it('--multilingual reaches the pipeline instead of the single-pass path', async () => {
     const ctx = context();
     await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);

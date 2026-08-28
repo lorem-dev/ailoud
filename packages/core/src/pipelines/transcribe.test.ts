@@ -284,6 +284,20 @@ describe('transcribeRecording --multilingual', () => {
     );
   });
 
+  it('forwards a model override to language detection as well as transcription', async () => {
+    // detectLanguage and transcribe are separate provider calls; forwarding
+    // options.model to transcribe alone would leave every detection pass
+    // running on the configured default while transcription used the
+    // override.
+    const d = multilingualDeps({
+      spans: [{ startMs: 0, endMs: 1750 }],
+      languages: ['en'],
+    });
+    await transcribeRecording(d, recording, { multilingual: true, model: '/models/large.bin' });
+    expect(d.stt.detectLanguageOpts).toEqual([{ model: '/models/large.bin' }]);
+    expect(d.stt.calls[0]).toEqual(expect.objectContaining({ model: '/models/large.bin' }));
+  });
+
   it('refuses when every run transcribes to no segments', async () => {
     const d = multilingualDeps({
       spans: [{ startMs: 0, endMs: 1750 }],

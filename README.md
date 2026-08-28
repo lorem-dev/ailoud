@@ -149,6 +149,18 @@ whichever language wins that stretch. This is a deliberate trade-off, not a
 bug, but it is worth knowing about if a transcript is compared word for word
 against the audio.
 
+`--multilingual` has a second, larger gap, and this one is not a deliberate
+trade-off: it only transcribes the stretch from the start of the first
+speech span the voice-activity detector finds to the end of the last one.
+Any audio outside that range -- a quiet opening line the detector never
+marks as speech, or a soft aside after the last detected span -- is never
+sliced out and never reaches whisper at all, and is silently missing from
+the transcript with no warning. The single-pass default has no such gap: it
+hands whisper the whole recording and lets whisper's own voice detection
+decide what counts as speech. Disclosing this is the point of writing it
+down here, since eliminating silent loss from a code-switched recording is
+the entire reason `--multilingual` exists.
+
 List the library, and show a transcript:
 
 ```shell

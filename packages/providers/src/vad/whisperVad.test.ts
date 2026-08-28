@@ -63,12 +63,14 @@ describe('WhisperVadSegmenter', () => {
     await expect(segmenter.segments('/tmp/a.wav')).rejects.toThrow(/could not load vad model/);
   });
 
-  it('turns zero detected spans into a named failure rather than an empty list', async () => {
+  it('turns zero detected spans into a named failure rather than an empty list, without naming the (by-then-deleted) temp path', async () => {
     const segmenter = new WhisperVadSegmenter({
       binary: 'whisper-vad-speech-segments',
       vadModelPath: '/models/vad.bin',
       runner: async () => ({ code: 0, stdout: 'Detected 0 speech segments:', stderr: '' }),
     });
-    await expect(segmenter.segments('/tmp/silence.wav')).rejects.toThrow(/no speech found/);
+    await expect(segmenter.segments('/tmp/laud-xK9p2/audio.wav')).rejects.toThrow(
+      'no speech found; transcribe it without --multilingual',
+    );
   });
 });

@@ -112,6 +112,8 @@ export class FakeStt implements TranscriptionProvider {
   readonly transcribePaths: string[] = [];
   /** Every audio path handed to detectLanguage(), in call order. */
   readonly detectLanguageCalls: string[] = [];
+  /** Every opts object handed to detectLanguage(), in call order. */
+  readonly detectLanguageOpts: Array<{ readonly model?: string }> = [];
 
   private readonly results: ReadonlyArray<{
     language: string;
@@ -150,8 +152,9 @@ export class FakeStt implements TranscriptionProvider {
   }
 
   /** Returns languages from the queue passed at construction, in order. */
-  async detectLanguage(audioPath: string): Promise<string> {
+  async detectLanguage(audioPath: string, opts: { readonly model?: string } = {}): Promise<string> {
     this.detectLanguageCalls.push(audioPath);
+    this.detectLanguageOpts.push(opts);
     const language = this.languageQueue.shift();
     if (language === undefined) throw new Error('FakeStt.detectLanguage queue is exhausted');
     return language;

@@ -181,4 +181,24 @@ describe('WhisperCppProvider', () => {
       expect.anything(),
     );
   });
+
+  it('honours an explicit model override for detection too, not just transcription', async () => {
+    const runner = vi.fn(async () => ({
+      code: 0,
+      stdout: '',
+      stderr: 'whisper_full_with_state: auto-detected language: en (p = 0.9)',
+    }));
+    const provider = new WhisperCppProvider({
+      binary: 'whisper-cli',
+      modelPath: '/models/small.bin',
+      runner,
+      readFile: async () => '',
+    });
+    await provider.detectLanguage('/tmp/a.wav', { model: '/models/large.bin' });
+    expect(runner).toHaveBeenCalledWith(
+      'whisper-cli',
+      ['-m', '/models/large.bin', '-f', '/tmp/a.wav', '-dl'],
+      expect.anything(),
+    );
+  });
 });

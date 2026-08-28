@@ -7,33 +7,6 @@ import type { Check } from '../ui/index.js';
 
 export type { Check };
 
-/** Width of the leading "ok"/"FAIL" column, including its trailing padding. */
-const STATUS_WIDTH = 6;
-/** Width of the check-name column, including its trailing padding. */
-const NAME_WIDTH = 22;
-
-/**
- * Turns a list of checks into the printed report and the pass/fail
- * decision. Pure and synchronous: the checks themselves shell out and
- * touch the filesystem, but this part -- the part worth unit-testing
- * without a machine -- does not.
- */
-export function renderReport(checks: readonly Check[]): { lines: string[]; ok: boolean } {
-  const lines: string[] = [];
-  let ok = true;
-  for (const check of checks) {
-    const status = (check.ok ? 'ok' : 'FAIL').padEnd(STATUS_WIDTH);
-    lines.push(`${status}${check.name.padEnd(NAME_WIDTH)}${check.detail}`);
-    if (!check.ok) {
-      ok = false;
-      if (check.fix !== undefined) {
-        lines.push(`${' '.repeat(STATUS_WIDTH)}fix: ${check.fix}`);
-      }
-    }
-  }
-  return { lines, ok };
-}
-
 /**
  * `run()` already turns a missing binary into an `EnvironmentError` whose
  * message points back at "laud doctor" for details -- useful advice from
@@ -90,7 +63,10 @@ async function checkModel(configFile: string, modelPath: string | null): Promise
  * different problems with different fixes, and folding this into checkModel
  * would blur the config key and fix text the message names.
  */
-async function checkVadModel(configFile: string, vadModelPath: string | null): Promise<Check> {
+export async function checkVadModel(
+  configFile: string,
+  vadModelPath: string | null,
+): Promise<Check> {
   const name = 'vad model';
   const fix =
     `Set "stt.whisperCpp.vadModel" in ${configFile} to the path of a whisper VAD model ` +
@@ -115,7 +91,7 @@ async function checkVadModel(configFile: string, vadModelPath: string | null): P
  * both -- so a configured path (one containing a separator) is checked
  * against the filesystem first.
  */
-async function checkVadBinary(configFile: string, vadBinary: string): Promise<Check> {
+export async function checkVadBinary(configFile: string, vadBinary: string): Promise<Check> {
   const name = 'vad binary';
   const fix =
     `Set "stt.whisperCpp.vadBinary" in ${configFile} to the path of the ` +

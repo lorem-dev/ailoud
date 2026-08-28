@@ -28,6 +28,13 @@ export function registerTranscribe(program: Command, context: CliContext): void 
             '--force needs explicit recording ids: it would otherwise re-transcribe the whole library.',
           );
         }
+        if (options.multilingual === true && options.sttLang !== 'auto') {
+          throw new UsageError(
+            '--stt-lang and --multilingual contradict each other: --stt-lang forces one ' +
+              'language for the whole recording, while --multilingual detects one per ' +
+              'stretch. Drop one of the two.',
+          );
+        }
         const recordings =
           ids.length > 0
             ? await context.store.listRecordings({ ids })
