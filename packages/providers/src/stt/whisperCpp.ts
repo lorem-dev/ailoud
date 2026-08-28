@@ -17,6 +17,20 @@ interface WhisperJson {
 }
 
 /**
+ * Pulls the language out of `whisper-cli -dl` output. The line arrives on
+ * stderr amid backend chatter, so this matches rather than reads a field.
+ */
+export function parseDetectedLanguage(output: string): string {
+  const match = /auto-detected language:\s*([a-z]{2,3})\b/i.exec(output);
+  if (match?.[1] === undefined) {
+    throw new FailureError(
+      'whisper did not report a detected language; the output format may have changed',
+    );
+  }
+  return match[1].toLowerCase();
+}
+
+/**
  * Pure parser for whisper-cli's "-oj" JSON output.
  *
  * Whisper prefixes every segment's text with a leading space, and emits
@@ -76,8 +90,7 @@ export class WhisperCppProvider implements TranscriptionProvider {
     maxBytes: null,
     supportsDiarization: false,
     supportsLanguageHint: true,
-    // Task 4 flips this to true when it implements detectLanguage.
-    supportsLanguageDetection: false,
+    supportsLanguageDetection: true,
   } as const;
 
   private readonly runner: typeof defaultRunner;
@@ -127,5 +140,22 @@ export class WhisperCppProvider implements TranscriptionProvider {
 
     const parsed = parseWhisperJson(raw);
     return { ...parsed, model: basename(modelPath) };
+  }
+
+  async detectLanguage(audioPath: string): Promise<string> {
+    // -dl exits after detecting, without transcribing. It costs about the
+    // same as a short transcription because almost all of it is loading the
+    // model; detection itself does not grow with clip length.
+    const result = await this.runner(
+      this.options.binary,
+      ['-m', this.options.modelPath, '-f', audioPath, '-dl'],
+      { timeoutMs: 10 * 60_000 },
+    );
+    if (result.code !== 0) {
+      throw new FailureError(
+        `whisper could not detect a language: ${result.stderr.trim() || `exit ${result.code}`}`,
+      );
+    }
+    return parseDetectedLanguage(`${result.stdout}\n${result.stderr}`);
   }
 }

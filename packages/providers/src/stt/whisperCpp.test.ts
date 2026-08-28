@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { parseWhisperJson, WhisperCppProvider } from './whisperCpp.js';
+import { parseDetectedLanguage, parseWhisperJson, WhisperCppProvider } from './whisperCpp.js';
 
 const WHISPER_OUTPUT = JSON.stringify({
   result: { language: 'ru' },
@@ -38,6 +38,20 @@ describe('parseWhisperJson', () => {
 
   it('rejects output that is not whisper JSON', () => {
     expect(() => parseWhisperJson('{"nope":1}')).toThrow(/transcription/);
+  });
+});
+
+describe('parseDetectedLanguage', () => {
+  it('reads the language out of whisper output', () => {
+    const output = [
+      'load_backend: loaded BLAS backend from /opt/homebrew/lib/libggml-blas.so',
+      'whisper_full_with_state: auto-detected language: ru (p = 0.976)',
+    ].join('\n');
+    expect(parseDetectedLanguage(output)).toBe('ru');
+  });
+
+  it('rejects output with no detection line', () => {
+    expect(() => parseDetectedLanguage('load_backend: loaded BLAS backend')).toThrow(/detect/i);
   });
 });
 
@@ -146,5 +160,25 @@ describe('WhisperCppProvider', () => {
       },
     });
     await expect(provider.transcribe('/tmp/a.wav', {})).rejects.toThrow(/reported success/);
+  });
+
+  it('asks whisper to detect without transcribing', async () => {
+    const runner = vi.fn(async () => ({
+      code: 0,
+      stdout: '',
+      stderr: 'whisper_full_with_state: auto-detected language: en (p = 0.9)',
+    }));
+    const provider = new WhisperCppProvider({
+      binary: 'whisper-cli',
+      modelPath: '/models/small.bin',
+      runner,
+      readFile: async () => '',
+    });
+    await expect(provider.detectLanguage('/tmp/a.wav')).resolves.toBe('en');
+    expect(runner).toHaveBeenCalledWith(
+      'whisper-cli',
+      ['-m', '/models/small.bin', '-f', '/tmp/a.wav', '-dl'],
+      expect.anything(),
+    );
   });
 });
