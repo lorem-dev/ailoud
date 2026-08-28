@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  MAX_DETECTION_WINDOW_MS,
-  MIN_RUN_DURATION_MS,
-  mergeRuns,
-  subdivideSpans,
-} from './merge.js';
+import { MIN_RUN_DURATION_MS, mergeRuns, subdivideSpans } from './merge.js';
 
 const span = (startMs: number, endMs: number, language: string) => ({
   startMs,
@@ -219,12 +214,50 @@ describe('subdivideSpans', () => {
     }
   });
 
-  it('keeps the detection window above the minimum run duration', () => {
-    // If the window were at or below MIN_RUN_DURATION_MS, every
-    // single-window run would be short enough for mergeRuns to absorb as
-    // noise -- deleting exactly the one-window language switch this
-    // feature exists to catch. A comment saying so can be ignored; this
-    // assertion cannot.
-    expect(MAX_DETECTION_WINDOW_MS).toBeGreaterThan(MIN_RUN_DURATION_MS);
+  it('does not shrink a 2500ms span below the minimum run duration', () => {
+    // Regression: equal division into ceil(2500/2000)=2 pieces gives two
+    // 1250ms windows, each short enough for mergeRuns to absorb a genuine
+    // switch between them as noise. Capping the window count keeps this
+    // span whole instead of splitting it into two windows that are too
+    // short to trust.
+    const windows = subdivideSpans([{ startMs: 0, endMs: 2500 }]);
+    expect(windows).toEqual([{ startMs: 0, endMs: 2500 }]);
+  });
+
+  it('does not shrink a 4400ms span below the minimum run duration', () => {
+    // Regression: equal division into ceil(4400/2000)=3 pieces gives three
+    // windows of about 1467ms, each below MIN_RUN_DURATION_MS. Capped to 2
+    // windows of 2200ms instead, both above the floor.
+    const windows = subdivideSpans([{ startMs: 0, endMs: 4400 }]);
+    expect(windows).toHaveLength(2);
+    expect(windows[0]!.startMs).toBe(0);
+    expect(windows.at(-1)!.endMs).toBe(4400);
+    for (const w of windows) {
+      expect(w.endMs - w.startMs).toBeGreaterThanOrEqual(MIN_RUN_DURATION_MS);
+    }
+  });
+
+  it('never returns a window shorter than the minimum run duration, across a sweep of span lengths', () => {
+    // The test that would have caught the 2500/4400ms regressions: it does
+    // not compare constants to each other, it exercises the function
+    // itself, at every duration in the range that matters. For each
+    // duration: windows tile the span with no gap or overlap, and every
+    // window is at least MIN_RUN_DURATION_MS long unless the whole span
+    // (a single window) is itself shorter than that.
+    for (let durationMs = 100; durationMs <= 10_000; durationMs += 100) {
+      const windows = subdivideSpans([{ startMs: 0, endMs: durationMs }]);
+
+      expect(windows[0]!.startMs).toBe(0);
+      expect(windows.at(-1)!.endMs).toBe(durationMs);
+      for (let i = 1; i < windows.length; i += 1) {
+        expect(windows[i]!.startMs).toBe(windows[i - 1]!.endMs);
+      }
+
+      for (const w of windows) {
+        const windowDuration = w.endMs - w.startMs;
+        const isWholeSpanPassedThrough = windows.length === 1;
+        expect(windowDuration >= MIN_RUN_DURATION_MS || isWholeSpanPassedThrough).toBe(true);
+      }
+    }
   });
 });

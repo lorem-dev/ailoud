@@ -200,7 +200,10 @@ async function transcribeMultilingual(
     }
 
     // The file has no single language; the longest run by duration is the
-    // least wrong answer for a column that must hold one value.
+    // least wrong answer for a column that must hold one value. Strictly
+    // greater-than, deliberately: a tie keeps whichever run was seen first,
+    // i.e. the earlier one in the recording. Any tie-break is arbitrary, so
+    // the simplest one was chosen rather than left as an accident.
     let longest = outcomes[0]!;
     for (const outcome of outcomes) {
       const duration = outcome.run.endMs - outcome.run.startMs;

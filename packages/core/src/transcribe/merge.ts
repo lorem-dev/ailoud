@@ -48,10 +48,25 @@ export const MAX_DETECTION_WINDOW_MS = 2000;
  * Splits any span longer than `windowMs` into windows of at most that
  * length, so per-window language detection has something to key a switch
  * on even when the segmenter returned one span for a whole recording. A
- * span no longer than the window passes through untouched. A longer span is
- * divided into equal-ish windows that exactly cover it -- not window-sized
- * pieces with a short remainder tacked on the end, which would make the
- * last window's detection unreliable.
+ * span no longer than the window passes through untouched -- including a
+ * zero-length or negative-length one, which a segmenter should never
+ * produce but this function does not assume. A longer span is divided into
+ * equal-ish windows that exactly cover it -- not window-sized pieces with a
+ * short remainder tacked on the end, which would make the last window's
+ * detection unreliable.
+ *
+ * Invariant: no window this returns is shorter than `MIN_RUN_DURATION_MS`,
+ * unless the input span itself is shorter than that (in which case it
+ * passes through whole, unsplit, per the paragraph above). Equal division
+ * into `ceil(duration / windowMs)` pieces can violate this whenever
+ * `duration` is not a clean multiple of `windowMs` -- a 2500ms span at a
+ * 2000ms window divides into two 1250ms pieces. A window that short is
+ * exactly what `mergeRuns` treats as noise between agreeing neighbours, so
+ * a genuine language switch inside it would be silently absorbed: the bug
+ * this feature exists to remove. The fix is to cap the window count so
+ * equal division cannot go below the floor, even if that leaves some
+ * windows longer than `windowMs` -- a wide window only costs localisation
+ * precision, not correctness.
  */
 export function subdivideSpans(
   spans: readonly SpeechSpan[],
@@ -65,7 +80,11 @@ export function subdivideSpans(
       continue;
     }
 
-    const windowCount = Math.ceil(duration / windowMs);
+    const idealWindowCount = Math.ceil(duration / windowMs);
+    // Any more windows than this and equal division would drop below
+    // MIN_RUN_DURATION_MS; at least one window regardless.
+    const maxWindowCount = Math.floor(duration / MIN_RUN_DURATION_MS);
+    const windowCount = Math.max(1, Math.min(idealWindowCount, maxWindowCount));
     const windowDuration = duration / windowCount;
     let start = span.startMs;
     for (let i = 0; i < windowCount; i += 1) {
