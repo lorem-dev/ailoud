@@ -148,10 +148,12 @@ export function registerDoctor(program: Command, context: CliContext): void {
     .command('doctor')
     .description('Check that the binaries, model, database, and storage laud needs are ready')
     .action(async () => {
-      const checks = await runChecks(context);
-      context.ui.checks(checks);
-      if (checks.some((check) => !check.ok)) {
-        throw new EnvironmentError('laud is not ready to run: see the failing checks above.');
-      }
+      await context.ui.frame('doctor', async () => {
+        const checks = await runChecks(context);
+        context.ui.checks(checks);
+        if (checks.some((check) => !check.ok)) {
+          throw new EnvironmentError('laud is not ready to run: see the failing checks above.');
+        }
+      });
     });
 }

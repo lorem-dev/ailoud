@@ -18,6 +18,14 @@ const NAME_WIDTH = 22;
 export class PlainUi implements Ui {
   public constructor(private readonly write: (line: string) => void) {}
 
+  public async frame<T>(_label: string, task: () => Promise<T>): Promise<T> {
+    // No intro/outro chrome in plain mode: it is not part of today's
+    // output and would not be byte-for-byte if it were. The frame still
+    // wraps and rethrows exactly like PrettyUi's does, so a command
+    // behaves identically either way -- only the decoration differs.
+    return task();
+  }
+
   public imported(recording: Recording, alreadyPresent: boolean): void {
     this.write(
       `${recording.id}  ${alreadyPresent ? 'already present' : 'imported'}  ${recording.sourcePath}`,

@@ -30,6 +30,23 @@ function ui(): { ui: PlainUi; lines: string[] } {
 }
 
 describe('PlainUi', () => {
+  it('frame prints nothing and returns the task result', async () => {
+    const { ui: sink, lines } = ui();
+    const result = await sink.frame('import', async () => 'ok');
+    expect(result).toBe('ok');
+    expect(lines).toEqual([]);
+  });
+
+  it('frame prints nothing and still rethrows on failure', async () => {
+    const { ui: sink, lines } = ui();
+    await expect(
+      sink.frame('import', async () => {
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+    expect(lines).toEqual([]);
+  });
+
   it('reports an import exactly like the old context.out line', () => {
     const { ui: sink, lines } = ui();
     sink.imported(RECORDING, false);

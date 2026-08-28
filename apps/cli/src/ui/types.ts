@@ -37,6 +37,17 @@ export interface Check {
  * option, and neither is emitting something `JSON.parse` cannot read back.
  */
 export interface Ui {
+  /**
+   * Opens a frame labeled `label`, runs `task` inside it, and always
+   * closes the frame before returning or throwing -- with a success
+   * status if `task` resolves, a failure status (naming the error) if it
+   * rejects. Every command wraps its entire action in exactly one call to
+   * this, so no run can leave a frame open on any exit path, including a
+   * thrown `LaudError`. Rethrows whatever `task` throws, unchanged, so the
+   * process's exit code is decided the same way it always was.
+   */
+  frame<T>(label: string, task: () => Promise<T>): Promise<T>;
+
   /** A recording was imported, or was already present in the library. */
   imported(recording: Recording, alreadyPresent: boolean): void;
 

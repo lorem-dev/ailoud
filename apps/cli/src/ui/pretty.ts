@@ -1,16 +1,39 @@
-import { log, note, spinner } from '@clack/prompts';
+import { intro, log, outro, spinner } from '@clack/prompts';
 import Table from 'cli-table3';
 import { formatTimestamp } from '@laud/core';
 import type { Recording, Transcript } from '@laud/core';
 import type { Check, RecordingRow, Ui } from './types.js';
 
+/** Extracts a message from whatever a command's action threw, without assuming it is an Error. */
+function messageFor(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
- * `@clack/prompts` plus `cli-table3`, selected when stdout is a real
- * terminal (`process.stdout.isTTY`). This is the implementation the
- * end-to-end suite never exercises -- it always runs through a pipe -- so
- * nothing here is under the byte-for-byte constraint `PlainUi` carries.
+ * `@clack/prompts` plus `cli-table3`, selected when stdout is a real,
+ * wide-enough terminal (see `createUi` in `./index.ts`). This is the
+ * implementation the end-to-end suite never exercises -- it always runs
+ * through a pipe -- so nothing here is under the byte-for-byte constraint
+ * `PlainUi` carries.
  */
 export class PrettyUi implements Ui {
+  public async frame<T>(label: string, task: () => Promise<T>): Promise<T> {
+    // intro/outro go to stderr, not stdout: `show` relies on stdout
+    // carrying only its transcript data, and every other command's stdout
+    // is at least safe to keep free of a frame that wraps output already
+    // written elsewhere. One rule for all five commands is simpler than a
+    // per-command exception, and costs nothing.
+    intro(label, { output: process.stderr });
+    try {
+      const result = await task();
+      outro(`${label} done`, { output: process.stderr });
+      return result;
+    } catch (error) {
+      outro(`${label} failed: ${messageFor(error)}`, { output: process.stderr });
+      throw error;
+    }
+  }
+
   public imported(recording: Recording, alreadyPresent: boolean): void {
     const line = `${recording.id}  ${recording.sourcePath}`;
     if (alreadyPresent) {
@@ -53,7 +76,13 @@ export class PrettyUi implements Ui {
   }
 
   public recordings(rows: readonly RecordingRow[]): void {
-    const table = new Table({ head: ['id', 'duration', 'lang', 'preview'] });
+    const table = new Table({
+      head: ['id', 'duration', 'lang', 'preview'],
+      // cli-table3's default head style is red, which reads as an error
+      // next to clack's own red for failures. Dim keeps the header
+      // legible without borrowing a color clack already assigns meaning.
+      style: { head: ['dim'] },
+    });
     for (const row of rows) {
       table.push([
         row.id,
@@ -62,7 +91,11 @@ export class PrettyUi implements Ui {
         row.preview,
       ]);
     }
-    note(table.toString(), 'Recordings');
+    // log.message, not note(): note() draws its own bordered frame, which
+    // around an already-bordered table is a box inside a box. log.message
+    // puts each line of the table under the gutter instead -- a list in
+    // the gutter, not nested frames.
+    log.message(table.toString());
   }
 
   public checks(checks: readonly Check[]): void {

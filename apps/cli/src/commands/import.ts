@@ -15,25 +15,27 @@ export function registerImport(program: Command, context: CliContext): void {
     .option('--notes <text>', 'free-form notes')
     .description('Add recordings to the library')
     .action(async (paths: string[], options: ImportOptions) => {
-      for (const path of paths) {
-        const results = await importPath(
-          {
-            fs: context.fs,
-            store: context.store,
-            audio: context.audio,
-            clock: context.clock,
-            ids: context.ids,
-            mediaRoot: context.paths.mediaRoot,
-          },
-          {
-            path,
-            ...(options.title === undefined ? {} : { title: options.title }),
-            ...(options.notes === undefined ? {} : { notes: options.notes }),
-          },
-        );
-        for (const { recording, alreadyPresent } of results) {
-          context.ui.imported(recording, alreadyPresent);
+      await context.ui.frame('import', async () => {
+        for (const path of paths) {
+          const results = await importPath(
+            {
+              fs: context.fs,
+              store: context.store,
+              audio: context.audio,
+              clock: context.clock,
+              ids: context.ids,
+              mediaRoot: context.paths.mediaRoot,
+            },
+            {
+              path,
+              ...(options.title === undefined ? {} : { title: options.title }),
+              ...(options.notes === undefined ? {} : { notes: options.notes }),
+            },
+          );
+          for (const { recording, alreadyPresent } of results) {
+            context.ui.imported(recording, alreadyPresent);
+          }
         }
-      }
+      });
     });
 }
