@@ -119,4 +119,24 @@ describe('mergeRuns', () => {
     ]);
     expect(runs).toEqual([{ startMs: 0, endMs: 20_000, language: 'en' }]);
   });
+
+  it('absorbs a short run between identical neighbours even when a failed chain scan precedes it', () => {
+    // When a chain scan fails to qualify (boundaries differ), do not skip
+    // the next run. That run may match Rule 1 (short, between identical neighbors).
+    // Regression test for skipped evaluation bug.
+    const runs = mergeRuns([
+      span(0, 10_000, 'en'),
+      span(10_200, 10_500, 'ru'),
+      span(10_700, 11_000, 'fr'),
+      span(11_200, 11_500, 'ru'),
+      span(13_000, 20_000, 'de'),
+    ]);
+    expect(runs).toHaveLength(3);
+    expect(runs.map((run) => run.language)).toEqual(['en', 'ru', 'de']);
+    // Verify the merged ru run spans both fragments
+    const ruRun = runs[1];
+    expect(ruRun).toBeDefined();
+    expect(ruRun!.startMs).toBe(10_100);
+    expect(ruRun!.endMs).toBe(12_250);
+  });
 });

@@ -121,6 +121,7 @@ export function mergeRuns(spans: readonly DetectedSpan[]): LanguageRun[] {
       }
 
       // runs[i..j] are all short. Check what comes after.
+      const markCountBefore = runsToRemove.size;
       if (j + 1 < runs.length) {
         const nextRun = runs[j + 1]!;
         const nextDuration = nextRun.endMs - nextRun.startMs;
@@ -132,8 +133,11 @@ export function mergeRuns(spans: readonly DetectedSpan[]): LanguageRun[] {
         }
       }
 
-      // Skip to the end of the chain we just processed
-      i = j;
+      // Only skip ahead if we actually marked runs. If the chain scan failed to
+      // qualify (boundaries differ), let Rule 1 evaluate the first run normally.
+      if (runsToRemove.size > markCountBefore) {
+        i = j;
+      }
     }
 
     if (runsToRemove.size === 0) {
