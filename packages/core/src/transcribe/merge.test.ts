@@ -81,4 +81,42 @@ describe('mergeRuns', () => {
     expect(runs[0]!.startMs).toBe(1500);
     expect(runs.at(-1)!.endMs).toBe(9000);
   });
+
+  it('absorbs two consecutive short spans of different languages', () => {
+    // When multiple short misdetections sit back to back, iterative filtering
+    // ensures each is recognized as noise. First pass removes ru because fr
+    // is its neighbor, then fr is recognized against en.
+    const runs = mergeRuns([
+      span(0, 10_000, 'en'),
+      span(10_200, 10_500, 'ru'),
+      span(10_700, 11_000, 'fr'),
+      span(11_200, 20_000, 'en'),
+    ]);
+    expect(runs).toEqual([{ startMs: 0, endMs: 20_000, language: 'en' }]);
+  });
+
+  it('absorbs two consecutive short spans of the same language', () => {
+    // Two short spans of the same language cannot absorb into each other;
+    // but iteration exposes each to the surrounding run.
+    const runs = mergeRuns([
+      span(0, 10_000, 'en'),
+      span(10_200, 10_500, 'ru'),
+      span(10_700, 11_000, 'ru'),
+      span(11_200, 20_000, 'en'),
+    ]);
+    expect(runs).toEqual([{ startMs: 0, endMs: 20_000, language: 'en' }]);
+  });
+
+  it('absorbs three consecutive short spans', () => {
+    // Three or more short spans converge over multiple iterations.
+    const runs = mergeRuns([
+      span(0, 10_000, 'en'),
+      span(10_200, 10_500, 'ru'),
+      span(10_700, 11_000, 'fr'),
+      span(11_200, 11_500, 'de'),
+      span(11_700, 12_000, 'ja'),
+      span(12_200, 20_000, 'en'),
+    ]);
+    expect(runs).toEqual([{ startMs: 0, endMs: 20_000, language: 'en' }]);
+  });
 });
