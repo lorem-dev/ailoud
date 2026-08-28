@@ -145,9 +145,12 @@ export class PrettyUi implements Ui {
     // spacer between separate log calls, which doubles the height of a
     // seven-item checklist. Lines inside a single message stay contiguous.
     const lines: string[] = [];
+    // Pad the names into a column so the details line up and the list can be
+    // scanned down rather than read across, the way plain mode does it.
+    const nameWidth = Math.max(...checks.map((check) => stringWidth(check.name)));
     for (const check of checks) {
       const status = check.ok ? styleText('green', 'ok  ') : styleText('red', 'FAIL');
-      lines.push(`${status}  ${check.name}  ${check.detail}`);
+      lines.push(`${status}  ${check.name.padEnd(nameWidth)}  ${check.detail}`);
       if (!check.ok && check.fix !== undefined) {
         lines.push(`      fix: ${check.fix}`);
       }
