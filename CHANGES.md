@@ -19,3 +19,5 @@
   `stt.whisperCpp.binary` and `stt.whisperCpp.model`.
 - Every command exits with one of four codes: 0 ok, 1 failure, 2 usage, 3
   environment -- a scriptable, stable contract.
+- `laud transcribe --multilingual` detects and preserves each language in a
+  code-switched recording instead of tagging the whole thing with one.

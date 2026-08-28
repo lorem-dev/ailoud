@@ -113,6 +113,42 @@ re-run the whole library:
 laud transcribe ID001 --force
 ```
 
+`transcribe` picks one language for the whole recording by default, which is
+right for the overwhelming majority of recordings: a single speaker, or
+several speakers sharing one language. For a recording that switches
+language mid-way -- a call that starts in English and continues in Russian,
+say -- that default silently discards whichever language loses the
+per-recording vote. `--multilingual` is the opt-in fix: it finds the speech
+in the recording, detects the language of each stretch, and transcribes each
+language separately, so a switch produces multiple segments instead of one
+segment in the wrong language:
+
+```shell
+laud transcribe ID001 --multilingual
+```
+
+It costs real time to do this: language detection runs once per ~2-second
+window of speech, at roughly half a second per window, on top of the
+transcription itself. A long recording of continuous speech in one language
+pays that cost for no benefit, which is why `--multilingual` is not the
+default.
+
+`--multilingual` needs a second model beyond the one `transcribe` already
+uses: a voice-activity-detection (VAD) model, configured separately at
+`stt.whisperCpp.vadModel` (see "Configuration and storage" below). Without
+one configured, `transcribe --multilingual` exits 3 and names the missing
+config key, the same way it would for the missing whisper.cpp model; `laud
+doctor` reports the same gap ahead of time.
+
+Because it works by dividing detected speech into windows at least 1.5
+seconds long, a single stretch of speech roughly 2 to 3 seconds long is
+never subdivided: splitting it in two would put both halves under that
+floor, so it is left whole. A language switch that falls entirely inside
+such a stretch stays invisible to `--multilingual`, and is transcribed as
+whichever language wins that stretch. This is a deliberate trade-off, not a
+bug, but it is worth knowing about if a transcript is compared word for word
+against the audio.
+
 List the library, and show a transcript:
 
 ```shell
@@ -129,17 +165,23 @@ laud doctor
 ```
 
 `doctor` is a first-class command, not a diagnostic afterthought: it reports
-seven checks -- `ffmpeg` presence, `ffprobe` presence, the whisper binary,
-the whisper model file, the config file, the database path and its
-integrity, and the media root -- with a fix for each failing check. See
-section 12 of the design doc for the exit code convention `doctor` failures
-use.
+nine checks -- `ffmpeg` presence, `ffprobe` presence, the whisper binary, the
+whisper model file, the VAD binary, the VAD model file, the config file, the
+database path and its integrity, and the media root -- with a fix for each
+failing check. The VAD checks only matter for `--multilingual`, but `doctor`
+reports them either way. See section 12 of the design doc for the exit code
+convention `doctor` failures use.
 
 ## External tools
 
 `laud` depends on tools it does not bundle:
 
 - **`ffmpeg` and `ffprobe`** -- probing and format conversion. Verified by
+  `laud doctor`.
+- **`whisper-vad-speech-segments`** (also from whisper.cpp) and a **VAD model
+  file** -- speech detection for `transcribe --multilingual` only; the
+  single-language default does not need either. Configured at
+  `stt.whisperCpp.vadBinary` and `stt.whisperCpp.vadModel`, and checked by
   `laud doctor`.
 - **`whisper-cli`** (whisper.cpp) and a **model file** -- local speech to
   text. The binary and model path are set in the config file, described

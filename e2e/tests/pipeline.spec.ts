@@ -31,6 +31,31 @@ const WER_THRESHOLD = 0.25;
 /** A quick, local command; a few seconds is already generous. */
 const GIT_STATUS_TIMEOUT_MS = 10_000;
 
+/**
+ * Real, working whisper.cpp models this suite needs for the mixed-language
+ * spec below: unlike the doctor specs, which only check that a path exists,
+ * that spec runs `--multilingual` end to end and inspects what it produces,
+ * so a placeholder file will not do. There is no packaged fixture model --
+ * whisper.cpp models are hundreds of megabytes -- so this points at the
+ * same manual-install location the maintainer's own `~/.config/laud/config.yaml`
+ * uses: a `models/` directory under the real, unsandboxed XDG data dir.
+ * `process.env.HOME` here is deliberately the *outer* test-runner process's
+ * HOME, not a sandbox's -- `makeSandbox()` only overrides the child
+ * process's environment, never this file's own.
+ */
+const REAL_HOME = process.env['HOME'] ?? '';
+const WHISPER_MODEL = join(REAL_HOME, '.local', 'share', 'laud', 'models', 'ggml-small.bin');
+const VAD_MODEL = join(REAL_HOME, '.local', 'share', 'laud', 'models', 'ggml-silero-v5.1.2.bin');
+
+/** A distinctive word from the English clause of fixtures/mixed-short.txt. */
+const MIXED_EN_WORD = 'tomorrow';
+/**
+ * A distinctive word ("vecherom", "in the evening") from the Russian clause
+ * of fixtures/mixed-short.txt, as a Unicode escape rather than a Cyrillic
+ * literal so this source file stays ASCII-only.
+ */
+const MIXED_RU_WORD = '\u0432\u0435\u0447\u0435\u0440\u043e\u043c';
+
 interface LsRow {
   readonly id: string;
   readonly sourcePath: string;
@@ -43,7 +68,7 @@ interface LsRow {
 }
 
 interface ShowJson {
-  readonly segments: ReadonlyArray<{ readonly text: string }>;
+  readonly segments: ReadonlyArray<{ readonly text: string; readonly language: string | null }>;
 }
 
 /**
@@ -215,34 +240,72 @@ describe('laud end-to-end', () => {
     expect(language).toBe('ru');
   });
 
-  it('the mixed-language fixture transcribes as one of the languages it contains', async () => {
+  it('the mixed-language fixture keeps both languages under --multilingual', async () => {
     // whisper detects one language per window and can transcribe a
-    // code-switched clip into the wrong script entirely -- this fixture
-    // exists to exercise exactly that risk. It genuinely code-switches: an
-    // English clause spoken by an English voice (Samantha), followed by a
-    // Russian clause spoken by a Russian voice (Milena), concatenated into
-    // one clip (see scripts/make-fixtures.mjs). Either detected language is
-    // a legitimate outcome; what matters is that the language tag is one of
-    // the two, not silently something else. The transcript itself is folded
-    // into the failure message so a human reviewing a red run can judge how
-    // bad the code-switching damage actually was, rather than just seeing
-    // which language tag came back.
+    // code-switched clip into the wrong script entirely, silently discarding
+    // whichever half lost. This fixture exists to exercise exactly that
+    // risk: it genuinely code-switches -- an English clause spoken by an
+    // English voice (Samantha), followed by a Russian clause spoken by a
+    // Russian voice (Milena), concatenated into one clip (see
+    // scripts/make-fixtures.mjs).
+    //
+    // Asserting that the detected language is merely "one of the two" would
+    // pass at the exact moment half the recording is discarded -- whichever
+    // language wins is trivially "one of the two". So this asserts both
+    // halves actually survive: recognisable text from each clause, and at
+    // least two distinct non-null values among the segments' `language`
+    // fields, which is only possible if the recording was split into
+    // per-language runs rather than tagged with a single language overall.
+    await sandbox.writeConfig(
+      `stt:\n  whisperCpp:\n    model: ${WHISPER_MODEL}\n    vadModel: ${VAD_MODEL}\n`,
+    );
     const imported = await sandbox.run(['import', MIXED_WAV]);
     const id = parseImportLine(imported.stdout.trim()).id;
 
-    const transcribed = await sandbox.run(['transcribe', id]);
+    const transcribed = await sandbox.run(['transcribe', id, '--multilingual']);
     expect(transcribed.code).toBe(0);
-    const { language } = parseTranscribeLine(transcribed.stdout.trim());
 
     const shown = await sandbox.run(['show', id, '--format', 'json']);
     expect(shown.code).toBe(0);
+    const parsed = JSON.parse(shown.stdout) as ShowJson;
     const transcript = transcriptTextFromShowJson(shown.stdout);
+    const lowerTranscript = transcript.toLowerCase();
 
-    if (!['en', 'ru'].includes(language)) {
+    if (!lowerTranscript.includes(MIXED_EN_WORD)) {
       throw new Error(
-        `detected language "${language}" is neither "en" nor "ru"; transcript: ${JSON.stringify(transcript)}`,
+        `English clause missing: "${MIXED_EN_WORD}" not found; transcript: ${JSON.stringify(transcript)}`,
       );
     }
+    if (!lowerTranscript.includes(MIXED_RU_WORD)) {
+      throw new Error(
+        `Russian clause missing: "${MIXED_RU_WORD}" not found; transcript: ${JSON.stringify(transcript)}`,
+      );
+    }
+
+    const distinctLanguages = new Set(
+      parsed.segments.map((segment) => segment.language).filter((language) => language !== null),
+    );
+    if (distinctLanguages.size < 2) {
+      throw new Error(
+        `expected at least two distinct segment languages, got ${JSON.stringify([...distinctLanguages])}; transcript: ${JSON.stringify(transcript)}`,
+      );
+    }
+  });
+
+  it('transcribe --multilingual with no VAD model configured exits 3', async () => {
+    // The VAD model is a second, separate piece of environment from the
+    // whisper.cpp model above: `--multilingual` needs it to find speech
+    // spans before language detection ever runs. Its absence is an
+    // environment problem, not a transcription failure, so it must exit 3
+    // the same way `doctor` reports it -- and this is the one place that
+    // path is proven through `transcribe` itself, not just `doctor`.
+    await sandbox.writeConfig(`stt:\n  whisperCpp:\n    model: ${WHISPER_MODEL}\n`);
+    const imported = await sandbox.run(['import', EN_WAV]);
+    const id = parseImportLine(imported.stdout.trim()).id;
+
+    const transcribed = await sandbox.run(['transcribe', id, '--multilingual']);
+    expect(transcribed.code).toBe(3);
+    expect(transcribed.stderr).toMatch(/vadModel/);
   });
 
   it('show --format srt parses as SRT with increasing timestamps', async () => {
