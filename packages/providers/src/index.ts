@@ -10,3 +10,6 @@ export { FfmpegAudioTool } from './audio/ffmpeg.js';
 
 export { WhisperCppProvider, parseWhisperJson } from './stt/whisperCpp.js';
 export type { WhisperCppOptions } from './stt/whisperCpp.js';
+
+export { WhisperVadSegmenter, parseVadSegments } from './vad/whisperVad.js';
+export type { WhisperVadOptions } from './vad/whisperVad.js';
