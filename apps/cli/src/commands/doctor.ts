@@ -171,8 +171,11 @@ async function runChecks(context: CliContext): Promise<Check[]> {
       config.stt.whisperCpp.binary,
     ),
     await checkModel(paths.configFile, config.stt.whisperCpp.model),
-    await checkVadModel(paths.configFile, config.stt.whisperCpp.vadModel),
+    // Binary before model for both whisper and VAD, matching the order
+    // README.md documents: keeping the two pairs in the same shape stops
+    // the code and the docs from silently drifting onto different orders.
     await checkVadBinary(paths.configFile, config.stt.whisperCpp.vadBinary),
+    await checkVadModel(paths.configFile, config.stt.whisperCpp.vadModel),
     await checkConfigFile(paths.configFile),
     checkDatabase(context),
     await checkMediaRoot(paths.mediaRoot),

@@ -139,6 +139,31 @@ describe('mergeRuns', () => {
     expect(ruRun!.startMs).toBe(10_100);
     expect(ruRun!.endMs).toBe(12_250);
   });
+
+  it('en/ru/fr/ru/de: merges the two short ru fragments around a short fr blip into one run', () => {
+    // Named after its own input shape, not the algorithm detail it exercises
+    // (that is the "failed chain scan" regression above, over the same
+    // shape): an en run, a short ru, a short fr, a short ru, then a de run
+    // is the concrete case that broke mergeRuns' iterative identify phase
+    // twice during development, and deserves to be findable by that shape
+    // alone. en and de bracket the whole chain and differ, so the chain
+    // cannot be absorbed as a single mis-detection (Rule 2 requires
+    // identical neighbours) -- but the lone fr sandwiched between the two
+    // ru fragments is still noise on its own (Rule 1), and removing it lets
+    // the two ru fragments merge into one run.
+    const runs = mergeRuns([
+      span(0, 3000, 'en'),
+      span(3000, 3700, 'ru'),
+      span(3700, 4400, 'fr'),
+      span(4400, 5100, 'ru'),
+      span(5100, 8100, 'de'),
+    ]);
+    expect(runs.map((run) => run.language)).toEqual(['en', 'ru', 'de']);
+    const ruRun = runs[1];
+    expect(ruRun).toBeDefined();
+    expect(ruRun!.startMs).toBe(3000);
+    expect(ruRun!.endMs).toBe(5100);
+  });
 });
 
 describe('subdivideSpans', () => {

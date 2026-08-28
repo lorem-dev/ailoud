@@ -18,9 +18,8 @@ export const FIXTURE_PATH = '/in/a.mp3';
 /**
  * Builds a CliContext over the in-memory fakes, with a `lines` sink that
  * captures everything passed to the context's `out` callback. This is the
- * starting point for every command test in this package -- and, per Task
- * 14's brief, for Task 15's as well, so its shape is depended on beyond
- * this task.
+ * starting point for every command test in this package, so its shape is
+ * depended on well beyond whichever single test happens to be reading it.
  */
 export function context(): CliContext & {
   lines: string[];

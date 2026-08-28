@@ -266,8 +266,15 @@ describe('laud end-to-end', () => {
     const imported = await sandbox.run(['import', MIXED_WAV]);
     const id = parseImportLine(imported.stdout.trim()).id;
 
+    const before = laudTempEntries();
     const transcribed = await sandbox.run(['transcribe', id, '--multilingual']);
     expect(transcribed.code).toBe(0);
+    // Unlike the single-pass path (one temp wav for the whole run), the
+    // multilingual path allocates one temp file per detection window plus
+    // one per transcribed run, on top of the whole-recording wav -- more
+    // opportunities for a leak, and nothing before this asserted any of
+    // them get cleaned up.
+    expect(laudTempEntries()).toEqual(before);
 
     const shown = await sandbox.run(['show', id, '--format', 'json']);
     expect(shown.code).toBe(0);
@@ -324,7 +331,7 @@ describe('laud end-to-end', () => {
     expect(isWellFormedSrt(shown.stdout)).toBe(true);
   });
 
-  it('show --format json round-trips and matches the segment count from ls --json', async () => {
+  it('show --format json segment count matches what transcribe reported, and the recording appears in ls --json', async () => {
     await sandbox.writeConfig(`stt:\n  whisperCpp:\n    model: ${WHISPER_MODEL}\n`);
     const imported = await sandbox.run(['import', EN_WAV]);
     const id = parseImportLine(imported.stdout.trim()).id;

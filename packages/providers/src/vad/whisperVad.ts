@@ -2,6 +2,14 @@ import type { SpeechSegmenter, SpeechSpan } from '@laud/core';
 import { FailureError } from '@laud/core';
 import { run as defaultRunner } from '../process/run.js';
 
+// Explicit, not left to fall through to the run helper's own default, even
+// though the two currently happen to be the same 30 minutes: segmentation
+// reads the whole recording once and is comparatively fast, so it does not
+// need whisper-cli's own six-hour transcription ceiling (see whisperCpp.ts).
+// Spelling it out here means a future change to the helper's default cannot
+// silently change this call's timeout out from under it.
+const VAD_TIMEOUT_MS = 30 * 60_000;
+
 /**
  * Matches one segment line from whisper-vad-speech-segments' stdout.
  *
@@ -45,7 +53,7 @@ export class WhisperVadSegmenter implements SpeechSegmenter {
     const result = await this.runner(
       this.options.binary,
       ['-f', audioPath, '-vm', this.options.vadModelPath, '-np'],
-      { timeoutMs: 30 * 60_000 },
+      { timeoutMs: VAD_TIMEOUT_MS },
     );
     if (result.code !== 0) {
       throw new FailureError(

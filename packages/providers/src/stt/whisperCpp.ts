@@ -64,9 +64,9 @@ export function parseWhisperJson(raw: string): { language: string; segments: Raw
  * file, -l language or "auto", -oj JSON output, -of output base path) are
  * written against whisper.cpp's documented command-line interface. No
  * whisper-cli binary is available in this environment to confirm them
- * against an actual build. Task 17's end-to-end suite runs against a real
- * binary and is where this argument list gets confirmed; if a flag turns
- * out to differ there, fix it here in this one place.
+ * against an actual build. The end-to-end suite runs against a real binary
+ * and is where this argument list gets confirmed; if a flag turns out to
+ * differ there, fix it here in this one place.
  */
 function buildWhisperArgs(
   modelPath: string,

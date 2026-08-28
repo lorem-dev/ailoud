@@ -202,6 +202,31 @@ describe('transcribeRecording --multilingual', () => {
     expect(segments[1]!.startMs).toBeGreaterThanOrEqual(1750);
   });
 
+  it("slices the audio at each detection window's and each run's own absolute bounds", async () => {
+    // FakeAudioTool.sliced records every slice() call; this is the one place
+    // the offset contract (a run's bounds are absolute, and can differ from
+    // the detection windows that fed into it once mergeRuns has split at a
+    // language boundary) meets the audio tool that actually has to cut
+    // there. The first two entries are the per-window slices language
+    // detection ran on; the last two are the per-run slices transcription
+    // ran on, at the merged boundary (1775, the midpoint of the 1750-1800
+    // gap) rather than either window's own edge.
+    const d = multilingualDeps({
+      spans: [
+        { startMs: 0, endMs: 1750 },
+        { startMs: 1800, endMs: 3430 },
+      ],
+      languages: ['en', 'ru'],
+    });
+    await transcribeRecording(d, recording, { multilingual: true });
+    expect(d.audio.sliced.map((call) => [call.startMs, call.endMs])).toEqual([
+      [0, 1750],
+      [1800, 3430],
+      [0, 1775],
+      [1775, 3430],
+    ]);
+  });
+
   it('refuses a provider that cannot detect a language', async () => {
     const d = multilingualDeps({ supportsLanguageDetection: false });
     await expect(transcribeRecording(d, recording, { multilingual: true })).rejects.toThrow(
