@@ -47,6 +47,7 @@ class ThrowingStt implements TranscriptionProvider {
     maxBytes: null,
     supportsDiarization: false,
     supportsLanguageHint: true,
+    supportsLanguageDetection: false,
   };
   async transcribe(): Promise<{ language: string; model: string; segments: RawSegment[] }> {
     throw new Error('boom');

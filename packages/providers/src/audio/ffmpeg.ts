@@ -44,4 +44,9 @@ export class FfmpegAudioTool implements AudioTool {
       throw new FailureError(`ffmpeg could not convert ${input}: ${result.stderr.trim()}`);
     }
   }
+
+  // Task 3 fills this in with a real ffmpeg-backed slice.
+  async slice(): Promise<void> {
+    throw new Error('FfmpegAudioTool.slice is not implemented yet');
+  }
 }

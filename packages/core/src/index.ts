@@ -7,6 +7,8 @@ export type {
   TempFile,
   AudioTool,
   TranscriptionProvider,
+  SpeechSpan,
+  SpeechSegmenter,
   RecordingListFilter,
   RecordingStore,
   ManagedRecordingStore,

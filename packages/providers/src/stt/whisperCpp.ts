@@ -76,6 +76,8 @@ export class WhisperCppProvider implements TranscriptionProvider {
     maxBytes: null,
     supportsDiarization: false,
     supportsLanguageHint: true,
+    // Task 4 flips this to true when it implements detectLanguage.
+    supportsLanguageDetection: false,
   } as const;
 
   private readonly runner: typeof defaultRunner;

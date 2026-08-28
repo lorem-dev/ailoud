@@ -34,6 +34,12 @@ export interface Fs {
 export interface AudioTool {
   probe(path: string): Promise<{ durationMs: number }>;
   toWav16kMono(input: string, output: string): Promise<void>;
+  /**
+   * Writes the audio between `startMs` and `endMs` to `output`. This is the
+   * audio-splitting work M1 deferred, in the shape the multilingual path
+   * needs: not "break into pieces under N bytes" but "give me this range".
+   */
+  slice(input: string, output: string, startMs: number, endMs: number): Promise<void>;
 }
 
 export interface TranscriptionProvider {
@@ -43,11 +49,41 @@ export interface TranscriptionProvider {
     readonly maxBytes: number | null;
     readonly supportsDiarization: boolean;
     readonly supportsLanguageHint: boolean;
+    readonly supportsLanguageDetection: boolean;
   };
   transcribe(
     audioPath: string,
     opts: { readonly language?: string; readonly model?: string },
   ): Promise<{ language: string; model: string; segments: RawSegment[] }>;
+  /**
+   * Detects the language spoken in `audioPath` without transcribing it.
+   * Present only when `capabilities.supportsLanguageDetection` is true; the
+   * multilingual pipeline refuses a provider that lacks it rather than
+   * guessing.
+   */
+  detectLanguage?(audioPath: string): Promise<string>;
+}
+
+/**
+ * A stretch of a recording that contains speech, as found by a voice
+ * activity detector. Times are absolute milliseconds from the start of the
+ * recording. The gaps between spans are silence and belong to no span.
+ */
+export interface SpeechSpan {
+  readonly startMs: number;
+  readonly endMs: number;
+}
+
+/**
+ * Finds where speech happens. Separate from `AudioTool` because it is a
+ * different responsibility over a different binary: `AudioTool` is ffmpeg.
+ *
+ * This is what makes multilingual transcription possible on audio with no
+ * measurable pauses -- signal-level silence detection finds nothing on a
+ * recording whose clauses were spoken back to back.
+ */
+export interface SpeechSegmenter {
+  segments(audioPath: string): Promise<SpeechSpan[]>;
 }
 
 export interface RecordingListFilter {

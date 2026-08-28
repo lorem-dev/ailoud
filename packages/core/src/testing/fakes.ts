@@ -88,6 +88,10 @@ export class FakeAudioTool implements AudioTool {
   async toWav16kMono(input: string, output: string): Promise<void> {
     this.converted.push([input, output]);
   }
+  // Task 6 fills this in with a real fake implementation.
+  async slice(): Promise<void> {
+    throw new Error('FakeAudioTool.slice is not implemented yet');
+  }
 }
 
 export class FakeStt implements TranscriptionProvider {
@@ -104,6 +108,7 @@ export class FakeStt implements TranscriptionProvider {
       maxBytes: null,
       supportsDiarization: false,
       supportsLanguageHint: true,
+      supportsLanguageDetection: false,
       ...capabilities,
     };
   }
