@@ -59,4 +59,21 @@ describe('FfmpegAudioTool', () => {
     await run('node', ['-e', `require('fs').writeFileSync(${JSON.stringify(bad)}, 'not audio')`]);
     await expect(new FfmpegAudioTool().probe(bad)).rejects.toThrow();
   });
+
+  it('slices a time range into a new file', async () => {
+    const output = join(dir, 'slice.wav');
+    await new FfmpegAudioTool().slice(source, output, 500, 1500);
+    const { durationMs } = await new FfmpegAudioTool().probe(output);
+    // A one-second range, allowing for container rounding. Tight enough to
+    // catch seconds-versus-milliseconds, which is the mistake worth
+    // catching here.
+    expect(durationMs).toBeGreaterThan(900);
+    expect(durationMs).toBeLessThan(1150);
+  });
+
+  it('reports a slice of an unreadable file as a failure', async () => {
+    const bad = join(dir, 'bad-slice.mp3');
+    await run('node', ['-e', `require('fs').writeFileSync(${JSON.stringify(bad)}, 'x')`]);
+    await expect(new FfmpegAudioTool().slice(bad, join(dir, 'o.wav'), 0, 1000)).rejects.toThrow();
+  });
 });

@@ -45,8 +45,33 @@ export class FfmpegAudioTool implements AudioTool {
     }
   }
 
-  // Task 3 fills this in with a real ffmpeg-backed slice.
-  async slice(): Promise<void> {
-    throw new Error('FfmpegAudioTool.slice is not implemented yet');
+  async slice(input: string, output: string, startMs: number, endMs: number): Promise<void> {
+    // -ss and -t in seconds with millisecond precision. Re-encoding rather
+    // than stream-copying: a copy can only cut on a container keyframe,
+    // which would move the boundary by up to several seconds and undo the
+    // midpoint the merge step calculated.
+    const start = (startMs / 1000).toFixed(3);
+    const duration = ((endMs - startMs) / 1000).toFixed(3);
+    const result = await run(this.ffmpeg, [
+      '-v',
+      'error',
+      '-y',
+      '-ss',
+      start,
+      '-t',
+      duration,
+      '-i',
+      input,
+      '-ac',
+      '1',
+      '-ar',
+      '16000',
+      '-c:a',
+      'pcm_s16le',
+      output,
+    ]);
+    if (result.code !== 0) {
+      throw new FailureError(`ffmpeg could not slice ${input}: ${result.stderr.trim()}`);
+    }
   }
 }
