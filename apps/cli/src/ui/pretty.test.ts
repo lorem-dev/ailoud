@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import stringWidth from 'string-width';
 
 // `vi.hoisted` so these mocks exist before vitest hoists the `vi.mock` call
 // itself above this file's imports -- referencing plain top-level consts in
@@ -60,7 +61,7 @@ describe('PrettyUi.frame', () => {
     expect(intro).toHaveBeenCalledTimes(1);
     expect(intro.mock.calls[0]?.[0]).toBe('import');
     expect(outro).toHaveBeenCalledTimes(1);
-    expect(outro.mock.calls[0]?.[0]).toContain('done');
+    expect(outro.mock.calls[0]?.[0]).toContain('Done');
   });
 
   it('still closes the frame, with a failure status, when the task throws', async () => {
@@ -76,7 +77,7 @@ describe('PrettyUi.frame', () => {
     expect(intro).toHaveBeenCalledTimes(1);
     expect(outro).toHaveBeenCalledTimes(1);
     const outroMessage = outro.mock.calls[0]?.[0] as string;
-    expect(outroMessage).toContain('failed');
+    expect(outroMessage).toContain('Failed');
     // The outro states the outcome only. The top-level handler prints the
     // error itself, and carrying it here too made doctor report the same
     // failure twice, reading as two separate problems.
@@ -93,7 +94,10 @@ describe('PrettyUi.frame', () => {
       }),
     ).rejects.toBe('not an Error');
     expect(outro).toHaveBeenCalledTimes(1);
-    expect(outro.mock.calls[0]?.[0]).toBe('ls failed');
+    // The outcome alone -- neither the label nor the error text, both of
+    // which are already on screen from the intro and the top-level handler.
+    expect(outro.mock.calls[0]?.[0]).toContain('Failed');
+    expect(outro.mock.calls[0]?.[0]).not.toContain('ls');
   });
 
   it('sends the frame to stderr, not stdout', async () => {
@@ -169,7 +173,11 @@ describe('PrettyUi.recordings at a narrow width', () => {
     new PrettyUi(60).recordings([row]);
     const rendered = log.message.mock.calls.map((call) => call[0] as string).join('\n');
     expect(rendered).toContain(row.id);
-    expect(rendered).toContain('a preview long enough to matter');
+    // The fallback wraps to the terminal, so the preview may be split
+    // across lines; join them back before looking for it.
+    expect(rendered.split('\n').join(' ').replace(/\s+/g, ' ')).toContain(
+      'a preview long enough to matter',
+    );
     expect(rendered).not.toContain('\u250c');
     expect(rendered).not.toContain('\u2502');
   });
@@ -190,5 +198,122 @@ describe('PrettyUi.recordings at a narrow width', () => {
     new PrettyUi(90).recordings([wide]);
     const rendered = log.message.mock.calls.map((call) => call[0] as string).join('\n');
     expect(rendered).not.toContain('\u250c');
+  });
+
+  it('wraps a long preview so no fallback line exceeds the gutter-safe width', () => {
+    log.message.mockClear();
+    const wide = { ...row, preview: 'a preview '.repeat(20).trim() };
+    // 60 columns minus clack's 3-column gutter leaves 57.
+    new PrettyUi(60).recordings([wide]);
+    const rendered = log.message.mock.calls.map((call) => call[0] as string).join('\n');
+    const lines = rendered.split('\n');
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      expect(stringWidth(line)).toBeLessThanOrEqual(57);
+    }
+  });
+});
+
+describe('PrettyUi.checks wrapping', () => {
+  it('wraps a long detail so every line fits under the gutter, indenting the continuation under the detail column', () => {
+    log.message.mockClear();
+    const longDetail =
+      'ffmpeg version 9.0.1 Copyright (c) 2000-2026 the FFmpeg developers built with a very long list of configure options';
+    // 75 columns, matching the reported terminal, minus the 3-column gutter
+    // leaves 72.
+    new PrettyUi(75).checks([{ name: 'ffmpeg', ok: true, detail: longDetail }]);
+    const rendered = log.message.mock.calls[0]?.[0] as string;
+    const lines = rendered.split('\n');
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      expect(stringWidth(line)).toBeLessThanOrEqual(72);
+    }
+    // "ok  " (4) + two spaces + "ffmpeg" (6, the only name so nothing to
+    // pad) + two spaces = 14 columns of indent, putting the continuation
+    // under the detail column. The status dot is not counted: clack draws
+    // it in place of the gutter character, outside the message text.
+    const indent = ' '.repeat(14);
+    expect(lines[1]?.startsWith(indent)).toBe(true);
+    expect(lines[1]?.startsWith(`${indent} `)).toBe(false);
+  });
+
+  it('wraps a long fix line and indents its continuation under the fix text', () => {
+    log.message.mockClear();
+    const longFix =
+      'set stt.whisperCpp.model in the laud config file to a model path that points at a downloaded ggml model file on disk';
+    new PrettyUi(75).checks([
+      { name: 'whisper model', ok: false, detail: 'not configured', fix: longFix },
+    ]);
+    const rendered = log.message.mock.calls[0]?.[0] as string;
+    const lines = rendered.split('\n');
+    for (const line of lines) {
+      expect(stringWidth(line)).toBeLessThanOrEqual(72);
+    }
+    const fixLineIndex = lines.findIndex((line) => line.includes('fix:'));
+    expect(fixLineIndex).toBeGreaterThanOrEqual(0);
+    expect(fixLineIndex + 1).toBeLessThan(lines.length);
+    // '      fix: ' is 11 columns wide.
+    const indent = ' '.repeat(11);
+    expect(lines[fixLineIndex + 1]?.startsWith(indent)).toBe(true);
+  });
+
+  it('hard-wraps a path with no spaces at a narrow 60-column width', () => {
+    log.message.mockClear();
+    const longPath = '/Users/donat/.local/share/laud/models/ggml-small-and-a-much-longer-name.bin';
+    new PrettyUi(60).checks([{ name: 'whisper model', ok: true, detail: longPath }]);
+    const rendered = log.message.mock.calls[0]?.[0] as string;
+    const lines = rendered.split('\n');
+    expect(lines.length).toBeGreaterThan(1);
+    // 60 columns minus the 3-column gutter leaves 57.
+    for (const line of lines) {
+      expect(stringWidth(line)).toBeLessThanOrEqual(57);
+    }
+  });
+
+  it('wraps a path far longer than the terminal into many gutter-safe lines', () => {
+    log.message.mockClear();
+    const longPath = `/Users/donat/${'very-long-directory-name/'.repeat(10)}model.bin`;
+    new PrettyUi(80).checks([{ name: 'whisper model', ok: true, detail: longPath }]);
+    const rendered = log.message.mock.calls[0]?.[0] as string;
+    const lines = rendered.split('\n');
+    expect(lines.length).toBeGreaterThan(3);
+    // 80 columns minus the 3-column gutter leaves 77.
+    for (const line of lines) {
+      expect(stringWidth(line)).toBeLessThanOrEqual(77);
+    }
+  });
+});
+
+describe('PrettyUi general messages wrap to the available width', () => {
+  it('wraps a long source path reported as already present', () => {
+    log.warn.mockClear();
+    const longPath = `/Users/donat/${'nested-folder/'.repeat(8)}recording.mp3`;
+    new PrettyUi(60).imported({ ...A_RECORDING, sourcePath: longPath }, true);
+    const rendered = log.warn.mock.calls[0]?.[0] as string;
+    const lines = rendered.split('\n');
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      expect(stringWidth(line)).toBeLessThanOrEqual(57);
+    }
+  });
+
+  it('wraps a long source path reported as freshly imported', () => {
+    log.success.mockClear();
+    const longPath = `/in/${'x'.repeat(120)}.mp3`;
+    new PrettyUi(50).imported({ ...A_RECORDING, sourcePath: longPath }, false);
+    const rendered = log.success.mock.calls[0]?.[0] as string;
+    const lines = rendered.split('\n');
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      expect(stringWidth(line)).toBeLessThanOrEqual(47);
+    }
+  });
+
+  it('leaves an ordinary-width message on one line', () => {
+    log.info.mockClear();
+    new PrettyUi(80).emptyLibrary();
+    const rendered = log.info.mock.calls[0]?.[0] as string;
+    expect(rendered.split('\n')).toHaveLength(1);
+    expect(stringWidth(rendered)).toBeLessThanOrEqual(77);
   });
 });

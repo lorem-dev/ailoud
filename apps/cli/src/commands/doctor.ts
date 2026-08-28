@@ -187,7 +187,7 @@ export function registerDoctor(program: Command, context: CliContext): void {
     .command('doctor')
     .description('Check that the binaries, model, database, and storage laud needs are ready')
     .action(async () => {
-      await context.ui.frame('doctor', async () => {
+      await context.ui.frame('Environment check', async () => {
         const checks = await runChecks(context);
         context.ui.checks(checks);
         if (checks.some((check) => !check.ok)) {

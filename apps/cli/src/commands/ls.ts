@@ -26,7 +26,7 @@ export function registerLs(program: Command, context: CliContext): void {
     .option('--json', 'print one JSON array of rows instead of a table')
     .description('List recordings in the library')
     .action(async (options: LsOptions) => {
-      await context.ui.frame('ls', async () => {
+      await context.ui.frame('Library', async () => {
         const recordings = await context.store.listRecordings({});
 
         if (recordings.length === 0) {

@@ -22,7 +22,7 @@ export function registerTranscribe(program: Command, context: CliContext): void 
     )
     .description('Turn recordings into transcripts')
     .action(async (ids: string[], options: TranscribeOptions) => {
-      await context.ui.frame('transcribe', async () => {
+      await context.ui.frame('Transcribing', async () => {
         if (options.force === true && ids.length === 0) {
           throw new UsageError(
             '--force needs explicit recording ids: it would otherwise re-transcribe the whole library.',

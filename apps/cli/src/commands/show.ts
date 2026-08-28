@@ -18,7 +18,7 @@ export function registerShow(program: Command, context: CliContext): void {
       // other command's -- see PrettyUi.frame -- so it never touches the
       // transcript data below, which stays on stdout, unchanged, in
       // either mode.
-      await context.ui.frame('show', async () => {
+      await context.ui.frame('Transcript', async () => {
         if (!FORMATS.includes(options.format as Format)) {
           throw new UsageError(
             `Unknown format "${options.format}". Use one of: ${FORMATS.join(', ')}.`,

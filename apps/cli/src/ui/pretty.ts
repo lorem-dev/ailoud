@@ -1,6 +1,7 @@
 import { intro, log, outro, spinner } from '@clack/prompts';
 import Table from 'cli-table3';
 import stringWidth from 'string-width';
+import wrapAnsi from 'wrap-ansi';
 import { styleText } from 'node:util';
 import { formatTimestamp } from '@laud/core';
 import type { Recording, Transcript } from '@laud/core';
@@ -11,6 +12,13 @@ const TABLE_HEAD = ['id', 'duration', 'lang', 'preview'] as const;
 
 /** Width of clack's gutter prefix (`|` plus two spaces) on every rendered line. */
 const GUTTER_WIDTH = 3;
+
+/**
+ * The status marker each doctor check puts in place of its gutter
+ * character. A filled circle rather than a box-drawing glyph: it has to
+ * read as a status at a glance, not as part of the border it replaces.
+ */
+const DOT = '\u25cf';
 
 /**
  * `@clack/prompts` plus `cli-table3`, selected when stdout is a real,
@@ -34,16 +42,16 @@ export class PrettyUi implements Ui {
     // is at least safe to keep free of a frame that wraps output already
     // written elsewhere. One rule for all five commands is simpler than a
     // per-command exception, and costs nothing.
-    intro(label, { output: process.stderr });
+    intro(this.wrap(label), { output: process.stderr });
     try {
       const result = await task();
-      outro(`${label} done`, { output: process.stderr });
+      outro(styleText('green', 'Done'), { output: process.stderr });
       return result;
     } catch (error) {
-      // Just the outcome, not the message: the top-level handler prints
-      // the error itself, and saying it in both places reads as two
-      // separate problems.
-      outro(`${label} failed`, { output: process.stderr });
+      // The outcome alone. The label already opened the frame, and the
+      // top-level handler prints the error itself -- saying either again
+      // here reads as a second, separate problem.
+      outro(styleText('red', 'Failed'), { output: process.stderr });
       throw error;
     }
   }
@@ -51,9 +59,9 @@ export class PrettyUi implements Ui {
   public imported(recording: Recording, alreadyPresent: boolean): void {
     const line = `${recording.id}  ${recording.sourcePath}`;
     if (alreadyPresent) {
-      log.warn(`already present  ${line}`);
+      log.warn(this.wrap(`already present  ${line}`));
     } else {
-      log.success(`imported  ${line}`);
+      log.success(this.wrap(`imported  ${line}`));
     }
   }
 
@@ -73,20 +81,22 @@ export class PrettyUi implements Ui {
 
   public transcribed(recording: Recording, transcript: Transcript, segmentCount: number): void {
     log.success(
-      `${recording.id}  ${transcript.language}  ${segmentCount} segment${segmentCount === 1 ? '' : 's'}`,
+      this.wrap(
+        `${recording.id}  ${transcript.language}  ${segmentCount} segment${segmentCount === 1 ? '' : 's'}`,
+      ),
     );
   }
 
   public skipped(recording: Recording): void {
-    log.warn(`${recording.id}  already transcribed (use --force)`);
+    log.warn(this.wrap(`${recording.id}  already transcribed (use --force)`));
   }
 
   public nothingToTranscribe(): void {
-    log.info('Nothing to transcribe.');
+    log.info(this.wrap('Nothing to transcribe.'));
   }
 
   public emptyLibrary(): void {
-    log.info('The library is empty. Add something with "laud import".');
+    log.info(this.wrap('The library is empty. Add something with "laud import".'));
   }
 
   public recordings(rows: readonly RecordingRow[]): void {
@@ -103,7 +113,7 @@ export class PrettyUi implements Ui {
       // borders and keep the data: one recording per gutter line, which
       // reads correctly at any width.
       for (const cell of cells) {
-        log.message(cell.filter((value) => value !== '').join('  '));
+        log.message(this.wrap(cell.filter((value) => value !== '').join('  ')));
       }
       return;
     }
@@ -124,6 +134,44 @@ export class PrettyUi implements Ui {
   }
 
   /**
+   * Columns available to a line's own text once clack's gutter -- the
+   * three-column symbol-plus-spaces prefix (`|  `, or the frame's
+   * top/bottom corner in `frame`) it draws on every line -- is
+   * subtracted. `columns` defaults to `Infinity` for the "unbounded" case
+   * a unit test wants, and that stays `Infinity` here too: there is no
+   * terminal to overflow, so nothing needs wrapping.
+   */
+  private get textWidth(): number {
+    return this.columns - GUTTER_WIDTH;
+  }
+
+  /**
+   * Wraps `text` so every line it produces fits within `textWidth`, then
+   * indents every line after the first by `indent` columns so a
+   * continuation lines up under a column of the caller's choosing rather
+   * than restarting at the gutter -- which is what the terminal itself
+   * does, with no knowledge of the gutter, if this class hands it a line
+   * that does not already fit. Wrapping is hard, not soft: a path or a
+   * version string has no spaces to break at, and a soft wrap would let
+   * exactly that kind of token overflow instead of wrapping it.
+   */
+  private wrap(text: string, indent = 0): string {
+    if (!Number.isFinite(this.textWidth)) {
+      return text;
+    }
+    const width = Math.max(1, this.textWidth - indent);
+    const wrapped = wrapAnsi(text, width, { hard: true });
+    if (indent === 0) {
+      return wrapped;
+    }
+    const pad = ' '.repeat(indent);
+    return wrapped
+      .split('\n')
+      .map((line, index) => (index === 0 ? line : `${pad}${line}`))
+      .join('\n');
+  }
+
+  /**
    * Whether the bordered table fits the terminal. Measured from the real
    * content with `string-width`, not `String.length`, because a CJK glyph
    * occupies two columns and this tool is deliberately multilingual --
@@ -137,24 +185,35 @@ export class PrettyUi implements Ui {
     // Each column costs its content plus two spaces of padding and one
     // border, and the table closes with a final border.
     const required = widths.reduce((total, width) => total + width + 3, 1);
-    return required <= this.columns - GUTTER_WIDTH;
+    return required <= this.textWidth;
   }
 
   public checks(checks: readonly Check[]): void {
-    // One multi-line message, not one call per check: clack puts a gutter
-    // spacer between separate log calls, which doubles the height of a
-    // seven-item checklist. Lines inside a single message stay contiguous.
-    const lines: string[] = [];
     // Pad the names into a column so the details line up and the list can be
     // scanned down rather than read across, the way plain mode does it.
     const nameWidth = Math.max(...checks.map((check) => stringWidth(check.name)));
+    // Display-column width of the fixed "status  name  " prefix before the
+    // detail column: "ok  "/"FAIL" (4) plus two spaces, the padded name, and
+    // two more spaces. A wrapped detail indents by this much so its
+    // continuation lines up under the detail column.
+    const detailIndent = nameWidth + 8;
+    const FIX_PREFIX = '      fix: ';
     for (const check of checks) {
+      // One call per check, each carrying its own symbol: clack draws the
+      // symbol in place of the gutter character, so the status reads down
+      // the frame itself. That is worth the blank gutter line clack puts
+      // between separate calls -- grouping the checks into a single message
+      // would leave one symbol for the whole list.
+      const dot = styleText(check.ok ? 'green' : 'red', DOT);
       const status = check.ok ? styleText('green', 'ok  ') : styleText('red', 'FAIL');
-      lines.push(`${status}  ${check.name.padEnd(nameWidth)}  ${check.detail}`);
+      const detail = this.wrap(check.detail, detailIndent);
+      const lines = [`${status}  ${check.name.padEnd(nameWidth)}  ${detail}`];
       if (!check.ok && check.fix !== undefined) {
-        lines.push(`      fix: ${check.fix}`);
+        // Inside the same message, so it takes a plain gutter and reads as
+        // part of the check above rather than as an entry of its own.
+        lines.push(`${FIX_PREFIX}${this.wrap(check.fix, FIX_PREFIX.length)}`);
       }
+      log.message(lines.join('\n'), { symbol: dot });
     }
-    log.message(lines.join('\n'));
   }
 }

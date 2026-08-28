@@ -15,7 +15,7 @@ export function registerImport(program: Command, context: CliContext): void {
     .option('--notes <text>', 'free-form notes')
     .description('Add recordings to the library')
     .action(async (paths: string[], options: ImportOptions) => {
-      await context.ui.frame('import', async () => {
+      await context.ui.frame('Importing recordings', async () => {
         for (const path of paths) {
           const results = await importPath(
             {
