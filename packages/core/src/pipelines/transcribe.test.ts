@@ -239,33 +239,37 @@ describe('transcribeRecording --multilingual', () => {
   });
 
   it('splits a single span the segmenter could not cut into a language switch', async () => {
-    // Regression test for the bilingual fixture: two clauses spoken back to
-    // back with no measurable pause come back from the segmenter as one
-    // span covering the whole recording. Detecting it as a whole would
-    // report only its first language and silently drop the second -- the
-    // exact bug this feature exists to fix. Subdividing into 5-second
-    // windows before detection gives mergeRuns something to cut on.
+    // Regression test for the bilingual fixture itself: it is 3.46s long,
+    // its two clauses are spoken back to back with no measurable pause, and
+    // the segmenter returns it as one span covering the whole recording.
+    // Detecting it as a whole would report only its first language and
+    // silently drop the second -- the exact bug this feature exists to fix.
+    // At the 2-second default window, this 3.46s span subdivides into two
+    // ~1.73s windows, which is exactly what mergeRuns needs to cut on.
     const d = multilingualDeps({
-      spans: [{ startMs: 0, endMs: 11_000 }],
-      languages: ['en', 'en', 'ru'],
+      spans: [{ startMs: 0, endMs: 3460 }],
+      languages: ['en', 'ru'],
       texts: [
-        [{ startMs: 0, endMs: 7333, text: 'first run text' }],
-        [{ startMs: 0, endMs: 3667, text: 'second run text' }],
+        [{ startMs: 0, endMs: 1730, text: 'I will call you tomorrow morning.' }],
+        [{ startMs: 0, endMs: 1730, text: 'Pozvoni mne segodnya vecherom.' }],
       ],
     });
     const transcript = await transcribeRecording(d, recording, { multilingual: true });
     const segments = await d.store.listSegments(transcript.id);
     expect(segments.map((s) => s.language)).toEqual(['en', 'ru']);
-    expect(segments.map((s) => s.text)).toEqual(['first run text', 'second run text']);
+    expect(segments.map((s) => s.text)).toEqual([
+      'I will call you tomorrow morning.',
+      'Pozvoni mne segodnya vecherom.',
+    ]);
     // The whole-recording span was actually subdivided before detection.
-    expect(d.stt.detectLanguageCalls).toHaveLength(3);
+    expect(d.stt.detectLanguageCalls).toHaveLength(2);
   });
 
   it('sets the transcript language to the longest run by duration', async () => {
     const d = multilingualDeps({
       spans: [
         { startMs: 0, endMs: 1750 },
-        { startMs: 1800, endMs: 6800 },
+        { startMs: 1800, endMs: 3700 },
       ],
       languages: ['en', 'ru'],
     });

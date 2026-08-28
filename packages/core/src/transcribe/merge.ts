@@ -26,12 +26,23 @@ export const MIN_RUN_DURATION_MS = 1500;
  * piece. A voice-activity segmenter cuts on silence; two clauses spoken back
  * to back with no measurable pause come back as a single span covering
  * both, and detecting that span as a whole reports only its first language.
- * Subdividing before detection gives `mergeRuns` something to cut on. Long
- * enough for whisper to judge a language correctly (an earlier probe
- * detected correctly from windows half this length); short enough to
- * localise a switch. One constant, so measuring it later changes one line.
+ * Subdividing before detection gives `mergeRuns` something to cut on.
+ *
+ * Must stay strictly greater than `MIN_RUN_DURATION_MS` (1500ms):
+ * `mergeRuns` absorbs a run shorter than that threshold when both its
+ * neighbours agree with each other, treating it as a mis-detection. A
+ * window at or below `MIN_RUN_DURATION_MS` would make every single-window
+ * run absorbable, deleting a genuine one-window language switch -- exactly
+ * what this feature exists to catch. At 2000ms against 1500ms a
+ * single-window switch survives; at 1000ms it would not. `merge.test.ts`
+ * pins this relationship with an assertion, not just this comment.
+ *
+ * 2000ms: half of the ~3.46s bilingual fixture this feature was built to
+ * fix, matching the window an earlier probe used when it detected each
+ * half's language correctly. One constant, so measuring it later changes
+ * one line -- but check the constraint above before lowering it.
  */
-export const MAX_DETECTION_WINDOW_MS = 5000;
+export const MAX_DETECTION_WINDOW_MS = 2000;
 
 /**
  * Splits any span longer than `windowMs` into windows of at most that

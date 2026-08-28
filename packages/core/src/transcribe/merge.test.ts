@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { mergeRuns, subdivideSpans } from './merge.js';
+import {
+  MAX_DETECTION_WINDOW_MS,
+  MIN_RUN_DURATION_MS,
+  mergeRuns,
+  subdivideSpans,
+} from './merge.js';
 
 const span = (startMs: number, endMs: number, language: string) => ({
   startMs,
@@ -195,5 +200,31 @@ describe('subdivideSpans', () => {
     expect(windows.length).toBe(4);
     expect(windows[1]!.startMs).toBe(5000);
     expect(windows.at(-1)!.endMs).toBe(16_000);
+  });
+
+  it('splits the ~3.46s bilingual fixture length into two ~1.73s windows at the default window', () => {
+    // The regression case: a voice-activity detector returns the whole
+    // bilingual fixture as one span because the two clauses have no
+    // measurable pause between them. Using the real default window (not a
+    // parameter passed by the test) proves the shipped constant, not just
+    // the function, does the right thing here.
+    const windows = subdivideSpans([{ startMs: 0, endMs: 3460 }]);
+    expect(windows).toHaveLength(2);
+    expect(windows[0]!.startMs).toBe(0);
+    expect(windows.at(-1)!.endMs).toBe(3460);
+    for (const w of windows) {
+      const duration = w.endMs - w.startMs;
+      expect(duration).toBeGreaterThan(1600);
+      expect(duration).toBeLessThan(1900);
+    }
+  });
+
+  it('keeps the detection window above the minimum run duration', () => {
+    // If the window were at or below MIN_RUN_DURATION_MS, every
+    // single-window run would be short enough for mergeRuns to absorb as
+    // noise -- deleting exactly the one-window language switch this
+    // feature exists to catch. A comment saying so can be ignored; this
+    // assertion cannot.
+    expect(MAX_DETECTION_WINDOW_MS).toBeGreaterThan(MIN_RUN_DURATION_MS);
   });
 });
