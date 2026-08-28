@@ -4,12 +4,17 @@
     "composite": true,
     "rootDir": "src",
     "outDir": "dist",
-    "noEmit": false
+    "noEmit": false,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
   "include": ["src"],
   "exclude": ["src/**/*.test.ts"],
   "references": [
-    { "path": "../../packages/core/tsconfig.build.json" },
-    { "path": "../../packages/providers/tsconfig.build.json" }
+    {
+      "path": "../../packages/core/tsconfig.build.json"
+    },
+    {
+      "path": "../../packages/providers/tsconfig.build.json"
+    }
   ]
 }

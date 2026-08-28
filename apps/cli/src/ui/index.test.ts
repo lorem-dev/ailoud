@@ -1,27 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { createUi } from './index.js';
-import { PlainUi } from './plain.js';
-import { PrettyUi } from './pretty.js';
+import { createUi, PlainUi, PrettyUi } from './index.js';
 
 describe('createUi', () => {
-  it('selects PrettyUi on a TTY that is wide enough', () => {
-    expect(createUi(() => {}, true, 80)).toBeInstanceOf(PrettyUi);
+  it('picks PrettyUi on a terminal, at any usable width', () => {
+    // The frame, the gutter and the doctor checklist lay out at any width.
+    // Only the `ls` table needs room, and it degrades on its own (see
+    // pretty.test.ts) rather than costing every other command its frame.
+    expect(createUi(() => {}, true, 40)).toBeInstanceOf(PrettyUi);
+    expect(createUi(() => {}, true, 75)).toBeInstanceOf(PrettyUi);
     expect(createUi(() => {}, true, 200)).toBeInstanceOf(PrettyUi);
   });
 
-  it('selects PlainUi when stdout is not a TTY, regardless of width', () => {
+  it('picks PlainUi when stdout is not a terminal', () => {
     expect(createUi(() => {}, false, 200)).toBeInstanceOf(PlainUi);
   });
 
-  it('falls back to PlainUi below the width the pretty layout needs', () => {
-    expect(createUi(() => {}, true, 79)).toBeInstanceOf(PlainUi);
-    expect(createUi(() => {}, true, 1)).toBeInstanceOf(PlainUi);
-  });
-
-  it('falls back to PlainUi when the width is unmeasurable', () => {
-    // An unsized pty reports `columns` as `undefined` or `0` -- clack's own
-    // line-wrapping has nothing sane to divide by at either, and collapses
-    // to one character per line with raw ANSI escapes leaking as text.
+  it('picks PlainUi when the width cannot be measured', () => {
+    // An unsized pty reports 0 or undefined. Clack divides by that width
+    // when wrapping and collapses to one character per line, leaking raw
+    // ANSI escapes as literal text, so plain output is the only safe answer.
     expect(createUi(() => {}, true, undefined)).toBeInstanceOf(PlainUi);
     expect(createUi(() => {}, true, 0)).toBeInstanceOf(PlainUi);
   });

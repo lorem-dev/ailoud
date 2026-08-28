@@ -51,11 +51,15 @@ async function checkBinary(
   binary: string,
   args: readonly string[],
   fix: string,
+  detailOverride?: string,
 ): Promise<Check> {
   try {
     const result = await run(binary, args, { timeoutMs: 10_000 });
     if (result.code !== 0) {
       return { name, ok: false, detail: `exited with code ${result.code}`, fix };
+    }
+    if (detailOverride !== undefined) {
+      return { name, ok: true, detail: detailOverride };
     }
     const output = result.stdout.length > 0 ? result.stdout : result.stderr;
     const firstLine = output.split('\n')[0]?.trim() ?? '';
@@ -130,11 +134,17 @@ async function runChecks(context: CliContext): Promise<Check[]> {
     // whisper-cli binary is available in this environment to confirm that;
     // if a real build exits non-zero for "--help" instead, this check will
     // report a working binary as failing.
+    // Reported by the configured value, not by the command's first output
+    // line: whisper-cli prints backend chatter ("load_backend: loaded BLAS
+    // backend from ...") on stderr and nothing on stdout, for --help and
+    // --version alike, so there is no version string to show. The value the
+    // user configured is what they need to see anyway.
     await checkBinary(
       'whisper binary',
       config.stt.whisperCpp.binary,
       ['--help'],
       'brew install whisper-cpp',
+      config.stt.whisperCpp.binary,
     ),
     await checkModel(paths.configFile, config.stt.whisperCpp.model),
     await checkConfigFile(paths.configFile),

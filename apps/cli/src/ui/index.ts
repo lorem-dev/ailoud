@@ -7,28 +7,21 @@ export { PlainUi } from './plain.js';
 export { PrettyUi } from './pretty.js';
 
 /**
- * Below this width, `PrettyUi`'s `ls` table (id, duration, lang, and a
- * preview column) cannot lay out without wrapping mid-word -- and at an
- * unmeasurable width (`columns` undefined or 0, e.g. an unsized pty),
- * clack's own line-wrapping has nothing sane to divide by and collapses
- * to one character per line, leaking raw ANSI escapes as literal text.
- * Plain output stays correct and readable at any width, including zero,
- * so narrow or unmeasured terminals fall back to it instead of risking
- * that collapse.
- */
-const MIN_PRETTY_WIDTH = 80;
-
-/**
- * Picks the UI implementation for this process: `PrettyUi` on a real,
- * wide-enough terminal, `PlainUi` otherwise. `isTTY` and `columns` default
- * to the live checks so production code gets the real answer without
- * having to pass them, while tests can pin either explicitly.
+ * Picks the UI implementation for this process.
+ *
+ * `PrettyUi` needs a real terminal and a width it can divide by: at an
+ * unmeasurable width (`columns` undefined or 0, as an unsized pty reports)
+ * clack's line wrapping collapses to one character per line and leaks raw
+ * ANSI escapes as literal text. Any other width is fine -- the frame, the
+ * gutter and the checklist lay out at 40 columns as happily as at 200, and
+ * the one component that genuinely needs room, the `ls` table, narrows
+ * itself instead of costing every other command its frame.
  */
 export function createUi(
   write: (line: string) => void,
   isTTY: boolean = process.stdout.isTTY === true,
   columns: number | undefined = process.stdout.columns,
 ): Ui {
-  const wideEnough = typeof columns === 'number' && columns >= MIN_PRETTY_WIDTH;
-  return isTTY && wideEnough ? new PrettyUi() : new PlainUi(write);
+  const measurable = typeof columns === 'number' && columns > 0;
+  return isTTY && measurable ? new PrettyUi(columns) : new PlainUi(write);
 }
