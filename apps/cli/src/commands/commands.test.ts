@@ -78,6 +78,27 @@ describe('laud transcribe', () => {
     expect(ctx.lines[1]).toBe('ID001  ru  1 segment');
   });
 
+  it('--multilingual reaches the pipeline instead of the single-pass path', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
+    // The default fake provider does not support language detection, so
+    // the multilingual pipeline (packages/core/src/pipelines/transcribe.ts)
+    // refuses with its own, distinct error as soon as it checks
+    // capabilities -- proof that --multilingual reached transcribeRecording
+    // and took the multilingual branch, not the single-pass one.
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'laud', 'transcribe', '--multilingual']),
+    ).rejects.toThrow(/cannot detect a language/);
+  });
+
+  it('without --multilingual, transcribe takes the single-pass path', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'transcribe']);
+    expect(ctx.segmenterInstances).toHaveLength(0);
+    expect(ctx.lines[1]).toBe('ID001  ru  1 segment');
+  });
+
   it('fails on a mix of known and unknown ids without transcribing the known one', async () => {
     const ctx = context();
     await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);

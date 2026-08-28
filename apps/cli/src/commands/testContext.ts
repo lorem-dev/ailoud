@@ -1,8 +1,9 @@
-import type { TranscriptionProvider } from '@laud/core';
+import type { SpeechSegmenter, TranscriptionProvider } from '@laud/core';
 import {
   FakeAudioTool,
   FakeClock,
   FakeIds,
+  FakeSegmenter,
   FakeStt,
   InMemoryStore,
   MemFs,
@@ -21,17 +22,28 @@ export const FIXTURE_PATH = '/in/a.mp3';
  * 14's brief, for Task 15's as well, so its shape is depended on beyond
  * this task.
  */
-export function context(): CliContext & { lines: string[]; sttInstances: FakeStt[] } {
+export function context(): CliContext & {
+  lines: string[];
+  sttInstances: FakeStt[];
+  segmenterInstances: FakeSegmenter[];
+} {
   const lines: string[] = [];
   const sttInstances: FakeStt[] = [];
+  const segmenterInstances: FakeSegmenter[] = [];
   const write = (line: string): void => {
     lines.push(line);
   };
   return {
     lines,
     sttInstances,
+    segmenterInstances,
     paths: { configFile: '/c', dataDir: '/d', dbFile: '/d/laud.db', mediaRoot: '/d/media' },
-    config: { stt: { provider: 'whisper-cpp', whisperCpp: { binary: 'w', model: '/m.bin' } } },
+    config: {
+      stt: {
+        provider: 'whisper-cpp',
+        whisperCpp: { binary: 'w', model: '/m.bin', vadBinary: 'wv', vadModel: '/vad.bin' },
+      },
+    },
     store: new InMemoryStore(),
     fs: new MemFs({ [FIXTURE_PATH]: 'AUDIO' }),
     audio: new FakeAudioTool(3200),
@@ -50,6 +62,11 @@ export function context(): CliContext & { lines: string[]; sttInstances: FakeStt
       });
       sttInstances.push(stt);
       return stt;
+    },
+    createSegmenter: (): SpeechSegmenter => {
+      const segmenter = new FakeSegmenter([{ startMs: 0, endMs: 1500 }]);
+      segmenterInstances.push(segmenter);
+      return segmenter;
     },
   };
 }

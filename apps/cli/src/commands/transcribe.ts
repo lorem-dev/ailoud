@@ -6,6 +6,7 @@ interface TranscribeOptions {
   readonly sttLang: string;
   readonly model?: string;
   readonly force?: boolean;
+  readonly multilingual?: boolean;
 }
 
 export function registerTranscribe(program: Command, context: CliContext): void {
@@ -15,6 +16,10 @@ export function registerTranscribe(program: Command, context: CliContext): void 
     .option('--stt-lang <code>', 'spoken language, or "auto" to detect', 'auto')
     .option('--model <name>', 'override the configured model')
     .option('--force', 're-transcribe recordings that already have a transcript')
+    .option(
+      '--multilingual',
+      'segment the recording by speech and language, and transcribe each language run separately',
+    )
     .description('Turn recordings into transcripts')
     .action(async (ids: string[], options: TranscribeOptions) => {
       await context.ui.frame('transcribe', async () => {
@@ -49,6 +54,7 @@ export function registerTranscribe(program: Command, context: CliContext): void 
         }
 
         const stt = context.createStt();
+        const segmenter = options.multilingual === true ? context.createSegmenter() : undefined;
         for (const recording of recordings) {
           if (options.force !== true) {
             const existing = await context.store.latestTranscript(recording.id);
@@ -67,11 +73,13 @@ export function registerTranscribe(program: Command, context: CliContext): void 
                 clock: context.clock,
                 ids: context.ids,
                 mediaRoot: context.paths.mediaRoot,
+                ...(segmenter === undefined ? {} : { segmenter }),
               },
               recording,
               {
                 ...(options.sttLang === 'auto' ? {} : { language: options.sttLang }),
                 ...(options.model === undefined ? {} : { model: options.model }),
+                ...(options.multilingual === true ? { multilingual: true } : {}),
               },
             ),
           );

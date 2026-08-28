@@ -17,6 +17,8 @@ const ConfigSchema = z.object({
         .object({
           binary: z.string().default('whisper-cli'),
           model: z.string().nullable().default(null),
+          vadBinary: z.string().default('whisper-vad-speech-segments'),
+          vadModel: z.string().nullable().default(null),
         })
         .prefault({}),
     })

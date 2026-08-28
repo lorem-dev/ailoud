@@ -83,6 +83,54 @@ async function checkModel(configFile: string, modelPath: string | null): Promise
   }
 }
 
+/**
+ * Mirrors checkModel, but for the VAD model that --multilingual needs. Kept
+ * separate rather than parameterizing checkModel: "not configured" (the key
+ * is null) and "missing" (the key names a path with nothing there) are
+ * different problems with different fixes, and folding this into checkModel
+ * would blur the config key and fix text the message names.
+ */
+async function checkVadModel(configFile: string, vadModelPath: string | null): Promise<Check> {
+  const name = 'vad model';
+  const fix =
+    `Set "stt.whisperCpp.vadModel" in ${configFile} to the path of a whisper VAD model ` +
+    'file (e.g. ggml-silero-v5.1.2.bin).';
+  if (vadModelPath === null) {
+    return { name, ok: false, detail: 'not configured', fix };
+  }
+  try {
+    await access(vadModelPath, constants.F_OK);
+    return { name, ok: true, detail: vadModelPath };
+  } catch {
+    return { name, ok: false, detail: `missing: ${vadModelPath}`, fix };
+  }
+}
+
+/**
+ * Checks the VAD segmenter binary. Draws the same distinction checkBinary's
+ * caller does for the whisper binary, but made explicit here: a bare
+ * command name that is not found on PATH is a different problem, with a
+ * different fix, from a configured path that plain does not exist on disk.
+ * checkBinary alone cannot tell those apart -- spawn() reports ENOENT for
+ * both -- so a configured path (one containing a separator) is checked
+ * against the filesystem first.
+ */
+async function checkVadBinary(configFile: string, vadBinary: string): Promise<Check> {
+  const name = 'vad binary';
+  const fix =
+    `Set "stt.whisperCpp.vadBinary" in ${configFile} to the path of the ` +
+    'whisper-vad-speech-segments binary, or install whisper-cpp (brew install whisper-cpp) ' +
+    'so it is on PATH.';
+  if (vadBinary.includes('/')) {
+    try {
+      await access(vadBinary, constants.F_OK);
+    } catch {
+      return { name, ok: false, detail: `configured path does not exist: ${vadBinary}`, fix };
+    }
+  }
+  return checkBinary(name, vadBinary, ['--help'], fix, vadBinary);
+}
+
 /** Absent is `ok`: with no config file, defaults apply and that is normal on a first run. */
 async function checkConfigFile(configFile: string): Promise<Check> {
   const name = 'config file';
@@ -147,6 +195,8 @@ async function runChecks(context: CliContext): Promise<Check[]> {
       config.stt.whisperCpp.binary,
     ),
     await checkModel(paths.configFile, config.stt.whisperCpp.model),
+    await checkVadModel(paths.configFile, config.stt.whisperCpp.vadModel),
+    await checkVadBinary(paths.configFile, config.stt.whisperCpp.vadBinary),
     await checkConfigFile(paths.configFile),
     checkDatabase(context),
     await checkMediaRoot(paths.mediaRoot),

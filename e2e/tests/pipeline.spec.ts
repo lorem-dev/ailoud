@@ -131,11 +131,17 @@ describe('laud end-to-end', () => {
     // placeholder file is enough to satisfy that half of the check. The
     // whisper binary check still shells out to whisper-cli for real --
     // on a machine without it, this is exactly where the suite is
-    // expected to go red, naming the fix ("brew install whisper-cpp").
+    // expected to go red, naming the fix ("brew install whisper-cpp"). The
+    // same goes for the VAD model and the whisper-vad-speech-segments
+    // binary, which Homebrew installs alongside whisper-cli.
     const modelPath = join(sandbox.home, 'fake-model.bin');
-    await sandbox.writeConfig(`stt:\n  whisperCpp:\n    model: ${modelPath}\n`);
+    const vadModelPath = join(sandbox.home, 'fake-vad-model.bin');
+    await sandbox.writeConfig(
+      `stt:\n  whisperCpp:\n    model: ${modelPath}\n    vadModel: ${vadModelPath}\n`,
+    );
     await sandbox.run(['import', EN_WAV]); // ensures dataDir exists; irrelevant to this check
     await writeFile(modelPath, 'not a real ggml model, just needs to exist\n', 'utf8');
+    await writeFile(vadModelPath, 'not a real vad model, just needs to exist\n', 'utf8');
 
     const result = await sandbox.run(['doctor']);
     expect(result.code).toBe(0);

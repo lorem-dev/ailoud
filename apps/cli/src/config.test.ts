@@ -30,7 +30,15 @@ describe('resolvePaths', () => {
 describe('parseConfig', () => {
   it('returns defaults when there is no config file', () => {
     expect(parseConfig(null)).toEqual({
-      stt: { provider: 'whisper-cpp', whisperCpp: { binary: 'whisper-cli', model: null } },
+      stt: {
+        provider: 'whisper-cpp',
+        whisperCpp: {
+          binary: 'whisper-cli',
+          model: null,
+          vadBinary: 'whisper-vad-speech-segments',
+          vadModel: null,
+        },
+      },
     });
   });
 
@@ -38,12 +46,47 @@ describe('parseConfig', () => {
     const config = parseConfig(
       'stt:\n  provider: whisper-cpp\n  whisperCpp:\n    binary: /opt/whisper\n    model: /m/base.bin\n',
     );
-    expect(config.stt.whisperCpp).toEqual({ binary: '/opt/whisper', model: '/m/base.bin' });
+    expect(config.stt.whisperCpp).toEqual({
+      binary: '/opt/whisper',
+      model: '/m/base.bin',
+      vadBinary: 'whisper-vad-speech-segments',
+      vadModel: null,
+    });
+  });
+
+  it('reads the vad binary and model', () => {
+    const config = parseConfig(
+      'stt:\n  whisperCpp:\n    vadBinary: /opt/whisper-vad\n    vadModel: /m/silero.bin\n',
+    );
+    expect(config.stt.whisperCpp).toEqual({
+      binary: 'whisper-cli',
+      model: null,
+      vadBinary: '/opt/whisper-vad',
+      vadModel: '/m/silero.bin',
+    });
   });
 
   it('defaults whisperCpp fields when only provider is given', () => {
     const config = parseConfig('stt:\n  provider: whisper-cpp\n');
-    expect(config.stt.whisperCpp).toEqual({ binary: 'whisper-cli', model: null });
+    expect(config.stt.whisperCpp).toEqual({
+      binary: 'whisper-cli',
+      model: null,
+      vadBinary: 'whisper-vad-speech-segments',
+      vadModel: null,
+    });
+  });
+
+  it('still defaults vadModel and vadBinary when only stt.whisperCpp.model is set', () => {
+    // Regression guard for the .prefault({}) requirement documented above
+    // ConfigSchema: a config that mentions only one leaf of whisperCpp must
+    // not lose the other leaves' own defaults.
+    const config = parseConfig('stt:\n  whisperCpp:\n    model: /m/base.bin\n');
+    expect(config.stt.whisperCpp).toEqual({
+      binary: 'whisper-cli',
+      model: '/m/base.bin',
+      vadBinary: 'whisper-vad-speech-segments',
+      vadModel: null,
+    });
   });
 
   it('names the offending key when the shape is wrong', () => {

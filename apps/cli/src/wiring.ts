@@ -5,6 +5,7 @@ import type {
   Fs,
   Ids,
   ManagedRecordingStore,
+  SpeechSegmenter,
   TranscriptionProvider,
 } from '@laud/core';
 import { EnvironmentError } from '@laud/core';
@@ -14,6 +15,7 @@ import {
   SystemClock,
   UlidIds,
   WhisperCppProvider,
+  WhisperVadSegmenter,
   openStore,
 } from '@laud/providers';
 import { parseConfig, resolvePaths } from './config.js';
@@ -48,6 +50,16 @@ export interface CliContext {
    * model is missing.
    */
   createStt(): TranscriptionProvider;
+  /**
+   * Builds the VAD speech segmenter on demand, for the same reason
+   * `createStt` does: `createContext` runs before every command, including
+   * `doctor`, whose job is to report that the VAD model is missing without
+   * dying while constructing the very thing it is reporting on.
+   * `transcribe --multilingual` is the command that actually needs a
+   * segmenter, so it is the one that pays for this call failing when the
+   * model is missing.
+   */
+  createSegmenter(): SpeechSegmenter;
 }
 
 async function readConfigFile(path: string): Promise<string | null> {
@@ -85,6 +97,19 @@ export async function createContext(
         );
       }
       return new WhisperCppProvider({ binary: config.stt.whisperCpp.binary, modelPath: model });
+    },
+    createSegmenter(): SpeechSegmenter {
+      const vadModel = config.stt.whisperCpp.vadModel;
+      if (vadModel === null) {
+        throw new EnvironmentError(
+          `The whisper VAD model is not configured. Set "stt.whisperCpp.vadModel" in ` +
+            `${paths.configFile} to the path of a VAD model file; run "laud doctor" for details.`,
+        );
+      }
+      return new WhisperVadSegmenter({
+        binary: config.stt.whisperCpp.vadBinary,
+        vadModelPath: vadModel,
+      });
     },
   };
 }

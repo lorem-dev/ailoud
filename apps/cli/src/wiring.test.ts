@@ -51,6 +51,54 @@ describe('createContext', () => {
     }
   });
 
+  it('succeeds on a fresh machine, even though stt.whisperCpp.vadModel is unconfigured', async () => {
+    const home = await tempHome();
+    const context = await createContext({ HOME: home }, () => {});
+    try {
+      expect(context.config.stt.whisperCpp.vadModel).toBeNull();
+    } finally {
+      context.store.close();
+    }
+  });
+
+  it('defers the missing-vad-model failure to createSegmenter() instead of throwing eagerly', async () => {
+    const home = await tempHome();
+    const context = await createContext({ HOME: home }, () => {});
+    try {
+      expect(() => context.createSegmenter()).toThrow(EnvironmentError);
+      expect(() => context.createSegmenter()).toThrow(/stt\.whisperCpp\.vadModel/);
+    } finally {
+      context.store.close();
+    }
+  });
+
+  it('names the config file path in the createSegmenter() failure', async () => {
+    const home = await tempHome();
+    const context = await createContext({ HOME: home }, () => {});
+    try {
+      expect(() => context.createSegmenter()).toThrow(
+        new RegExp(context.paths.configFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      );
+    } finally {
+      context.store.close();
+    }
+  });
+
+  it('builds a working segmenter once the vad model is configured', async () => {
+    const home = await tempHome();
+    await mkdir(join(home, '.config', 'laud'), { recursive: true });
+    await writeFile(
+      join(home, '.config', 'laud', 'config.yaml'),
+      'stt:\n  whisperCpp:\n    model: /models/base.bin\n    vadModel: /models/silero.bin\n',
+    );
+    const context = await createContext({ HOME: home }, () => {});
+    try {
+      expect(() => context.createSegmenter()).not.toThrow();
+    } finally {
+      context.store.close();
+    }
+  });
+
   it('creates the media root on disk', async () => {
     const home = await tempHome();
     const context = await createContext({ HOME: home }, () => {});

@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { EnvironmentError, FailureError, UsageError } from '@laud/core';
-import { FakeAudioTool, FakeClock, FakeIds, FakeStt, MemFs } from '@laud/core/testing';
+import {
+  FakeAudioTool,
+  FakeClock,
+  FakeIds,
+  FakeSegmenter,
+  FakeStt,
+  MemFs,
+} from '@laud/core/testing';
 import { SqliteStore } from '@laud/providers';
 import { buildProgram, exitCodeFor } from './program.js';
 import type { CliContext } from './wiring.js';
@@ -101,7 +108,15 @@ describe('buildProgram', () => {
         mediaRoot: '/fake/data/media',
       },
       config: {
-        stt: { provider: 'whisper-cpp', whisperCpp: { binary: 'whisper-cli', model: null } },
+        stt: {
+          provider: 'whisper-cpp',
+          whisperCpp: {
+            binary: 'whisper-cli',
+            model: null,
+            vadBinary: 'whisper-vad-speech-segments',
+            vadModel: null,
+          },
+        },
       },
       store,
       fs: new MemFs(),
@@ -111,6 +126,7 @@ describe('buildProgram', () => {
       write,
       ui: new PlainUi(write),
       createStt: () => new FakeStt({ language: 'en', model: 'fake', segments: [] }),
+      createSegmenter: () => new FakeSegmenter([{ startMs: 0, endMs: 1000 }]),
     };
   }
 
