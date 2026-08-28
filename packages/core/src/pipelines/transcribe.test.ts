@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { RawSegment, Recording } from '../domain/model.js';
-import type { TranscriptionProvider } from '../domain/ports.js';
+import type { SpeechSpan, TranscriptionProvider } from '../domain/ports.js';
 import {
   FakeAudioTool,
   FakeClock,
   FakeIds,
+  FakeSegmenter,
   FakeStt,
   InMemoryStore,
   MemFs,
@@ -120,5 +121,173 @@ describe('transcribeRecording', () => {
   it('rejects a provider that returns no segments', async () => {
     const d = { ...deps(), stt: new FakeStt({ language: 'ru', model: 'b', segments: [] }) };
     await expect(transcribeRecording(d, recording, {})).rejects.toThrow(/no speech/);
+  });
+});
+
+interface MultilingualScenario {
+  readonly spans?: readonly SpeechSpan[];
+  readonly languages?: readonly string[];
+  readonly texts?: ReadonlyArray<readonly RawSegment[]>;
+  readonly supportsLanguageDetection?: boolean;
+}
+
+/** Deps for the multilingual path: a segmenter, a queue of detected languages, and one transcribe result per run. */
+function multilingualDeps(scenario: MultilingualScenario) {
+  const spans = scenario.spans ?? [{ startMs: 0, endMs: 1750 }];
+  const languages = scenario.languages ?? ['en'];
+  const texts =
+    scenario.texts ??
+    spans.map((span, i) => [{ startMs: 0, endMs: span.endMs - span.startMs, text: `run ${i}` }]);
+  const results = texts.map((segments, i) => ({
+    language: languages[i] ?? 'en',
+    model: 'base.bin',
+    segments: [...segments],
+  }));
+  const fs = new MemFs({ '/data/media/sh/sha-AUDIO.mp3': 'AUDIO' });
+  return {
+    fs,
+    store: new InMemoryStore(),
+    audio: new FakeAudioTool(60_000, fs),
+    stt: new FakeStt(
+      results,
+      { supportsLanguageDetection: scenario.supportsLanguageDetection ?? true },
+      languages,
+    ),
+    segmenter: new FakeSegmenter(spans),
+    clock: new FakeClock(),
+    ids: new FakeIds(),
+    mediaRoot: '/data/media',
+  };
+}
+
+describe('transcribeRecording --multilingual', () => {
+  it('transcribes each language run with its own language', async () => {
+    const d = multilingualDeps({
+      spans: [
+        { startMs: 0, endMs: 1750 },
+        { startMs: 1800, endMs: 3430 },
+      ],
+      languages: ['en', 'ru'],
+      texts: [
+        [{ startMs: 0, endMs: 1750, text: 'I will call you tomorrow morning.' }],
+        [{ startMs: 0, endMs: 1630, text: 'Pozvoni mne segodnya vecherom.' }],
+      ],
+    });
+    const transcript = await transcribeRecording(d, recording, { multilingual: true });
+    const segments = await d.store.listSegments(transcript.id);
+    expect(segments.map((s) => s.language)).toEqual(['en', 'ru']);
+    expect(segments.map((s) => s.text)).toEqual([
+      'I will call you tomorrow morning.',
+      'Pozvoni mne segodnya vecherom.',
+    ]);
+  });
+
+  it('shifts each run timestamps back into absolute positions', async () => {
+    // The second run's whisper output starts at zero because whisper only
+    // saw that slice. Storing it unshifted would stack both runs on top of
+    // each other at the start of the recording.
+    const d = multilingualDeps({
+      spans: [
+        { startMs: 0, endMs: 1750 },
+        { startMs: 1800, endMs: 3430 },
+      ],
+      languages: ['en', 'ru'],
+      texts: [
+        [{ startMs: 0, endMs: 1750, text: 'first' }],
+        [{ startMs: 0, endMs: 1630, text: 'second' }],
+      ],
+    });
+    const transcript = await transcribeRecording(d, recording, { multilingual: true });
+    const segments = await d.store.listSegments(transcript.id);
+    expect(segments[1]!.startMs).toBeGreaterThanOrEqual(1750);
+  });
+
+  it('refuses a provider that cannot detect a language', async () => {
+    const d = multilingualDeps({ supportsLanguageDetection: false });
+    await expect(transcribeRecording(d, recording, { multilingual: true })).rejects.toThrow(
+      /detect/i,
+    );
+  });
+
+  it('refuses when no segmenter was wired', async () => {
+    const d = { ...multilingualDeps({}), segmenter: undefined };
+    await expect(transcribeRecording(d, recording, { multilingual: true })).rejects.toThrow(
+      /segmenter|multilingual/i,
+    );
+  });
+
+  it('leaves the single-pass path untouched without the flag', async () => {
+    const d = multilingualDeps({});
+    await transcribeRecording(d, recording, {});
+    expect(d.segmenter.calls).toHaveLength(0);
+  });
+
+  it('removes every temporary slice it created', async () => {
+    const d = multilingualDeps({
+      spans: [
+        { startMs: 0, endMs: 1750 },
+        { startMs: 1800, endMs: 3430 },
+      ],
+      languages: ['en', 'ru'],
+    });
+    const filesBefore = d.fs.files.size;
+    await transcribeRecording(d, recording, { multilingual: true });
+    // The fake allocates slices through fs.tempFile, which does not name
+    // them "run-*"; asserting on names would pass even if cleanup were
+    // broken. The file count is the real assertion: nothing is left behind.
+    expect(d.fs.files.size).toBeLessThanOrEqual(filesBefore);
+  });
+
+  it('splits a single span the segmenter could not cut into a language switch', async () => {
+    // Regression test for the bilingual fixture: two clauses spoken back to
+    // back with no measurable pause come back from the segmenter as one
+    // span covering the whole recording. Detecting it as a whole would
+    // report only its first language and silently drop the second -- the
+    // exact bug this feature exists to fix. Subdividing into 5-second
+    // windows before detection gives mergeRuns something to cut on.
+    const d = multilingualDeps({
+      spans: [{ startMs: 0, endMs: 11_000 }],
+      languages: ['en', 'en', 'ru'],
+      texts: [
+        [{ startMs: 0, endMs: 7333, text: 'first run text' }],
+        [{ startMs: 0, endMs: 3667, text: 'second run text' }],
+      ],
+    });
+    const transcript = await transcribeRecording(d, recording, { multilingual: true });
+    const segments = await d.store.listSegments(transcript.id);
+    expect(segments.map((s) => s.language)).toEqual(['en', 'ru']);
+    expect(segments.map((s) => s.text)).toEqual(['first run text', 'second run text']);
+    // The whole-recording span was actually subdivided before detection.
+    expect(d.stt.detectLanguageCalls).toHaveLength(3);
+  });
+
+  it('sets the transcript language to the longest run by duration', async () => {
+    const d = multilingualDeps({
+      spans: [
+        { startMs: 0, endMs: 1750 },
+        { startMs: 1800, endMs: 6800 },
+      ],
+      languages: ['en', 'ru'],
+    });
+    const transcript = await transcribeRecording(d, recording, { multilingual: true });
+    expect(transcript.language).toBe('ru');
+  });
+
+  it('refuses when the segmenter finds no speech', async () => {
+    const d = multilingualDeps({ spans: [], languages: [] });
+    await expect(transcribeRecording(d, recording, { multilingual: true })).rejects.toThrow(
+      /no speech/,
+    );
+  });
+
+  it('refuses when every run transcribes to no segments', async () => {
+    const d = multilingualDeps({
+      spans: [{ startMs: 0, endMs: 1750 }],
+      languages: ['en'],
+      texts: [[]],
+    });
+    await expect(transcribeRecording(d, recording, { multilingual: true })).rejects.toThrow(
+      /no speech/,
+    );
   });
 });

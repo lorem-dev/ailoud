@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeRuns } from './merge.js';
+import { mergeRuns, subdivideSpans } from './merge.js';
 
 const span = (startMs: number, endMs: number, language: string) => ({
   startMs,
@@ -138,5 +138,62 @@ describe('mergeRuns', () => {
     expect(ruRun).toBeDefined();
     expect(ruRun!.startMs).toBe(10_100);
     expect(ruRun!.endMs).toBe(12_250);
+  });
+});
+
+describe('subdivideSpans', () => {
+  it('passes a span shorter than the window through untouched', () => {
+    const spans = [{ startMs: 100, endMs: 4000 }];
+    expect(subdivideSpans(spans, 5000)).toEqual(spans);
+  });
+
+  it('does not split a span exactly the window length', () => {
+    const spans = [{ startMs: 0, endMs: 5000 }];
+    expect(subdivideSpans(spans, 5000)).toEqual(spans);
+  });
+
+  it('splits a span slightly longer than the window into two', () => {
+    const windows = subdivideSpans([{ startMs: 0, endMs: 5001 }], 5000);
+    expect(windows).toHaveLength(2);
+    expect(windows[0]!.startMs).toBe(0);
+    expect(windows[1]!.endMs).toBe(5001);
+    expect(windows[0]!.endMs).toBe(windows[1]!.startMs);
+  });
+
+  it('splits a long span into equal-ish windows covering it with no gap or overlap', () => {
+    const windows = subdivideSpans([{ startMs: 1000, endMs: 14_000 }], 5000);
+    expect(windows).toHaveLength(3);
+    expect(windows[0]!.startMs).toBe(1000);
+    expect(windows.at(-1)!.endMs).toBe(14_000);
+    for (let i = 1; i < windows.length; i += 1) {
+      expect(windows[i]!.startMs).toBe(windows[i - 1]!.endMs);
+    }
+    for (const w of windows) {
+      expect(w.endMs - w.startMs).toBeLessThanOrEqual(5000);
+    }
+  });
+
+  it('does not leave the last window a sliver', () => {
+    // 10001ms over a 5000ms window would be two windows of 5000 and 1 if
+    // sliced greedily; equal-ish division keeps both close to half.
+    const windows = subdivideSpans([{ startMs: 0, endMs: 10_001 }], 5000);
+    expect(windows).toHaveLength(3);
+    for (const w of windows) {
+      expect(w.endMs - w.startMs).toBeGreaterThan(3000);
+    }
+  });
+
+  it('leaves multiple spans independent', () => {
+    const windows = subdivideSpans(
+      [
+        { startMs: 0, endMs: 4000 },
+        { startMs: 5000, endMs: 16_000 },
+      ],
+      5000,
+    );
+    expect(windows[0]).toEqual({ startMs: 0, endMs: 4000 });
+    expect(windows.length).toBe(4);
+    expect(windows[1]!.startMs).toBe(5000);
+    expect(windows.at(-1)!.endMs).toBe(16_000);
   });
 });

@@ -5,6 +5,8 @@ import type {
   Ids,
   ManagedRecordingStore,
   RecordingListFilter,
+  SpeechSegmenter,
+  SpeechSpan,
   TempFile,
   TranscriptionProvider,
 } from '../domain/ports.js';
@@ -79,8 +81,13 @@ export class MemFs implements Fs {
 
 export class FakeAudioTool implements AudioTool {
   readonly converted: Array<[string, string]> = [];
+  /** Every slice() call this fake was given, in call order. */
+  readonly sliced: Array<{ input: string; output: string; startMs: number; endMs: number }> = [];
 
-  constructor(private readonly durationMs = 60_000) {}
+  constructor(
+    private readonly durationMs = 60_000,
+    private readonly fs?: MemFs,
+  ) {}
 
   async probe(): Promise<{ durationMs: number }> {
     return { durationMs: this.durationMs };
@@ -88,9 +95,11 @@ export class FakeAudioTool implements AudioTool {
   async toWav16kMono(input: string, output: string): Promise<void> {
     this.converted.push([input, output]);
   }
-  // Task 6 fills this in with a real fake implementation.
-  async slice(): Promise<void> {
-    throw new Error('FakeAudioTool.slice is not implemented yet');
+  async slice(input: string, output: string, startMs: number, endMs: number): Promise<void> {
+    this.sliced.push({ input, output, startMs, endMs });
+    // Really creates the output in the fake filesystem, so cleanup after the
+    // slice is used can be observed rather than trivially true.
+    if (this.fs !== undefined) this.fs.files.set(output, `slice:${input}:${startMs}-${endMs}`);
   }
 }
 
@@ -99,11 +108,27 @@ export class FakeStt implements TranscriptionProvider {
   readonly capabilities: TranscriptionProvider['capabilities'];
   /** Every opts object this fake was called with, in call order. */
   readonly calls: Array<{ readonly language?: string; readonly model?: string }> = [];
+  /** Every audio path handed to transcribe(), in call order. */
+  readonly transcribePaths: string[] = [];
+  /** Every audio path handed to detectLanguage(), in call order. */
+  readonly detectLanguageCalls: string[] = [];
+
+  private readonly results: ReadonlyArray<{
+    language: string;
+    model: string;
+    segments: RawSegment[];
+  }>;
+  private readonly languageQueue: string[];
 
   constructor(
-    private readonly result: { language: string; model: string; segments: RawSegment[] },
+    result:
+      | { language: string; model: string; segments: RawSegment[] }
+      | ReadonlyArray<{ language: string; model: string; segments: RawSegment[] }>,
     capabilities?: Partial<TranscriptionProvider['capabilities']>,
+    detectedLanguages: readonly string[] = [],
   ) {
+    this.results = Array.isArray(result) ? result : [result];
+    this.languageQueue = [...detectedLanguages];
     this.capabilities = {
       maxBytes: null,
       supportsDiarization: false,
@@ -114,11 +139,34 @@ export class FakeStt implements TranscriptionProvider {
   }
 
   async transcribe(
-    _audioPath: string,
+    audioPath: string,
     opts: { readonly language?: string; readonly model?: string },
   ): Promise<{ language: string; model: string; segments: RawSegment[] }> {
+    this.transcribePaths.push(audioPath);
+    const result = this.results[this.calls.length] ?? this.results.at(-1);
     this.calls.push(opts);
-    return this.result;
+    if (result === undefined) throw new Error('FakeStt has no canned result to return');
+    return result;
+  }
+
+  /** Returns languages from the queue passed at construction, in order. */
+  async detectLanguage(audioPath: string): Promise<string> {
+    this.detectLanguageCalls.push(audioPath);
+    const language = this.languageQueue.shift();
+    if (language === undefined) throw new Error('FakeStt.detectLanguage queue is exhausted');
+    return language;
+  }
+}
+
+export class FakeSegmenter implements SpeechSegmenter {
+  /** Every audio path this fake was asked to segment, in call order. */
+  readonly calls: string[] = [];
+
+  constructor(private readonly spans: readonly SpeechSpan[]) {}
+
+  async segments(audioPath: string): Promise<SpeechSpan[]> {
+    this.calls.push(audioPath);
+    return [...this.spans];
   }
 }
 

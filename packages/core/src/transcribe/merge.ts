@@ -21,6 +21,54 @@ export interface LanguageRun {
  */
 export const MIN_RUN_DURATION_MS = 1500;
 
+/**
+ * The longest a span may be before language detection runs on it as one
+ * piece. A voice-activity segmenter cuts on silence; two clauses spoken back
+ * to back with no measurable pause come back as a single span covering
+ * both, and detecting that span as a whole reports only its first language.
+ * Subdividing before detection gives `mergeRuns` something to cut on. Long
+ * enough for whisper to judge a language correctly (an earlier probe
+ * detected correctly from windows half this length); short enough to
+ * localise a switch. One constant, so measuring it later changes one line.
+ */
+export const MAX_DETECTION_WINDOW_MS = 5000;
+
+/**
+ * Splits any span longer than `windowMs` into windows of at most that
+ * length, so per-window language detection has something to key a switch
+ * on even when the segmenter returned one span for a whole recording. A
+ * span no longer than the window passes through untouched. A longer span is
+ * divided into equal-ish windows that exactly cover it -- not window-sized
+ * pieces with a short remainder tacked on the end, which would make the
+ * last window's detection unreliable.
+ */
+export function subdivideSpans(
+  spans: readonly SpeechSpan[],
+  windowMs: number = MAX_DETECTION_WINDOW_MS,
+): SpeechSpan[] {
+  const result: SpeechSpan[] = [];
+  for (const span of spans) {
+    const duration = span.endMs - span.startMs;
+    if (duration <= windowMs) {
+      result.push(span);
+      continue;
+    }
+
+    const windowCount = Math.ceil(duration / windowMs);
+    const windowDuration = duration / windowCount;
+    let start = span.startMs;
+    for (let i = 0; i < windowCount; i += 1) {
+      // The last window ends exactly at span.endMs rather than at a rounded
+      // boundary, so rounding drift cannot leave a gap or an overlap.
+      const end =
+        i === windowCount - 1 ? span.endMs : span.startMs + Math.round((i + 1) * windowDuration);
+      result.push({ startMs: start, endMs: end });
+      start = end;
+    }
+  }
+  return result;
+}
+
 interface IntermediateRun {
   readonly startMs: number;
   readonly endMs: number;
