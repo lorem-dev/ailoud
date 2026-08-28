@@ -1,0 +1,71 @@
+import { formatTimestamp } from '@laud/core';
+import type { Recording, Transcript } from '@laud/core';
+import type { Check, RecordingRow, Ui } from './types.js';
+
+/** Width of the leading "ok"/"FAIL" column in `checks()`, including its trailing padding. */
+const STATUS_WIDTH = 6;
+/** Width of the check-name column in `checks()`, including its trailing padding. */
+const NAME_WIDTH = 22;
+
+/**
+ * Reproduces today's output byte for byte: every line below is exactly
+ * what the commands used to build and pass to `context.out` before this
+ * module existed. This is the implementation the end-to-end suite always
+ * exercises, because it always runs through a pipe (`process.stdout.isTTY`
+ * is false there), so nothing in `e2e/tests/pipeline.spec.ts` needed to
+ * change for this UI layer to land.
+ */
+export class PlainUi implements Ui {
+  public constructor(private readonly write: (line: string) => void) {}
+
+  public imported(recording: Recording, alreadyPresent: boolean): void {
+    this.write(
+      `${recording.id}  ${alreadyPresent ? 'already present' : 'imported'}  ${recording.sourcePath}`,
+    );
+  }
+
+  public async transcribing<T>(_recording: Recording, task: () => Promise<T>): Promise<T> {
+    // No progress output while the work runs: whisper.cpp already prints
+    // nothing on its own, and the plain path must match that silence.
+    return task();
+  }
+
+  public transcribed(recording: Recording, transcript: Transcript, segmentCount: number): void {
+    this.write(
+      `${recording.id}  ${transcript.language}  ${segmentCount} segment${segmentCount === 1 ? '' : 's'}`,
+    );
+  }
+
+  public skipped(recording: Recording): void {
+    this.write(`${recording.id}  already transcribed (use --force)`);
+  }
+
+  public nothingToTranscribe(): void {
+    this.write('Nothing to transcribe.');
+  }
+
+  public emptyLibrary(): void {
+    this.write('The library is empty. Add something with "laud import".');
+  }
+
+  public recordings(rows: readonly RecordingRow[]): void {
+    for (const row of rows) {
+      const duration = formatTimestamp(row.durationMs, 'short');
+      // A recording with no transcript yet (right after import, before
+      // transcribe) still gets a row; its language and preview columns
+      // just come out empty. trimEnd keeps that row from trailing off
+      // into blank columns nobody can see.
+      this.write(`${row.id}  ${duration}  ${row.language ?? ''}  ${row.preview}`.trimEnd());
+    }
+  }
+
+  public checks(checks: readonly Check[]): void {
+    for (const check of checks) {
+      const status = (check.ok ? 'ok' : 'FAIL').padEnd(STATUS_WIDTH);
+      this.write(`${status}${check.name.padEnd(NAME_WIDTH)}${check.detail}`);
+      if (!check.ok && check.fix !== undefined) {
+        this.write(`${' '.repeat(STATUS_WIDTH)}fix: ${check.fix}`);
+      }
+    }
+  }
+}

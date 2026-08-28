@@ -32,9 +32,7 @@ export function registerImport(program: Command, context: CliContext): void {
           },
         );
         for (const { recording, alreadyPresent } of results) {
-          context.out(
-            `${recording.id}  ${alreadyPresent ? 'already present' : 'imported'}  ${recording.sourcePath}`,
-          );
+          context.ui.imported(recording, alreadyPresent);
         }
       }
     });

@@ -4,6 +4,7 @@ import { FakeAudioTool, FakeClock, FakeIds, FakeStt, MemFs } from '@laud/core/te
 import { SqliteStore } from '@laud/providers';
 import { buildProgram, exitCodeFor } from './program.js';
 import type { CliContext } from './wiring.js';
+import { PlainUi } from './ui/plain.js';
 
 describe('exitCodeFor', () => {
   it('maps each domain error to its documented code', () => {
@@ -89,7 +90,7 @@ describe('buildProgram', () => {
     for (const store of stores.splice(0)) store.close();
   });
 
-  function makeContext(out: (line: string) => void = () => {}): CliContext {
+  function makeContext(write: (line: string) => void = () => {}): CliContext {
     const store = SqliteStore.open(':memory:');
     stores.push(store);
     return {
@@ -107,7 +108,8 @@ describe('buildProgram', () => {
       audio: new FakeAudioTool(),
       clock: new FakeClock(),
       ids: new FakeIds(),
-      out,
+      write,
+      ui: new PlainUi(write),
       createStt: () => new FakeStt({ language: 'en', model: 'fake', segments: [] }),
     };
   }
@@ -133,7 +135,7 @@ describe('buildProgram', () => {
     expect(exitCodeFor(error)).toBe(2);
   });
 
-  it('writes help text through context.out and maps it to exit code 0 end to end', async () => {
+  it('writes help text through context.write and maps it to exit code 0 end to end', async () => {
     const lines: string[] = [];
     const program = buildProgram(makeContext((line) => lines.push(line)));
     const error: unknown = await program

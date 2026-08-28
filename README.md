@@ -85,6 +85,12 @@ laud --help
 The binary is `laud` below, once linked onto your `PATH` as shown above.
 Every command exits non-zero on failure.
 
+Human-facing output is decorated -- left gutter, status glyphs, a spinner
+while `transcribe` waits on whisper.cpp -- whenever stdout is a real
+terminal, and plain otherwise. Pipe any command (`laud ls | cat`, or into a
+file or another program) and it drops the decoration automatically, so
+scripts and `laud ls --json | jq` see the same stable text either way.
+
 Import a file or a directory of audio/video, then transcribe what has no
 transcript yet:
 

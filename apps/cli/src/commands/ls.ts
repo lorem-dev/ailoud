@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
-import { formatTimestamp } from '@laud/core';
 import type { CliContext } from '../wiring.js';
+import type { RecordingRow } from '../ui/index.js';
 
 /** Characters of transcript text shown in the human-readable preview column. */
 const PREVIEW_LENGTH = 60;
@@ -30,10 +30,10 @@ export function registerLs(program: Command, context: CliContext): void {
 
       if (recordings.length === 0) {
         if (options.json === true) {
-          context.out('[]');
+          context.write('[]');
           return;
         }
-        context.out('The library is empty. Add something with "laud import".');
+        context.ui.emptyLibrary();
         return;
       }
 
@@ -63,18 +63,16 @@ export function registerLs(program: Command, context: CliContext): void {
       }
 
       if (options.json === true) {
-        context.out(JSON.stringify(rows));
+        context.write(JSON.stringify(rows));
         return;
       }
 
-      for (const row of rows) {
-        const duration = formatTimestamp(row.durationMs, 'short');
-        const preview = previews.get(row.id) ?? '';
-        // A recording with no transcript yet (right after import, before
-        // transcribe) still gets a row; its language and preview columns
-        // just come out empty. trimEnd keeps that row from trailing off
-        // into blank columns nobody can see.
-        context.out(`${row.id}  ${duration}  ${row.language ?? ''}  ${preview}`.trimEnd());
-      }
+      const displayRows: RecordingRow[] = rows.map((row) => ({
+        id: row.id,
+        durationMs: row.durationMs,
+        language: row.language,
+        preview: previews.get(row.id) ?? '',
+      }));
+      context.ui.recordings(displayRows);
     });
 }

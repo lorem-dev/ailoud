@@ -50,8 +50,10 @@ export function buildProgram(context: CliContext): Command {
     .description('Multilingual audio-to-text with a local recording library')
     .version('0.0.0')
     .exitOverride(); // throw instead of calling process.exit
+  // Commander's own help/version text stays plain in both modes: routed
+  // through context.write, not context.ui, so it is never decorated.
   program.configureOutput({
-    writeOut: (str) => context.out(str.replace(/\n$/, '')),
+    writeOut: (str) => context.write(str.replace(/\n$/, '')),
     writeErr: (str) => process.stderr.write(str),
   });
   registerImport(program, context);

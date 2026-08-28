@@ -9,6 +9,7 @@ import {
 } from '@laud/core/testing';
 import { buildProgram } from '../program.js';
 import type { CliContext } from '../wiring.js';
+import { PlainUi } from '../ui/plain.js';
 
 /** The audio fixture every helper-built recording is imported from. */
 export const FIXTURE_PATH = '/in/a.mp3';
@@ -23,6 +24,9 @@ export const FIXTURE_PATH = '/in/a.mp3';
 export function context(): CliContext & { lines: string[]; sttInstances: FakeStt[] } {
   const lines: string[] = [];
   const sttInstances: FakeStt[] = [];
+  const write = (line: string): void => {
+    lines.push(line);
+  };
   return {
     lines,
     sttInstances,
@@ -33,9 +37,11 @@ export function context(): CliContext & { lines: string[]; sttInstances: FakeStt
     audio: new FakeAudioTool(3200),
     clock: new FakeClock(),
     ids: new FakeIds(),
-    out: (line: string) => {
-      lines.push(line);
-    },
+    write,
+    // PlainUi, not PrettyUi: every command test in this package captures
+    // output through `lines` and asserts on exact strings, the same
+    // property the end-to-end suite leans on when it runs through a pipe.
+    ui: new PlainUi(write),
     createStt: (): TranscriptionProvider => {
       const stt = new FakeStt({
         language: 'ru',

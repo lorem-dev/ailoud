@@ -3,13 +3,9 @@ import type { Command } from 'commander';
 import { EnvironmentError } from '@laud/core';
 import { run } from '@laud/providers';
 import type { CliContext } from '../wiring.js';
+import type { Check } from '../ui/index.js';
 
-export interface Check {
-  readonly name: string;
-  readonly ok: boolean;
-  readonly detail: string;
-  readonly fix?: string;
-}
+export type { Check };
 
 /** Width of the leading "ok"/"FAIL" column, including its trailing padding. */
 const STATUS_WIDTH = 6;
@@ -153,9 +149,8 @@ export function registerDoctor(program: Command, context: CliContext): void {
     .description('Check that the binaries, model, database, and storage laud needs are ready')
     .action(async () => {
       const checks = await runChecks(context);
-      const report = renderReport(checks);
-      for (const line of report.lines) context.out(line);
-      if (!report.ok) {
+      context.ui.checks(checks);
+      if (checks.some((check) => !check.ok)) {
         throw new EnvironmentError('laud is not ready to run: see the failing checks above.');
       }
     });

@@ -18,6 +18,8 @@ import {
 } from '@laud/providers';
 import { parseConfig, resolvePaths } from './config.js';
 import type { LaudConfig, LaudPaths } from './config.js';
+import { createUi } from './ui/index.js';
+import type { Ui } from './ui/index.js';
 
 export interface CliContext {
   readonly paths: LaudPaths;
@@ -27,7 +29,14 @@ export interface CliContext {
   readonly audio: AudioTool;
   readonly clock: Clock;
   readonly ids: Ids;
-  readonly out: (line: string) => void;
+  /**
+   * Raw, undecorated line output: commander's own help/version text, and
+   * the two things that must never be decorated -- JSON (`ls --json`,
+   * `show --format json`) and transcript data (`show`'s text/srt/vtt).
+   * Everything else a command reports goes through `ui` instead.
+   */
+  readonly write: (line: string) => void;
+  readonly ui: Ui;
   /**
    * Builds the transcription provider on demand instead of at context
    * construction. `createContext` runs before every command, including
@@ -51,7 +60,7 @@ async function readConfigFile(path: string): Promise<string | null> {
 
 export async function createContext(
   env: Record<string, string | undefined>,
-  out: (line: string) => void = (line) => process.stdout.write(`${line}\n`),
+  write: (line: string) => void = (line) => process.stdout.write(`${line}\n`),
 ): Promise<CliContext> {
   const paths = resolvePaths(env);
   const raw = await readConfigFile(paths.configFile);
@@ -65,7 +74,8 @@ export async function createContext(
     audio: new FfmpegAudioTool(),
     clock: new SystemClock(),
     ids: new UlidIds(),
-    out,
+    write,
+    ui: createUi(write),
     createStt(): TranscriptionProvider {
       const model = config.stt.whisperCpp.model;
       if (model === null) {

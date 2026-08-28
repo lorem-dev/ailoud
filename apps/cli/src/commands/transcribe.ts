@@ -43,7 +43,7 @@ export function registerTranscribe(program: Command, context: CliContext): void 
         // Only reachable via the default selector: with explicit ids, an
         // empty result means every id was missing, and that already threw
         // above.
-        context.out('Nothing to transcribe.');
+        context.ui.nothingToTranscribe();
         return;
       }
 
@@ -52,30 +52,30 @@ export function registerTranscribe(program: Command, context: CliContext): void 
         if (options.force !== true) {
           const existing = await context.store.latestTranscript(recording.id);
           if (existing !== null) {
-            context.out(`${recording.id}  already transcribed (use --force)`);
+            context.ui.skipped(recording);
             continue;
           }
         }
-        const transcript = await transcribeRecording(
-          {
-            fs: context.fs,
-            store: context.store,
-            audio: context.audio,
-            stt,
-            clock: context.clock,
-            ids: context.ids,
-            mediaRoot: context.paths.mediaRoot,
-          },
-          recording,
-          {
-            ...(options.sttLang === 'auto' ? {} : { language: options.sttLang }),
-            ...(options.model === undefined ? {} : { model: options.model }),
-          },
+        const transcript = await context.ui.transcribing(recording, () =>
+          transcribeRecording(
+            {
+              fs: context.fs,
+              store: context.store,
+              audio: context.audio,
+              stt,
+              clock: context.clock,
+              ids: context.ids,
+              mediaRoot: context.paths.mediaRoot,
+            },
+            recording,
+            {
+              ...(options.sttLang === 'auto' ? {} : { language: options.sttLang }),
+              ...(options.model === undefined ? {} : { model: options.model }),
+            },
+          ),
         );
         const count = (await context.store.listSegments(transcript.id)).length;
-        context.out(
-          `${recording.id}  ${transcript.language}  ${count} segment${count === 1 ? '' : 's'}`,
-        );
+        context.ui.transcribed(recording, transcript, count);
       }
     });
 }

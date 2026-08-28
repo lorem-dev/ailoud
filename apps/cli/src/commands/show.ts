@@ -39,16 +39,16 @@ export function registerShow(program: Command, context: CliContext): void {
 
       switch (options.format as Format) {
         case 'text':
-          context.out(toPlainText(segments));
+          context.write(toPlainText(segments));
           return;
         case 'srt':
-          context.out(toSrt(segments));
+          context.write(toSrt(segments));
           return;
         case 'vtt':
-          context.out(toVtt(segments));
+          context.write(toVtt(segments));
           return;
         case 'json':
-          context.out(JSON.stringify({ recording, transcript, segments }, null, 2));
+          context.write(JSON.stringify({ recording, transcript, segments }, null, 2));
           return;
       }
     });

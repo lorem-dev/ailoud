@@ -7,8 +7,10 @@
     "laud": "./dist/bin/laud.js"
   },
   "dependencies": {
+    "@clack/prompts": "1.7.0",
     "@laud/core": "workspace:*",
     "@laud/providers": "workspace:*",
+    "cli-table3": "0.6.5",
     "commander": "15.0.0",
     "yaml": "2.9.0",
     "zod": "4.4.3"
