@@ -48,3 +48,16 @@ export { toPlainText } from './format/text.js';
 export type { Remedy, InstallTarget } from './provision/remedy.js';
 
 export { installHint } from './provision/remedy.js';
+
+export type { ModelChoice } from './provision/catalogue.js';
+
+export {
+  TRANSCRIPTION_MODELS,
+  VAD_MODEL,
+  DEFAULT_MODEL_NAME,
+  findModel,
+} from './provision/catalogue.js';
+
+export type { Action, PlanOptions } from './provision/plan.js';
+
+export { planProvisioning, planDownloadBytes } from './provision/plan.js';
