@@ -1,4 +1,4 @@
-import type { Recording, Transcript } from '@laud/core';
+import type { Recording, Remedy, Transcript } from '@laud/core';
 
 /**
  * A single row of the human-readable `ls` listing. Distinct from the JSON
@@ -23,6 +23,12 @@ export interface Check {
   readonly ok: boolean;
   readonly detail: string;
   readonly fix?: string;
+  /**
+   * Present when `laud setup` / `doctor --fix` can repair this check
+   * without a human. Absent means the repair needs judgment -- see
+   * `Remedy`'s doc comment.
+   */
+  readonly remedy?: Remedy;
 }
 
 /**

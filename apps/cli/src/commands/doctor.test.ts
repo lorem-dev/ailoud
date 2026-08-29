@@ -2,7 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { checkVadBinary, checkVadModel } from './doctor.js';
+import { context } from './testContext.js';
+import { checkBinary, checkModel, checkVadBinary, checkVadModel, runChecks } from './doctor.js';
 
 // A real temporary directory, not a string literal path: this guarantees
 // the "missing" paths below genuinely do not exist on disk, rather than
@@ -44,5 +45,71 @@ describe('checkVadBinary', () => {
     const check = await checkVadBinary('/c', missing);
     expect(check.ok).toBe(false);
     expect(check.detail).toBe(`configured path does not exist: ${missing}`);
+  });
+});
+
+describe('checkBinary', () => {
+  it('attaches the given remedy to a failing check', async () => {
+    const check = await checkBinary(
+      'thing',
+      'laud-doctor-test-no-such-binary',
+      ['--help'],
+      'install it',
+      undefined,
+      { kind: 'install-ffmpeg' },
+    );
+    expect(check.ok).toBe(false);
+    expect(check.remedy).toEqual({ kind: 'install-ffmpeg' });
+  });
+
+  it('attaches no remedy to a passing check', async () => {
+    // node is guaranteed present in the test environment and exits 0 on
+    // --version, unlike ffmpeg or whisper-cli which this suite cannot
+    // assume are installed.
+    const check = await checkBinary('node', 'node', ['--version'], 'install it', undefined, {
+      kind: 'install-ffmpeg',
+    });
+    expect(check.ok).toBe(true);
+    expect(check.remedy).toBeUndefined();
+  });
+});
+
+describe('checkModel', () => {
+  it('attaches the given remedy to a failing check', async () => {
+    const check = await checkModel('/c', null, {
+      kind: 'download-model',
+      slot: 'transcription',
+    });
+    expect(check.ok).toBe(false);
+    expect(check.remedy).toEqual({ kind: 'download-model', slot: 'transcription' });
+  });
+
+  it('attaches no remedy to a passing check', async () => {
+    // process.execPath is a real file guaranteed to exist on disk, so the
+    // access() check this exercises succeeds without needing a fixture.
+    const check = await checkModel('/c', process.execPath, {
+      kind: 'download-model',
+      slot: 'transcription',
+    });
+    expect(check.ok).toBe(true);
+    expect(check.remedy).toBeUndefined();
+  });
+});
+
+describe('runChecks', () => {
+  it('gives Linux users apt for ffmpeg, and never attaches a remedy to the database check', async () => {
+    // Cleared so the ffmpeg check fails deterministically -- otherwise this
+    // test's result would depend on whether ffmpeg happens to be installed
+    // on the machine running the suite, and the fix text this test reads
+    // is only present on a failing check.
+    const originalPath = process.env['PATH'];
+    process.env['PATH'] = '';
+    try {
+      const checks = await runChecks(context(), 'linux');
+      expect(checks.find((c) => c.name === 'ffmpeg')?.fix).toBe('sudo apt-get install ffmpeg');
+      expect(checks.find((c) => c.name === 'database')?.remedy).toBeUndefined();
+    } finally {
+      process.env['PATH'] = originalPath;
+    }
   });
 });

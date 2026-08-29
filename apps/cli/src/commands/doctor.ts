@@ -1,6 +1,7 @@
 import { access, constants, stat } from 'node:fs/promises';
 import type { Command } from 'commander';
-import { EnvironmentError } from '@laud/core';
+import { EnvironmentError, installHint } from '@laud/core';
+import type { Remedy } from '@laud/core';
 import { run } from '@laud/providers';
 import type { CliContext } from '../wiring.js';
 import type { Check } from '../ui/index.js';
@@ -19,17 +20,18 @@ function summarizeRunFailure(error: unknown): string {
   return message.includes('was not found on PATH') ? 'not found on PATH' : message;
 }
 
-async function checkBinary(
+export async function checkBinary(
   name: string,
   binary: string,
   args: readonly string[],
   fix: string,
   detailOverride?: string,
+  remedy?: Remedy,
 ): Promise<Check> {
   try {
     const result = await run(binary, args, { timeoutMs: 10_000 });
     if (result.code !== 0) {
-      return { name, ok: false, detail: `exited with code ${result.code}`, fix };
+      return { name, ok: false, detail: `exited with code ${result.code}`, fix, remedy };
     }
     if (detailOverride !== undefined) {
       return { name, ok: true, detail: detailOverride };
@@ -38,21 +40,25 @@ async function checkBinary(
     const firstLine = output.split('\n')[0]?.trim() ?? '';
     return { name, ok: true, detail: firstLine };
   } catch (error) {
-    return { name, ok: false, detail: summarizeRunFailure(error), fix };
+    return { name, ok: false, detail: summarizeRunFailure(error), fix, remedy };
   }
 }
 
-async function checkModel(configFile: string, modelPath: string | null): Promise<Check> {
+export async function checkModel(
+  configFile: string,
+  modelPath: string | null,
+  remedy?: Remedy,
+): Promise<Check> {
   const name = 'whisper model';
   const fix = `Set "stt.whisperCpp.model" in ${configFile} to the path of a whisper.cpp model file.`;
   if (modelPath === null) {
-    return { name, ok: false, detail: 'not configured', fix };
+    return { name, ok: false, detail: 'not configured', fix, remedy };
   }
   try {
     await access(modelPath, constants.F_OK);
     return { name, ok: true, detail: modelPath };
   } catch {
-    return { name, ok: false, detail: `file not found: ${modelPath}`, fix };
+    return { name, ok: false, detail: `file not found: ${modelPath}`, fix, remedy };
   }
 }
 
@@ -66,19 +72,20 @@ async function checkModel(configFile: string, modelPath: string | null): Promise
 export async function checkVadModel(
   configFile: string,
   vadModelPath: string | null,
+  remedy?: Remedy,
 ): Promise<Check> {
   const name = 'vad model';
   const fix =
     `Set "stt.whisperCpp.vadModel" in ${configFile} to the path of a whisper VAD model ` +
     'file (e.g. ggml-silero-v5.1.2.bin).';
   if (vadModelPath === null) {
-    return { name, ok: false, detail: 'not configured', fix };
+    return { name, ok: false, detail: 'not configured', fix, remedy };
   }
   try {
     await access(vadModelPath, constants.F_OK);
     return { name, ok: true, detail: vadModelPath };
   } catch {
-    return { name, ok: false, detail: `missing: ${vadModelPath}`, fix };
+    return { name, ok: false, detail: `missing: ${vadModelPath}`, fix, remedy };
   }
 }
 
@@ -91,7 +98,11 @@ export async function checkVadModel(
  * both -- so a configured path (one containing a separator) is checked
  * against the filesystem first.
  */
-export async function checkVadBinary(configFile: string, vadBinary: string): Promise<Check> {
+export async function checkVadBinary(
+  configFile: string,
+  vadBinary: string,
+  remedy?: Remedy,
+): Promise<Check> {
   const name = 'vad binary';
   const fix =
     `Set "stt.whisperCpp.vadBinary" in ${configFile} to the path of the ` +
@@ -101,10 +112,16 @@ export async function checkVadBinary(configFile: string, vadBinary: string): Pro
     try {
       await access(vadBinary, constants.F_OK);
     } catch {
-      return { name, ok: false, detail: `configured path does not exist: ${vadBinary}`, fix };
+      return {
+        name,
+        ok: false,
+        detail: `configured path does not exist: ${vadBinary}`,
+        fix,
+        remedy,
+      };
     }
   }
-  return checkBinary(name, vadBinary, ['--help'], fix, vadBinary);
+  return checkBinary(name, vadBinary, ['--help'], fix, vadBinary, remedy);
 }
 
 /** Absent is `ok`: with no config file, defaults apply and that is normal on a first run. */
@@ -133,26 +150,55 @@ function checkDatabase(context: CliContext): Check {
   };
 }
 
-async function checkMediaRoot(mediaRoot: string): Promise<Check> {
+async function checkMediaRoot(mediaRoot: string, remedy?: Remedy): Promise<Check> {
   const name = 'media root';
   const fix = `Create ${mediaRoot} and make sure laud's user can write to it.`;
   try {
     const info = await stat(mediaRoot);
     if (!info.isDirectory()) {
-      return { name, ok: false, detail: `${mediaRoot} exists but is not a directory`, fix };
+      return { name, ok: false, detail: `${mediaRoot} exists but is not a directory`, fix, remedy };
     }
     await access(mediaRoot, constants.W_OK);
     return { name, ok: true, detail: mediaRoot };
   } catch {
-    return { name, ok: false, detail: `${mediaRoot} does not exist or is not writable`, fix };
+    return {
+      name,
+      ok: false,
+      detail: `${mediaRoot} does not exist or is not writable`,
+      fix,
+      remedy,
+    };
   }
 }
 
-async function runChecks(context: CliContext): Promise<Check[]> {
+/**
+ * `platform` defaults to `process.platform` so callers never have to think
+ * about it, and is a parameter (rather than read directly from
+ * `process.platform` inline) so tests can pin the fix text a check reports
+ * without mocking the process global.
+ */
+export async function runChecks(
+  context: CliContext,
+  platform: NodeJS.Platform = process.platform,
+): Promise<Check[]> {
   const { config, paths } = context;
   return [
-    await checkBinary('ffmpeg', 'ffmpeg', ['-version'], 'brew install ffmpeg'),
-    await checkBinary('ffprobe', 'ffprobe', ['-version'], 'brew install ffmpeg'),
+    await checkBinary(
+      'ffmpeg',
+      'ffmpeg',
+      ['-version'],
+      installHint('ffmpeg', platform),
+      undefined,
+      { kind: 'install-ffmpeg' },
+    ),
+    await checkBinary(
+      'ffprobe',
+      'ffprobe',
+      ['-version'],
+      installHint('ffmpeg', platform),
+      undefined,
+      { kind: 'install-ffmpeg' },
+    ),
     // NOT VERIFIED AGAINST A REAL BUILD: this assumes whisper-cli exits 0 on
     // "--help", the same way ffmpeg and ffprobe do on "-version". No
     // whisper-cli binary is available in this environment to confirm that;
@@ -167,18 +213,27 @@ async function runChecks(context: CliContext): Promise<Check[]> {
       'whisper binary',
       config.stt.whisperCpp.binary,
       ['--help'],
-      'brew install whisper-cpp',
+      installHint('whisper', platform),
       config.stt.whisperCpp.binary,
+      { kind: 'install-whisper' },
     ),
-    await checkModel(paths.configFile, config.stt.whisperCpp.model),
+    await checkModel(paths.configFile, config.stt.whisperCpp.model, {
+      kind: 'download-model',
+      slot: 'transcription',
+    }),
     // Binary before model for both whisper and VAD, matching the order
     // README.md documents: keeping the two pairs in the same shape stops
     // the code and the docs from silently drifting onto different orders.
-    await checkVadBinary(paths.configFile, config.stt.whisperCpp.vadBinary),
-    await checkVadModel(paths.configFile, config.stt.whisperCpp.vadModel),
+    await checkVadBinary(paths.configFile, config.stt.whisperCpp.vadBinary, {
+      kind: 'install-whisper',
+    }),
+    await checkVadModel(paths.configFile, config.stt.whisperCpp.vadModel, {
+      kind: 'download-model',
+      slot: 'vad',
+    }),
     await checkConfigFile(paths.configFile),
     checkDatabase(context),
-    await checkMediaRoot(paths.mediaRoot),
+    await checkMediaRoot(paths.mediaRoot, { kind: 'create-directory', path: paths.mediaRoot }),
   ];
 }
 
