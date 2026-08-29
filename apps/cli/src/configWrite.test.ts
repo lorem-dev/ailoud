@@ -1,6 +1,14 @@
-import { describe, expect, it } from 'vitest';
-import { applyConfigUpdates } from './configWrite.js';
+import { chmod, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { UsageError } from '@laud/core';
+import { applyConfigUpdates, writeConfigUpdates } from './configWrite.js';
 import { parseConfig } from './config.js';
+
+function escapeRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 describe('applyConfigUpdates', () => {
   it('creates a well-formed config from nothing', () => {
@@ -61,5 +69,100 @@ describe('applyConfigUpdates', () => {
     const out = applyConfigUpdates('', { binary: '/opt/whisper-cli' });
     const parsed = parseConfig(out);
     expect(parsed.stt.whisperCpp.binary).toBe('/opt/whisper-cli');
+  });
+});
+
+describe('writeConfigUpdates', () => {
+  const dirs: string[] = [];
+
+  afterEach(async () => {
+    for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true });
+  });
+
+  async function tempDir(): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'laud-configwrite-'));
+    dirs.push(dir);
+    return dir;
+  }
+
+  it('creates a fresh file when none exists yet (ENOENT)', async () => {
+    const dir = await tempDir();
+    const target = join(dir, 'config.yaml');
+    await writeConfigUpdates(target, { model: '/m.bin' });
+    const parsed = parseConfig(await readFile(target, 'utf8'));
+    expect(parsed.stt.whisperCpp.model).toBe('/m.bin');
+  });
+
+  it('leaves no .tmp file behind after a successful write', async () => {
+    const dir = await tempDir();
+    const target = join(dir, 'config.yaml');
+    await writeConfigUpdates(target, { model: '/m.bin' });
+    expect(await readdir(dir)).toEqual(['config.yaml']);
+  });
+
+  it('propagates a non-ENOENT read failure and does not write', async () => {
+    const dir = await tempDir();
+    const target = join(dir, 'config.yaml');
+    const original = 'stt:\n  whisperCpp:\n    model: /kept.bin\n';
+    await writeFile(target, original, 'utf8');
+    await chmod(target, 0o000);
+    try {
+      // A permission problem must surface as one, not collapse to "no config
+      // file yet" and overwrite a file this call was never able to inspect.
+      await expect(writeConfigUpdates(target, { model: '/new.bin' })).rejects.toThrow();
+    } finally {
+      await chmod(target, 0o644); // restore read access so cleanup can inspect/remove it
+    }
+    expect(await readFile(target, 'utf8')).toBe(original);
+    expect(await readdir(dir)).toEqual(['config.yaml']);
+  });
+
+  it('leaves a file with unrelated YAML errors untouched', async () => {
+    const dir = await tempDir();
+    const target = join(dir, 'config.yaml');
+    // The broken part (an unclosed flow sequence) is a sibling of stt, not on
+    // the path being edited, so setIn succeeds; toString() must still refuse
+    // to serialize a document that carries parse errors, so nothing is ever
+    // written over this half-edited file.
+    const broken = 'stt:\n  whisperCpp:\n    model: /old.bin\nbad: [unclosed\n';
+    await writeFile(target, broken, 'utf8');
+    await expect(writeConfigUpdates(target, { model: '/new.bin' })).rejects.toThrow();
+    expect(await readFile(target, 'utf8')).toBe(broken);
+    expect(await readdir(dir)).toEqual(['config.yaml']);
+  });
+
+  it('refuses to clobber "stt" when it already holds a scalar, naming the file and key', async () => {
+    const dir = await tempDir();
+    const target = join(dir, 'config.yaml');
+    const source = 'stt: not-a-mapping\n';
+    await writeFile(target, source, 'utf8');
+    await expect(writeConfigUpdates(target, { model: '/new.bin' })).rejects.toThrow(
+      new RegExp(`${escapeRegExp(target)}.*stt\\.whisperCpp\\.model`, 's'),
+    );
+    expect(await readFile(target, 'utf8')).toBe(source);
+    expect(await readdir(dir)).toEqual(['config.yaml']);
+  });
+
+  it('refuses to clobber "stt" when it already holds a list', async () => {
+    const dir = await tempDir();
+    const target = join(dir, 'config.yaml');
+    const source = 'stt:\n  - a\n  - b\n';
+    await writeFile(target, source, 'utf8');
+    await expect(writeConfigUpdates(target, { model: '/new.bin' })).rejects.toThrow(UsageError);
+    expect(await readFile(target, 'utf8')).toBe(source);
+    expect(await readdir(dir)).toEqual(['config.yaml']);
+  });
+
+  it.each([
+    ['a colon-space in the path', '/data/models: v2'],
+    ['a leading # in the path', '/data/#models'],
+    ['a directory literally named "yes"', '/data/yes'],
+    ['a directory literally named "1.0"', '/data/1.0'],
+  ])('round-trips a path with %s through the real parser', async (_label, value) => {
+    const dir = await tempDir();
+    const target = join(dir, 'config.yaml');
+    await writeConfigUpdates(target, { model: value });
+    const parsed = parseConfig(await readFile(target, 'utf8'));
+    expect(parsed.stt.whisperCpp.model).toBe(value);
   });
 });
