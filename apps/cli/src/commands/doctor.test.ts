@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { context } from './testContext.js';
 import { checkBinary, checkModel, checkVadBinary, checkVadModel, runChecks } from './doctor.js';
 
@@ -45,6 +45,14 @@ describe('checkVadBinary', () => {
     const check = await checkVadBinary('/c', missing);
     expect(check.ok).toBe(false);
     expect(check.detail).toBe(`configured path does not exist: ${missing}`);
+  });
+
+  it('gives different fix text on darwin and linux, and never suggests brew on linux', async () => {
+    const missing = join(dir, 'no-such-vad-binary');
+    const darwin = await checkVadBinary('/c', missing, 'darwin');
+    const linux = await checkVadBinary('/c', missing, 'linux');
+    expect(darwin.fix).not.toBe(linux.fix);
+    expect(linux.fix).not.toContain('brew');
   });
 });
 
@@ -101,15 +109,16 @@ describe('runChecks', () => {
     // Cleared so the ffmpeg check fails deterministically -- otherwise this
     // test's result would depend on whether ffmpeg happens to be installed
     // on the machine running the suite, and the fix text this test reads
-    // is only present on a failing check.
-    const originalPath = process.env['PATH'];
-    process.env['PATH'] = '';
+    // is only present on a failing check. vi.stubEnv/unstubAllEnvs (rather
+    // than a manual save/restore) is what keeps this safe if the file is
+    // ever run with concurrent tests.
+    vi.stubEnv('PATH', '');
     try {
       const checks = await runChecks(context(), 'linux');
       expect(checks.find((c) => c.name === 'ffmpeg')?.fix).toBe('sudo apt-get install ffmpeg');
       expect(checks.find((c) => c.name === 'database')?.remedy).toBeUndefined();
     } finally {
-      process.env['PATH'] = originalPath;
+      vi.unstubAllEnvs();
     }
   });
 });

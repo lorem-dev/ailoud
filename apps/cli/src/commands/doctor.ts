@@ -101,12 +101,13 @@ export async function checkVadModel(
 export async function checkVadBinary(
   configFile: string,
   vadBinary: string,
+  platform: NodeJS.Platform = process.platform,
   remedy?: Remedy,
 ): Promise<Check> {
   const name = 'vad binary';
   const fix =
     `Set "stt.whisperCpp.vadBinary" in ${configFile} to the path of the ` +
-    'whisper-vad-speech-segments binary, or install whisper-cpp (brew install whisper-cpp) ' +
+    `whisper-vad-speech-segments binary, or install whisper-cpp (${installHint('whisper', platform)}) ` +
     'so it is on PATH.';
   if (vadBinary.includes('/')) {
     try {
@@ -224,7 +225,7 @@ export async function runChecks(
     // Binary before model for both whisper and VAD, matching the order
     // README.md documents: keeping the two pairs in the same shape stops
     // the code and the docs from silently drifting onto different orders.
-    await checkVadBinary(paths.configFile, config.stt.whisperCpp.vadBinary, {
+    await checkVadBinary(paths.configFile, config.stt.whisperCpp.vadBinary, platform, {
       kind: 'install-whisper',
     }),
     await checkVadModel(paths.configFile, config.stt.whisperCpp.vadModel, {
