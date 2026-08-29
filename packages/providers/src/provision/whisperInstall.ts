@@ -26,7 +26,15 @@ export function whisperTarballUrl(platform: NodeJS.Platform, arch: string): stri
     throw new FailureError(`no prebuilt whisper.cpp tarball is published for ${platform}`);
   }
   if (arch !== 'x64' && arch !== 'arm64') {
-    throw new FailureError(`no prebuilt whisper.cpp tarball is published for ${arch}`);
+    // Name the way out, not just the obstacle: only x64 and arm64 Linux
+    // builds are published, so a user on anything else has no automated
+    // route at all and needs to know that building it themselves is the
+    // supported answer rather than a workaround.
+    throw new FailureError(
+      `no prebuilt whisper.cpp tarball is published for ${arch}; build whisper.cpp from ` +
+        'source and set "stt.whisperCpp.binary" and "stt.whisperCpp.vadBinary" to the ' +
+        'resulting binaries',
+    );
   }
   return `${RELEASES}/${WHISPER_TAG}/whisper-bin-ubuntu-${arch}.tar.gz`;
 }
