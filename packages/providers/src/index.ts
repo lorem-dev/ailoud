@@ -9,6 +9,9 @@ export type { PackageManager, InstallCommand, BinaryProbe } from './provision/pa
 export { downloadFile } from './provision/download.js';
 export type { DownloadOptions } from './provision/download.js';
 
+export { WHISPER_TAG, whisperTarballUrl, installWhisper } from './provision/whisperInstall.js';
+export type { InstallWhisperOptions, WhisperPaths } from './provision/whisperInstall.js';
+
 export { NodeFs } from './system/nodeFs.js';
 export { SystemClock, UlidIds } from './system/systemClock.js';
 
