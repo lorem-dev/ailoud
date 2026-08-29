@@ -69,3 +69,31 @@ export function run(
     });
   });
 }
+
+/**
+ * Runs a command with the parent's stdio, so anything it prints -- including
+ * a sudo password prompt -- reaches the real terminal. run() above buffers
+ * output instead, which is exactly wrong here: the prompt would vanish into
+ * a buffer and the user would stare at a hung terminal.
+ *
+ * Returns the exit code rather than throwing on a non-zero one: a failed
+ * install is a reportable outcome for provisioning, not an exception --
+ * one failed action must not abandon the rest of the plan.
+ */
+export function runInteractive(command: string, args: readonly string[]): Promise<number> {
+  return new Promise((resolve, reject) => {
+    // shell: false for the same reason as run() above: these paths come
+    // from user input, and a shell would interpret them.
+    const child = spawn(command, [...args], { shell: false, stdio: 'inherit' });
+
+    child.on('error', (error) => {
+      reject(
+        new EnvironmentError(
+          `could not run "${command}": ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+    });
+
+    child.on('close', (code) => resolve(code ?? 1));
+  });
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EnvironmentError, FailureError } from '@laud/core';
-import { run } from './run.js';
+import { run, runInteractive } from './run.js';
 
 describe('run', () => {
   it('captures stdout and the exit code', async () => {
@@ -28,5 +28,21 @@ describe('run', () => {
     await expect(
       run('node', ['-e', 'setTimeout(() => {}, 10000)'], { timeoutMs: 200 }),
     ).rejects.toThrow(/timed out/);
+  });
+});
+
+describe('runInteractive', () => {
+  it('resolves with the exit code on success', async () => {
+    expect(await runInteractive('node', ['-e', 'process.exit(0)'])).toBe(0);
+  });
+
+  it('resolves with the exit code rather than throwing on failure', async () => {
+    // A failed install is a reportable outcome for the provisioning plan,
+    // not an exception -- one failed action must not abandon the rest.
+    expect(await runInteractive('node', ['-e', 'process.exit(3)'])).toBe(3);
+  });
+
+  it('reports a missing binary as an EnvironmentError', async () => {
+    await expect(runInteractive('laud-no-such-binary', [])).rejects.toThrow(EnvironmentError);
   });
 });

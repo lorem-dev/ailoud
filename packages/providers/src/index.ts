@@ -1,7 +1,10 @@
 export { SqliteStore, openStore } from './store/sqliteStore.js';
 
-export { run } from './process/run.js';
+export { run, runInteractive } from './process/run.js';
 export type { RunResult, RunOptions } from './process/run.js';
+
+export { detectPackageManager, ffmpegInstallCommand } from './provision/packageManager.js';
+export type { PackageManager, InstallCommand, BinaryProbe } from './provision/packageManager.js';
 
 export { NodeFs } from './system/nodeFs.js';
 export { SystemClock, UlidIds } from './system/systemClock.js';
