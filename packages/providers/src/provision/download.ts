@@ -54,7 +54,14 @@ export async function downloadFile(
   }
 
   const header = response.headers.get('content-length');
-  const total = header === null ? null : Number(header);
+  // Number('') is 0, not NaN, so an empty header must be rejected by hand
+  // before the numeric check below; a header that is otherwise not a
+  // finite, non-negative number (non-numeric or negative) carries no usable
+  // length either. Treat all of these the same as "no length advertised"
+  // rather than as a total of 0, which would fail every download that
+  // completed fine just because the server sent junk.
+  const parsedHeader = header === null || header.trim() === '' ? NaN : Number(header);
+  const total = Number.isFinite(parsedHeader) && parsedHeader >= 0 ? parsedHeader : null;
   let received = 0;
 
   try {
@@ -66,13 +73,22 @@ export async function downloadFile(
     await pipeline(source, createWriteStream(partPath));
 
     if (total !== null && received !== total) {
+      const direction = received < total ? 'incomplete' : 'longer than advertised';
       throw new FailureError(
-        `download incomplete for ${url}: expected ${total} bytes, received ${received}`,
+        `download ${direction} for ${url}: expected ${total} bytes, received ${received}`,
       );
     }
     await rename(partPath, targetPath);
   } catch (error) {
-    await rm(partPath, { force: true });
+    try {
+      await rm(partPath, { force: true });
+    } catch {
+      // Cleanup failing (e.g. EACCES, EBUSY, a full disk on unlink) must not
+      // replace the original error -- that original is the whole reason
+      // this function exists: the network drop or truncation that explains
+      // why the model is missing. A user seeing an unlink error instead
+      // would have no idea their download actually died.
+    }
     throw error;
   }
 }

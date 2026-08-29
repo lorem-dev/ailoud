@@ -87,4 +87,28 @@ describe('downloadFile', () => {
     });
     expect(seen.at(-1)).toBe(5);
   });
+
+  it('treats an empty content-length header as no length advertised, not a total of 0', async () => {
+    const dir = await tempDir();
+    const target = join(dir, 'model.bin');
+    const seen: (number | null)[] = [];
+    await downloadFile('https://example.test/m', target, {
+      fetchImpl: respond('hello', { 'content-length': '' }),
+      onProgress: (_received, total) => seen.push(total),
+    });
+    expect(await readFile(target, 'utf8')).toBe('hello');
+    expect(seen.at(-1)).toBeNull();
+  });
+
+  it('treats a non-numeric content-length header as no length advertised', async () => {
+    const dir = await tempDir();
+    const target = join(dir, 'model.bin');
+    const seen: (number | null)[] = [];
+    await downloadFile('https://example.test/m', target, {
+      fetchImpl: respond('hello', { 'content-length': 'not-a-number' }),
+      onProgress: (_received, total) => seen.push(total),
+    });
+    expect(await readFile(target, 'utf8')).toBe('hello');
+    expect(seen.at(-1)).toBeNull();
+  });
 });
