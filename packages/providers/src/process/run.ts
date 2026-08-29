@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { constants } from 'node:os';
 import { EnvironmentError, FailureError } from '@laud/core';
 
 export interface RunResult {
@@ -12,6 +13,22 @@ export interface RunOptions {
 }
 
 const DEFAULT_TIMEOUT_MS = 30 * 60_000;
+
+/**
+ * `code` is null exactly when the child died from a signal rather than
+ * exiting on its own -- e.g. a user pressing Ctrl-C at a sudo password
+ * prompt. Collapsing that to a fixed sentinel like -1 or 1 makes "you
+ * cancelled" indistinguishable from "the command genuinely failed with
+ * that exit code", which is the wrong thing to report to someone trying to
+ * understand what just happened. 128 + signal number is the same mapping
+ * shells use (`$?` after a Ctrl-C'd command is 130, i.e. 128 + SIGINT's 2),
+ * so callers get a value that is both unambiguous and already familiar.
+ */
+function exitCodeForClose(code: number | null, signal: NodeJS.Signals | null): number {
+  if (code !== null) return code;
+  if (signal !== null) return 128 + (constants.signals[signal] ?? 0);
+  return -1;
+}
 
 export function run(
   command: string,
@@ -52,7 +69,7 @@ export function run(
       reject(error);
     });
 
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
       clearTimeout(timer);
       if (timedOut) {
         // A timeout is not "the machine is not set up": the binary was
@@ -65,7 +82,7 @@ export function run(
         reject(new FailureError(`${command} timed out after ${timeoutMs} ms and was killed`));
         return;
       }
-      resolve({ code: code ?? -1, stdout, stderr });
+      resolve({ code: exitCodeForClose(code, signal), stdout, stderr });
     });
   });
 }
@@ -79,6 +96,12 @@ export function run(
  * Returns the exit code rather than throwing on a non-zero one: a failed
  * install is a reportable outcome for provisioning, not an exception --
  * one failed action must not abandon the rest of the plan.
+ *
+ * Deliberately has no timeout, unlike run(): a hard bound would kill a
+ * legitimate wait at a password prompt. The consequence is that with
+ * nothing real attached to stdin (no TTY), this can wait indefinitely, so
+ * callers must not invoke it non-interactively -- a later task enforces
+ * that at the call site.
  */
 export function runInteractive(command: string, args: readonly string[]): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -94,6 +117,9 @@ export function runInteractive(command: string, args: readonly string[]): Promis
       );
     });
 
-    child.on('close', (code) => resolve(code ?? 1));
+    // See exitCodeForClose above run(): the same code-vs-signal ambiguity
+    // applies here, and matters more, since Ctrl-C at a sudo prompt is the
+    // expected way a user cancels this specific function.
+    child.on('close', (code, signal) => resolve(exitCodeForClose(code, signal)));
   });
 }
