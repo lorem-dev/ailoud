@@ -6,7 +6,9 @@ import { DEFAULT_MODEL_NAME, VAD_MODEL } from './catalogue.js';
 const opts = { modelName: DEFAULT_MODEL_NAME };
 
 describe('planProvisioning', () => {
-  it('collapses the ffmpeg and ffprobe remedies into one install', () => {
+  it('collapses duplicate ffmpeg remedies into one install', () => {
+    // Two separate doctor checks (one for ffmpeg, one for ffprobe) can both
+    // emit the same install-ffmpeg remedy, so deduplication is essential.
     const remedies: Remedy[] = [{ kind: 'install-ffmpeg' }, { kind: 'install-ffmpeg' }];
     expect(planProvisioning(remedies, opts)).toEqual([{ kind: 'install-ffmpeg' }]);
   });
@@ -58,7 +60,9 @@ describe('planProvisioning', () => {
       { kind: 'create-directory', path: '/a' },
       { kind: 'create-directory', path: '/b' },
     ];
-    expect(planProvisioning(remedies, opts)).toHaveLength(2);
+    const actions = planProvisioning(remedies, opts);
+    expect(actions).toHaveLength(2);
+    expect(actions.map((a) => (a.kind === 'create-directory' ? a.path : ''))).toEqual(['/a', '/b']);
   });
 
   it('returns an empty plan for no remedies', () => {

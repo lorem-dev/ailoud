@@ -1,4 +1,4 @@
-import { FailureError } from '../domain/errors.js';
+import { UsageError } from '../domain/errors.js';
 import type { ModelChoice } from './catalogue.js';
 import { VAD_MODEL, findModel } from './catalogue.js';
 import type { Remedy } from './remedy.js';
@@ -24,22 +24,24 @@ export interface PlanOptions {
  * should land before the models they will be checked against, so that a
  * re-check after a partial run reports the more useful failure.
  */
-const ORDER: readonly Action['kind'][] = [
+const ORDER = [
   'create-directory',
   'install-ffmpeg',
   'install-whisper',
   'download-model',
-];
+] satisfies readonly Action['kind'][];
 
 /** Two remedies are the same job when this key matches. */
 function keyOf(remedy: Remedy): string {
   switch (remedy.kind) {
     case 'create-directory':
       return `create-directory:${remedy.path}`;
+    case 'install-ffmpeg':
+      return 'install-ffmpeg';
+    case 'install-whisper':
+      return 'install-whisper';
     case 'download-model':
       return `download-model:${remedy.slot}`;
-    default:
-      return remedy.kind;
   }
 }
 
@@ -48,7 +50,7 @@ function resolve(remedy: Remedy, options: PlanOptions): Action {
   if (remedy.slot === 'vad') return { ...remedy, model: VAD_MODEL };
   const model = findModel(options.modelName);
   if (model === undefined) {
-    throw new FailureError(
+    throw new UsageError(
       `unknown model "${options.modelName}"; run "laud setup" without --model to choose one`,
     );
   }
