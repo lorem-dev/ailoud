@@ -1,7 +1,8 @@
 import type { Command } from 'commander';
 import type { CliContext } from '../wiring.js';
 import type { RecordingRow } from '../ui/index.js';
-import { languageLabel } from '../ui/languageLabel.js';
+import { languageLabel } from '../ui/cells.js';
+import { truncateSample } from '@laud/core';
 
 /** Characters of transcript text shown in the human-readable preview column. */
 const PREVIEW_LENGTH = 60;
@@ -56,13 +57,12 @@ export function registerLs(program: Command, context: CliContext): void {
           });
           if (transcript !== null) {
             transcriptIdByRecording.set(recording.id, transcript.id);
-            // Slice by code point, not UTF-16 code unit: a plain .slice() can
-            // land inside a surrogate pair (any astral-plane character, e.g.
-            // emoji or some CJK extension characters) and emit a lone
-            // surrogate. Transcripts are multilingual by design, so this is
-            // not a hypothetical edge case.
-            const preview = Array.from(transcript.text).slice(0, PREVIEW_LENGTH).join('');
-            previews.set(recording.id, preview);
+            // truncateSample slices by code point (never splitting a surrogate
+            // pair) and marks a shortened sample with an ellipsis, so a reader
+            // can tell a clipped preview from a transcript that really is
+            // this short. Quoting and escaping happen in the UI, which owns
+            // presentation.
+            previews.set(recording.id, truncateSample(transcript.text, PREVIEW_LENGTH));
           }
         }
 

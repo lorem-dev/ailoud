@@ -28,6 +28,13 @@
   the checks that are currently failing, then re-checks.
 - The setup plan names every command it will run, including any `sudo`, so
   consent is never given blind.
+- `laud ls` names every language of a code-switched recording (`en+ru`), not
+  only the dominant one. `--json` still carries the single stored code.
+- Transcript previews are quoted and escaped, so trailing whitespace is
+  visible and a transcript containing control characters cannot reprogram the
+  reader's terminal. A clipped preview ends in `...`.
+- A command that runs for more than a second reports how long it took
+  (`Done in 1m 5.300s`), on failure as well as success.
 - `laud setup` detects Windows up front and prints manual instructions
   instead of downloading anything.
 - With no terminal, an install that could prompt is reported with its exact

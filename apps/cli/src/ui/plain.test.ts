@@ -123,7 +123,7 @@ describe('PlainUi', () => {
   it('renders one ls row per recording exactly like the old context.out line', () => {
     const { ui: sink, lines } = ui();
     sink.recordings([{ id: 'ID001', durationMs: 3200, language: 'ru', preview: 'Privet.' }]);
-    expect(lines).toEqual(['ID001  00:00:03  ru  Privet.']);
+    expect(lines).toEqual(['ID001  00:00:03  ru  "Privet."']);
   });
 
   it('trims trailing blank columns for a row with no language or preview yet', () => {

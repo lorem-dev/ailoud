@@ -100,6 +100,44 @@ describe('PrettyUi.frame', () => {
     expect(outro.mock.calls[0]?.[0]).not.toContain('ls');
   });
 
+  it('reports the runtime of a command that took a while', async () => {
+    intro.mockClear();
+    outro.mockClear();
+    // An injected clock, so the assertion is an exact string rather than a
+    // moving number. First call opens the frame, second closes it.
+    const times = [0, 1300];
+    const ui = new PrettyUi(Number.POSITIVE_INFINITY, () => times.shift() ?? 0);
+    await ui.frame('transcribe', async () => undefined);
+    expect(outro.mock.calls[0]?.[0]).toContain('Done in 1.300s');
+  });
+
+  it('stays silent about the runtime of a command that finished instantly', async () => {
+    intro.mockClear();
+    outro.mockClear();
+    // `laud ls` finishing in four milliseconds does not need a stopwatch
+    // reading; a duration on every command would drown the one that matters.
+    const times = [0, 4];
+    const ui = new PrettyUi(Number.POSITIVE_INFINITY, () => times.shift() ?? 0);
+    await ui.frame('ls', async () => undefined);
+    expect(outro.mock.calls[0]?.[0]).toContain('Done');
+    expect(outro.mock.calls[0]?.[0]).not.toContain('in ');
+  });
+
+  it('reports the runtime of a long command that failed', async () => {
+    intro.mockClear();
+    outro.mockClear();
+    // Knowing a transcription ran for two minutes before dying is as useful
+    // as knowing it ran for two minutes and worked.
+    const times = [0, 125_000];
+    const ui = new PrettyUi(Number.POSITIVE_INFINITY, () => times.shift() ?? 0);
+    await expect(
+      ui.frame('transcribe', async () => {
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+    expect(outro.mock.calls[0]?.[0]).toContain('Failed in 2m 5.000s');
+  });
+
   it('sends the frame to stderr, not stdout', async () => {
     intro.mockClear();
     outro.mockClear();

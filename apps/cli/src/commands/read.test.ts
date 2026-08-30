@@ -60,7 +60,7 @@ describe('laud ls', () => {
   it('prints one line per recording with its state', async () => {
     const ctx = await contextWithTranscript();
     await buildProgram(ctx).parseAsync(['node', 'laud', 'ls']);
-    expect(ctx.lines.at(-1)).toBe('ID001  00:00:03  ru  Privet.');
+    expect(ctx.lines.at(-1)).toBe('ID001  00:00:03  ru  "Privet."');
   });
 
   it('emits machine-readable rows with --json', async () => {
@@ -92,7 +92,7 @@ describe('laud ls', () => {
     // normal case for a plain (non-multilingual) transcription.
     const ctx = await contextWithTranscript({ clearLines: true });
     await buildProgram(ctx).parseAsync(['node', 'laud', 'ls']);
-    expect(ctx.lines.at(-1)).toBe('ID001  00:00:03  ru  Privet.');
+    expect(ctx.lines.at(-1)).toBe('ID001  00:00:03  ru  "Privet."');
   });
 
   it('says the library is empty rather than printing nothing', async () => {
@@ -159,9 +159,11 @@ describe('laud ls', () => {
 
     await buildProgram(ctx).parseAsync(['node', 'laud', 'ls']);
     // 59 plain characters plus the whole (unsplit) emoji is 60 code points;
-    // a naive UTF-16 slice would instead land mid-surrogate-pair here.
-    const expectedPreview = `${'a'.repeat(59)}${emoji}`;
-    expect(ctx.lines.at(-1)).toBe(`ID001  00:00:01  en  ${expectedPreview}`);
+    // a naive UTF-16 slice would instead land mid-surrogate-pair here. The
+    // text runs past 60, so the preview is marked as clipped, and the whole
+    // sample is quoted.
+    const expectedPreview = `${'a'.repeat(59)}${emoji}...`;
+    expect(ctx.lines.at(-1)).toBe(`ID001  00:00:01  en  "${expectedPreview}"`);
   });
 });
 

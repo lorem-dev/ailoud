@@ -46,6 +46,8 @@ export type { TranscribeDeps, TranscribeOptions } from './pipelines/transcribe.j
 export { formatTimestamp, toSrt, toVtt } from './format/subtitles.js';
 
 export { toPlainText } from './format/text.js';
+export { quoteSample, truncateSample } from './format/sample.js';
+export { formatDuration } from './format/duration.js';
 
 export type { Remedy, InstallTarget } from './provision/remedy.js';
 

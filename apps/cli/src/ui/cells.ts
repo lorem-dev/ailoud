@@ -1,3 +1,5 @@
+import { quoteSample } from '@laud/core';
+
 /**
  * How a transcript's language is shown to a person.
  *
@@ -15,4 +17,19 @@ export function languageLabel(
   fallback: string | null,
 ): string | null {
   return languages.length > 0 ? languages.join('+') : fallback;
+}
+
+/**
+ * A transcript preview as it appears in a column beside other fields.
+ *
+ * Quoted and escaped (see quoteSample) so trailing whitespace is visible, an
+ * empty transcript is distinguishable from a missing one, and a transcript
+ * carrying control characters cannot reprogram the reader's terminal.
+ *
+ * An absent preview stays the empty string rather than becoming `""`: a
+ * recording imported but not yet transcribed has no sample at all, and
+ * showing empty quotes would claim it has one that happens to be blank.
+ */
+export function previewCell(preview: string): string {
+  return preview === '' ? '' : quoteSample(preview);
 }

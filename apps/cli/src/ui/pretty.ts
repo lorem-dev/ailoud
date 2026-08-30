@@ -3,16 +3,22 @@ import Table from 'cli-table3';
 import stringWidth from 'string-width';
 import wrapAnsi from 'wrap-ansi';
 import { styleText } from 'node:util';
-import { formatTimestamp } from '@laud/core';
+import { formatDuration, formatTimestamp } from '@laud/core';
 import type { Recording, Transcript } from '@laud/core';
 import type { Check, RecordingRow, Ui } from './types.js';
-import { languageLabel } from './languageLabel.js';
+import { languageLabel, previewCell } from './cells.js';
 
 /** The `ls` table's column headings, and the order its cells are built in. */
 const TABLE_HEAD = ['id', 'duration', 'lang', 'preview'] as const;
 
 /** Width of clack's gutter prefix (`|` plus two spaces) on every rendered line. */
 const GUTTER_WIDTH = 3;
+
+/**
+ * Below this, a frame closes with a bare "Done". A command that finishes
+ * faster than a person can notice does not need its duration reported.
+ */
+const DURATION_FLOOR_MS = 1000;
 
 /**
  * `@clack/prompts` plus `cli-table3`, selected when stdout is a real,
@@ -28,7 +34,13 @@ export class PrettyUi implements Ui {
    * "unbounded", which is what a unit test asserting on table content
    * wants, and what the table itself assumed before it learned to narrow.
    */
-  public constructor(private readonly columns: number = Number.POSITIVE_INFINITY) {}
+  public constructor(
+    private readonly columns: number = Number.POSITIVE_INFINITY,
+    // Monotonic by default, so a clock adjustment mid-transcription cannot
+    // produce a negative or wildly wrong duration. Injectable so the tests
+    // can assert an exact string instead of a moving number.
+    private readonly now: () => number = () => performance.now(),
+  ) {}
 
   public async frame<T>(label: string, task: () => Promise<T>): Promise<T> {
     // intro/outro go to stderr, not stdout: `show` relies on stdout
@@ -37,17 +49,36 @@ export class PrettyUi implements Ui {
     // written elsewhere. One rule for all five commands is simpler than a
     // per-command exception, and costs nothing.
     intro(this.wrap(label), { output: process.stderr });
+    const startedAt = this.now();
     try {
       const result = await task();
-      outro(styleText('green', 'Done'), { output: process.stderr });
+      outro(styleText('green', `Done${this.took(startedAt)}`), { output: process.stderr });
       return result;
     } catch (error) {
       // The outcome alone. The label already opened the frame, and the
       // top-level handler prints the error itself -- saying either again
       // here reads as a second, separate problem.
-      outro(styleText('red', 'Failed'), { output: process.stderr });
+      outro(styleText('red', `Failed${this.took(startedAt)}`), { output: process.stderr });
       throw error;
     }
+  }
+
+  /**
+   * The elapsed-time suffix for a frame's closing line, or nothing.
+   *
+   * Only commands that actually took a while report their runtime. `laud ls`
+   * finishing in four milliseconds does not need a stopwatch reading, and
+   * printing one on every command would turn a useful signal for
+   * `transcribe` into noise everywhere else.
+   *
+   * Reported for a failure too, not just a success: knowing a transcription
+   * ran for three minutes before dying is exactly as useful as knowing it
+   * ran for three minutes and worked.
+   */
+  private took(startedAt: number): string {
+    const elapsedMs = this.now() - startedAt;
+    if (elapsedMs < DURATION_FLOOR_MS) return '';
+    return ` in ${formatDuration(elapsedMs)}`;
   }
 
   public imported(recording: Recording, alreadyPresent: boolean): void {
@@ -103,7 +134,7 @@ export class PrettyUi implements Ui {
       row.id,
       formatTimestamp(row.durationMs, 'short'),
       row.language ?? '',
-      row.preview,
+      previewCell(row.preview),
     ]);
 
     if (!this.tableFits(cells)) {

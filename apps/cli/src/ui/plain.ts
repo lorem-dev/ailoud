@@ -1,7 +1,7 @@
 import { formatTimestamp } from '@laud/core';
 import type { Recording, Transcript } from '@laud/core';
 import type { Check, RecordingRow, Ui } from './types.js';
-import { languageLabel } from './languageLabel.js';
+import { languageLabel, previewCell } from './cells.js';
 
 /** Width of the leading "ok"/"FAIL" column in `checks()`, including its trailing padding. */
 const STATUS_WIDTH = 6;
@@ -69,7 +69,9 @@ export class PlainUi implements Ui {
       // transcribe) still gets a row; its language and preview columns
       // just come out empty. trimEnd keeps that row from trailing off
       // into blank columns nobody can see.
-      this.write(`${row.id}  ${duration}  ${row.language ?? ''}  ${row.preview}`.trimEnd());
+      this.write(
+        `${row.id}  ${duration}  ${row.language ?? ''}  ${previewCell(row.preview)}`.trimEnd(),
+      );
     }
   }
 
