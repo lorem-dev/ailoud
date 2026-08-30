@@ -2,11 +2,19 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Command } from 'commander';
 import { EnvironmentError, UsageError, planProvisioning } from '@laud/core';
 import { buildProgram, exitCodeFor } from '../program.js';
 import type { CliContext } from '../wiring.js';
 import { context } from './testContext.js';
-import { checkBinary, checkModel, checkVadBinary, checkVadModel, runChecks } from './doctor.js';
+import {
+  checkBinary,
+  checkModel,
+  checkVadBinary,
+  checkVadModel,
+  registerDoctor,
+  runChecks,
+} from './doctor.js';
 import { collectRemedies } from './setup.js';
 
 // A real temporary directory, not a string literal path: this guarantees
@@ -342,6 +350,18 @@ describe('a corrupt database: every entry point must refuse', () => {
     expect(lines.join('\n')).not.toContain('Everything laud needs is already in place.');
   });
 
+  it('doctor --fix does not print the failing checks a second time', async () => {
+    // `doctor --fix` already rendered the full check list via ui.checks()
+    // before reaching runProvisioning; its own unfixable-checks report used
+    // to repeat the same "FAILED database -- ..." plus fix line right
+    // after. ui.checks renders the status column as "FAIL  " (padded), so
+    // a line starting with the literal word "FAILED" can only have come
+    // from the second, now-suppressed listing.
+    const { lines } = await runCommand(['doctor', '--fix']);
+    expect(lines.filter((line) => line.startsWith('FAILED')).length).toBe(0);
+    expect(lines.filter((line) => line.includes('Back up')).length).toBe(1);
+  });
+
   it('setup exits non-zero and names the check it cannot repair, with its fix text', async () => {
     const { error, lines } = await runCommand(['setup']);
     expect(error).toBeInstanceOf(EnvironmentError);
@@ -358,5 +378,39 @@ describe('a corrupt database: every entry point must refuse', () => {
       codes.push(exitCodeFor(error));
     }
     expect(codes).toEqual([3, 3, 3]);
+  });
+});
+
+/**
+ * The Windows guard lives in runProvisioning (the shared engine) now, not
+ * in registerSetup, precisely so `doctor --fix` inherits it too. Before
+ * this fix, `laud doctor --fix --yes` on win32 built a plan, took consent,
+ * downloaded the transcription model and the VAD model (up to 1.6 GB), and
+ * only then failed both installs and exited non-zero. registerDoctor is
+ * called directly (not through buildProgram) so `platform` can be pinned to
+ * 'win32' without a real Windows box, mirroring the equivalent
+ * "laud setup on Windows" test in setup.test.ts.
+ */
+describe('doctor --fix on Windows', () => {
+  it('refuses immediately, downloading nothing and building no plan', async () => {
+    const ctx = context();
+    const program = new Command();
+    program.exitOverride();
+    registerDoctor(program, ctx, 'win32');
+
+    const error: unknown = await program
+      .parseAsync(['node', 'laud', 'doctor', '--fix', '--yes'])
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(EnvironmentError);
+    const message = error instanceof Error ? error.message : String(error);
+    expect(message).toMatch(/laud doctor cannot provision Windows/);
+    const output = ctx.lines.join('\n');
+    expect(output).toContain('laud doctor does not provision Windows');
+    expect(output).toContain('README.md');
+    // Refused before collectRemedies/planProvisioning ever ran: none of the
+    // plan-only output (the download total, the exact command lines) appears.
+    expect(output).not.toContain('Total download');
+    expect(output).not.toContain('Runs:');
   });
 });

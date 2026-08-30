@@ -766,13 +766,47 @@ describe('runProvisioning', () => {
         return false; // decline: nothing must run
       });
 
-      await runProvisioning(ctx, {}, [failing('ffmpeg', { kind: 'install-ffmpeg' })], 'linux');
+      // Declining consent still exits non-zero: the environment is exactly
+      // as not-ready as it was before asking. Dedicated coverage of that
+      // behavior is the next test below.
+      await expect(
+        runProvisioning(ctx, {}, [failing('ffmpeg', { kind: 'install-ffmpeg' })], 'linux'),
+      ).rejects.toThrow(EnvironmentError);
 
       expect(shownAtConsent).toContain('Install ffmpeg');
       expect(shownAtConsent).toContain('  Runs: sudo apt-get update');
       expect(shownAtConsent).toContain('  Runs: sudo apt-get install -y ffmpeg');
       expect(providers.runInteractive).not.toHaveBeenCalled();
       expect(ctx.lines.at(-1)).toBe('Nothing was changed.');
+    } finally {
+      if (isTtyDescriptor === undefined) delete (process.stdin as { isTTY?: boolean }).isTTY;
+      else Object.defineProperty(process.stdin, 'isTTY', isTtyDescriptor);
+      if (originalCi === undefined) delete process.env['CI'];
+      else process.env['CI'] = originalCi;
+    }
+  });
+
+  it('exits non-zero on declined consent instead of reporting success on a still-broken environment', async () => {
+    // Same false-success shape as the un-fixable-checks case above (see
+    // "refuses, rather than reporting success, when every failing check is
+    // un-fixable"): declining consent repairs nothing, so an environment
+    // where plain `doctor` exits 3 must not come out of `doctor --fix` or
+    // `setup` reporting success just because the user said no.
+    const isTtyDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const originalCi = process.env['CI'];
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    delete process.env['CI'];
+    try {
+      providers.detectPackageManager.mockResolvedValue('apt-get');
+      clack.confirm.mockResolvedValue(false);
+      const ctx = provisioningContext(context().config);
+      const checks: readonly Check[] = [failing('ffmpeg', { kind: 'install-ffmpeg' })];
+
+      await expect(runProvisioning(ctx, {}, checks, 'linux')).rejects.toThrow(EnvironmentError);
+
+      expect(ctx.lines.at(-1)).toBe('Nothing was changed.');
+      expect(providers.runInteractive).not.toHaveBeenCalled();
+      expect(providers.downloadFile).not.toHaveBeenCalled();
     } finally {
       if (isTtyDescriptor === undefined) delete (process.stdin as { isTTY?: boolean }).isTTY;
       else Object.defineProperty(process.stdin, 'isTTY', isTtyDescriptor);

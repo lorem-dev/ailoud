@@ -256,7 +256,16 @@ export interface DoctorOptions extends SetupOptions {
   readonly fix?: boolean;
 }
 
-export function registerDoctor(program: Command, context: CliContext): void {
+/**
+ * `platform` defaults to `process.platform`, the same reason `runChecks`
+ * and `registerSetup` take one: it lets the Windows refusal below (inherited
+ * from `runProvisioning`, the shared engine) be tested without a Windows box.
+ */
+export function registerDoctor(
+  program: Command,
+  context: CliContext,
+  platform: NodeJS.Platform = process.platform,
+): void {
   program
     .command('doctor')
     .option('--fix', 'provision anything that failed a check, using the same engine as setup')
@@ -265,7 +274,7 @@ export function registerDoctor(program: Command, context: CliContext): void {
     .description('Check that the binaries, model, database, and storage laud needs are ready')
     .action(async (options: DoctorOptions) => {
       await context.ui.frame('Environment check', async () => {
-        const checks = await runChecks(context);
+        const checks = await runChecks(context, platform);
         context.ui.checks(checks);
         if (options.fix !== true) {
           if (checks.some((check) => !check.ok)) {
@@ -280,9 +289,15 @@ export function registerDoctor(program: Command, context: CliContext): void {
         // from "nothing fixable failed".
         //
         // 'doctor', explicitly: runProvisioning's messages (the consent
-        // guard, a cancelled model prompt) must name the command the user
-        // actually typed, not default to the other caller's name.
-        await runProvisioning(context, options, checks, process.platform, 'doctor');
+        // guard, a cancelled model prompt, the Windows refusal) must name
+        // the command the user actually typed, not default to the other
+        // caller's name.
+        //
+        // checksAlreadyShown: true -- ui.checks(checks) just above already
+        // rendered every failing check's name, detail, and fix text; without
+        // this, runProvisioning's own unfixable-checks report would print
+        // the identical list a second time.
+        await runProvisioning(context, options, checks, platform, 'doctor', true);
       });
     });
 }

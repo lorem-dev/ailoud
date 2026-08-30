@@ -334,7 +334,23 @@ export async function runProvisioning(
   checks: readonly Check[],
   platform: NodeJS.Platform = process.platform,
   commandName: CommandName = 'setup',
+  checksAlreadyShown: boolean = false,
 ): Promise<void> {
+  // Before anything else, and in particular before any remedy is collected
+  // or plan built: building a plan on Windows would take consent, pull down
+  // up to 1.6 GB of models, then fail both installs and exit non-zero
+  // anyway. This used to live only in registerSetup, so `doctor --fix` on
+  // Windows built the plan and paid for the download before failing --
+  // exactly the drift the shared engine exists to prevent. Living here
+  // means both entry points refuse first and spend nothing, and neither can
+  // drift away from it again.
+  if (platform === 'win32') {
+    for (const line of windowsManualSteps(commandName)) context.write(line);
+    throw new EnvironmentError(
+      `laud ${commandName} cannot provision Windows: follow the manual steps above.`,
+    );
+  }
+
   const remedies = collectRemedies(checks);
 
   if (remedies.length === 0) {
@@ -348,7 +364,11 @@ export async function runProvisioning(
       context.write('Everything laud needs is already in place.');
       return;
     }
-    reportUnfixable(context, unfixable);
+    // `doctor --fix` already rendered the full check list (ui.checks) before
+    // calling here; reprinting the unfixable subset would just show the same
+    // failures a second time. `setup` never prints the checks at all, so it
+    // still needs this listing to tell the user what is wrong.
+    if (!checksAlreadyShown) reportUnfixable(context, unfixable);
     throw new EnvironmentError(NOT_READY_MESSAGE);
   }
 
@@ -378,7 +398,13 @@ export async function runProvisioning(
   const consented = await requireConsent({ yes: options.yes === true, interactive, commandName });
   if (!consented) {
     context.write('Nothing was changed.');
-    return;
+    // Declining does not undo the checks that failed to get here: remedies
+    // is non-empty at this point (the "nothing to fix" case above already
+    // returned), so the environment is exactly as not-ready as it was before
+    // asking. Reporting success here is the same false-success shape the
+    // unfixable-checks case above was fixed for -- reuse its exact message
+    // rather than inventing a second way to say "still not ready".
+    throw new EnvironmentError(NOT_READY_MESSAGE);
   }
 
   const result = await executePlan(actions, {
@@ -423,27 +449,35 @@ export async function runProvisioning(
  * there is no package providing ffmpeg the way brew and apt do, and no
  * Windows machine to verify an install path against, so an honest refusal
  * beats an untested installer.
+ *
+ * Takes the command name rather than hard-coding "setup": this is reachable
+ * from `doctor --fix` too (runProvisioning is the one engine behind both),
+ * and a Windows user running `doctor --fix` must be told that command
+ * refused, not a command they never typed.
  */
-export const WINDOWS_MANUAL_STEPS: readonly string[] = [
-  'laud setup does not provision Windows, and will not pretend to.',
-  'Install the four pieces by hand:',
-  '  1. ffmpeg and ffprobe -- take a build from https://ffmpeg.org/download.html',
-  '     and put both on PATH.',
-  `  2. whisper.cpp -- take the Windows assets of release ${WHISPER_TAG} from`,
-  '     https://github.com/ggml-org/whisper.cpp/releases and extract the tree,',
-  '     keeping it intact.',
-  '  3. A transcription model -- ggml-small.bin (or another size) from',
-  '     https://huggingface.co/ggerganov/whisper.cpp',
-  '  4. The VAD model, only needed by --multilingual -- ggml-silero-v5.1.2.bin',
-  '     from https://huggingface.co/ggml-org/whisper-vad',
-  'Then set stt.whisperCpp.binary, .vadBinary, .model and .vadModel in the config',
-  'file to those paths, and run "laud doctor" to confirm. The full version of',
-  'these steps is under "Manual install (fallback)" in README.md.',
-];
+export function windowsManualSteps(commandName: CommandName): readonly string[] {
+  return [
+    `laud ${commandName} does not provision Windows, and will not pretend to.`,
+    'Install the four pieces by hand:',
+    '  1. ffmpeg and ffprobe -- take a build from https://ffmpeg.org/download.html',
+    '     and put both on PATH.',
+    `  2. whisper.cpp -- take the Windows assets of release ${WHISPER_TAG} from`,
+    '     https://github.com/ggml-org/whisper.cpp/releases and extract the tree,',
+    '     keeping it intact.',
+    '  3. A transcription model -- ggml-small.bin (or another size) from',
+    '     https://huggingface.co/ggerganov/whisper.cpp',
+    '  4. The VAD model, only needed by --multilingual -- ggml-silero-v5.1.2.bin',
+    '     from https://huggingface.co/ggml-org/whisper-vad',
+    'Then set stt.whisperCpp.binary, .vadBinary, .model and .vadModel in the config',
+    'file to those paths, and run "laud doctor" to confirm. The full version of',
+    'these steps is under "Manual install (fallback)" in README.md.',
+  ];
+}
 
 /**
  * `platform` is a parameter, defaulted, for the same reason `runChecks` takes
- * one: the Windows refusal below has to be testable without a Windows box.
+ * one: the Windows refusal it feeds into `runProvisioning` has to be
+ * testable without a Windows box.
  */
 export function registerSetup(
   program: Command,
@@ -457,16 +491,10 @@ export function registerSetup(
     .description('Install ffmpeg and whisper.cpp, and download the models laud needs')
     .action(async (options: SetupOptions) => {
       await context.ui.frame('Setting up laud', async () => {
-        // Before anything else, and in particular before any download:
-        // building a plan on Windows would take consent, pull down up to
-        // 1.6 GB of models, then fail both installs and exit non-zero
-        // anyway. Refuse first, spend nothing.
-        if (platform === 'win32') {
-          for (const line of WINDOWS_MANUAL_STEPS) context.write(line);
-          throw new EnvironmentError(
-            'laud setup cannot provision Windows: follow the manual steps above.',
-          );
-        }
+        // The win32 refusal lives in runProvisioning now (the shared
+        // engine), not here -- see its doc comment. runChecks itself only
+        // probes; it downloads nothing, so running it unconditionally
+        // before that guard costs nothing on Windows either.
         const checks = await runChecks(context, platform);
         await runProvisioning(context, options, checks, platform);
       });
