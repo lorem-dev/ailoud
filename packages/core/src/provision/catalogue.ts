@@ -23,10 +23,17 @@ const HF_WHISPER = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
 const SHERPA_RELEASES = 'https://github.com/k2-fsa/sherpa-onnx/releases/download';
 
 /**
- * Sizes were measured against the real endpoints on 2026-08-28. They drive
- * the "this will download N MB" line the user confirms, nothing else: a
- * download is validated against its own response's Content-Length, so an
- * upstream reupload changing a size here cannot break installation.
+ * Every `bytes` in this file is the Content-Length the real endpoint
+ * reported: the whisper and VAD entries measured on 2026-08-28, the two
+ * diarization entries on 2026-08-31. They drive the "this will download N
+ * MB" line the user confirms, nothing else: a download is validated against
+ * its own response's Content-Length, so an upstream reupload changing a size
+ * here cannot break installation.
+ *
+ * It is the size of what gets DOWNLOADED, which for an archive entry is the
+ * archive and not the member pulled out of it. The segmentation entry was
+ * wrong on exactly that distinction until 2026-08-31 -- it carried the size
+ * of the extracted `model.onnx`, understating the transfer by 20%.
  */
 export const TRANSCRIPTION_MODELS: readonly ModelChoice[] = [
   {
@@ -98,7 +105,8 @@ export const SEGMENTATION_MODEL: ModelChoice = {
   name: 'pyannote-segmentation-3.0',
   file: 'sherpa-pyannote-segmentation-3-0.onnx',
   url: `${SHERPA_RELEASES}/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2`,
-  bytes: 5_700_000,
+  // The tarball's own Content-Length, not the 5.7 MB `model.onnx` inside it.
+  bytes: 6_958_444,
   summary: 'speaker segmentation, needed by --diarize',
   archiveMember: 'model.onnx',
 };
@@ -113,7 +121,7 @@ export const EMBEDDING_MODEL: ModelChoice = {
   name: 'campplus-sv-zh-en',
   file: '3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx',
   url: `${SHERPA_RELEASES}/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx`,
-  bytes: 27_000_000,
+  bytes: 28_281_164,
   summary: 'speaker embedding, needed by --diarize',
 };
 

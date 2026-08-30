@@ -147,6 +147,50 @@ describe('transcribeRecording --diarize', () => {
     expect(segments.every((s) => s.speaker === null)).toBe(true);
   });
 
+  it('warns when --diarize is set but no diarizer was wired, naming what to run', async () => {
+    // Otherwise this run is indistinguishable from a non-diarized one: same
+    // bytes out, exit 0, and nothing saying the flag did nothing.
+    const warnings: string[] = [];
+    await transcribeRecording(
+      { ...deps(), onWarning: (message) => warnings.push(message) },
+      recording,
+      { diarize: true },
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/no diarizer is available/);
+    expect(warnings[0]).toMatch(/laud doctor/);
+  });
+
+  it('warns when the diarizer succeeds but yields no turns, pointing at --speakers', async () => {
+    // The "emits nothing parseable" case of design section 5.7: exit 0, no
+    // parseable turns, every speaker null.
+    const warnings: string[] = [];
+    const d = deps();
+    const diarizer = new FakeDiarizer([]);
+    const transcript = await transcribeRecording(
+      { ...d, diarizer, onWarning: (message) => warnings.push(message) },
+      recording,
+      { diarize: true },
+    );
+    const segments = await d.store.listSegments(transcript.id);
+    expect(segments.map((s) => s.text)).toEqual(['Privet.', 'Kak dela?']);
+    expect(segments.every((s) => s.speaker === null)).toBe(true);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/no speaker turns/);
+    expect(warnings[0]).toMatch(/--speakers/);
+  });
+
+  it('does not warn when turns were found', async () => {
+    const warnings: string[] = [];
+    const diarizer = new FakeDiarizer([{ startMs: 0, endMs: 3200, speaker: 'speaker_00' }]);
+    await transcribeRecording(
+      { ...deps(), diarizer, onWarning: (message) => warnings.push(message) },
+      recording,
+      { diarize: true },
+    );
+    expect(warnings).toEqual([]);
+  });
+
   it('attributes each segment to a speaker by time overlap', async () => {
     const d = deps();
     const diarizer = new FakeDiarizer([

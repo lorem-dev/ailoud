@@ -64,6 +64,14 @@ export interface TranscribeOptions {
  * missing, crashes, or emits nothing parseable must cost the caller their
  * speaker labels and nothing else -- losing an expensive transcription to a
  * failed extra is the worst trade available here.
+ *
+ * Every outcome in which `diarize` was asked for and no speaker was
+ * attributed warns, not just the one where the diarizer throws. Without that
+ * a `--diarize` run whose diarizer was never wired up, or whose binary exited
+ * cleanly having recognized nothing, produces output byte-identical to a
+ * plain run and exits 0 -- the user is told they got speakers when they did
+ * not. Section 5.7 of the diarization design names the "emits nothing
+ * parseable" case explicitly.
  */
 async function withSpeakers(
   deps: TranscribeDeps,
@@ -71,11 +79,31 @@ async function withSpeakers(
   wavPath: string,
   segments: readonly RawSegment[],
 ): Promise<RawSegment[]> {
-  if (options.diarize !== true || deps.diarizer === undefined) return [...segments];
+  if (options.diarize !== true) return [...segments];
+  if (deps.diarizer === undefined) {
+    deps.onWarning?.(
+      'speaker diarization was requested but no diarizer is available, so this transcript ' +
+        'has no speakers. Run "laud doctor" to see which diarization pieces are missing, ' +
+        'then "laud setup" or "laud doctor --fix" to install them.',
+    );
+    return [...segments];
+  }
   try {
     const turns = await deps.diarizer.turns(wavPath, {
       ...(options.speakers === undefined ? {} : { speakers: options.speakers }),
     });
+    if (turns.length === 0) {
+      // The binary can exit 0 having emitted nothing this side can parse --
+      // too little speech to cluster, or output in a shape the adapter's
+      // parser does not recognize. assignSpeakers on an empty turn list is
+      // a no-op, so without this branch the run is silent and indetectable.
+      deps.onWarning?.(
+        'speaker diarization found no speaker turns, so this transcript has no speakers. ' +
+          'Passing --speakers <n> is more reliable than letting the count be inferred; ' +
+          'a lower "stt.diarization.threshold" also splits more readily.',
+      );
+      return [...segments];
+    }
     return assignSpeakers(segments, turns);
   } catch (error) {
     deps.onWarning?.(
