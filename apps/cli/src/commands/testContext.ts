@@ -1,7 +1,8 @@
-import type { SpeechSegmenter, TranscriptionProvider } from '@laud/core';
+import type { Diarizer, SpeechSegmenter, TranscriptionProvider } from '@laud/core';
 import {
   FakeAudioTool,
   FakeClock,
+  FakeDiarizer,
   FakeIds,
   FakeSegmenter,
   FakeStt,
@@ -25,10 +26,12 @@ export function context(): CliContext & {
   lines: string[];
   sttInstances: FakeStt[];
   segmenterInstances: FakeSegmenter[];
+  diarizerInstances: FakeDiarizer[];
 } {
   const lines: string[] = [];
   const sttInstances: FakeStt[] = [];
   const segmenterInstances: FakeSegmenter[] = [];
+  const diarizerInstances: FakeDiarizer[] = [];
   const write = (line: string): void => {
     lines.push(line);
   };
@@ -36,6 +39,7 @@ export function context(): CliContext & {
     lines,
     sttInstances,
     segmenterInstances,
+    diarizerInstances,
     paths: { configFile: '/c', dataDir: '/d', dbFile: '/d/laud.db', mediaRoot: '/d/media' },
     config: {
       stt: {
@@ -75,6 +79,11 @@ export function context(): CliContext & {
       const segmenter = new FakeSegmenter([{ startMs: 0, endMs: 1500 }]);
       segmenterInstances.push(segmenter);
       return segmenter;
+    },
+    createDiarizer: (): Diarizer => {
+      const diarizer = new FakeDiarizer([{ startMs: 0, endMs: 1500, speaker: 'speaker_00' }]);
+      diarizerInstances.push(diarizer);
+      return diarizer;
     },
   };
 }

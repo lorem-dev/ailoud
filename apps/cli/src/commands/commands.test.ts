@@ -138,3 +138,64 @@ describe('laud transcribe', () => {
     expect(ctx.lines).toEqual([]);
   });
 });
+
+describe('laud transcribe --diarize', () => {
+  it('does not build a diarizer without --diarize', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'transcribe']);
+    expect(ctx.diarizerInstances).toHaveLength(0);
+  });
+
+  it('--diarize reaches the pipeline and attributes the segment to a speaker', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'transcribe', '--diarize']);
+    expect(ctx.diarizerInstances).toHaveLength(1);
+    const recordings = await ctx.store.listRecordings({});
+    const transcript = await ctx.store.latestTranscript(recordings[0]!.id);
+    const segments = await ctx.store.listSegments(transcript!.id);
+    expect(segments.map((s) => s.speaker)).toEqual(['speaker_00']);
+  });
+
+  it('forwards --speakers to the diarizer', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync([
+      'node',
+      'laud',
+      'transcribe',
+      '--diarize',
+      '--speakers',
+      '2',
+    ]);
+    expect(ctx.diarizerInstances).toHaveLength(1);
+    expect(ctx.diarizerInstances[0]!.calls[0]).toEqual(expect.objectContaining({ speakers: 2 }));
+  });
+
+  it('refuses --speakers without --diarize', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'laud', 'transcribe', '--speakers', '2']),
+    ).rejects.toThrow(/--speakers needs --diarize/);
+  });
+
+  it.each(['0', '-1', 'abc', '1.5'])(
+    'rejects --speakers %s as not a positive integer',
+    async (value) => {
+      const ctx = context();
+      await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
+      await expect(
+        buildProgram(ctx).parseAsync([
+          'node',
+          'laud',
+          'transcribe',
+          '--diarize',
+          '--speakers',
+          value,
+        ]),
+      ).rejects.toThrow(/--speakers must be a positive integer/);
+    },
+  );
+});

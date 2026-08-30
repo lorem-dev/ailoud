@@ -1,6 +1,7 @@
 import type {
   AudioTool,
   Clock,
+  Diarizer,
   Fs,
   Ids,
   RecordingStore,
@@ -9,6 +10,7 @@ import type {
 } from '../domain/ports.js';
 import type { RawSegment, Recording, Segment, Transcript } from '../domain/model.js';
 import { FailureError } from '../domain/errors.js';
+import { assignSpeakers } from '../diarize/assign.js';
 import {
   mergeRuns,
   subdivideSpans,
@@ -26,6 +28,14 @@ export interface TranscribeDeps {
   readonly mediaRoot: string;
   /** Only consulted when `TranscribeOptions.multilingual` is set. */
   readonly segmenter?: SpeechSegmenter;
+  /** Only consulted when `TranscribeOptions.diarize` is set. */
+  readonly diarizer?: Diarizer;
+  /**
+   * Reports non-fatal problems, e.g. a diarizer that failed. Core does no
+   * I/O of its own, so the CLI supplies the sink (routed to `ui`); left
+   * unset, such problems are simply not reported.
+   */
+  readonly onWarning?: (message: string) => void;
 }
 
 export interface TranscribeOptions {
@@ -39,6 +49,42 @@ export interface TranscribeOptions {
    * rather than silently falling back to single-language behaviour.
    */
   readonly multilingual?: boolean;
+  /**
+   * Runs speaker diarization over the recording and attributes each
+   * transcribed segment to a speaker by time overlap. Requires
+   * `TranscribeDeps.diarizer`.
+   */
+  readonly diarize?: true;
+  /** Hint for the diarizer: the known number of speakers, when known. */
+  readonly speakers?: number;
+}
+
+/**
+ * Speakers are an enrichment, never a precondition. A diarizer that is
+ * missing, crashes, or emits nothing parseable must cost the caller their
+ * speaker labels and nothing else -- losing an expensive transcription to a
+ * failed extra is the worst trade available here.
+ */
+async function withSpeakers(
+  deps: TranscribeDeps,
+  options: TranscribeOptions,
+  wavPath: string,
+  segments: readonly RawSegment[],
+): Promise<RawSegment[]> {
+  if (options.diarize !== true || deps.diarizer === undefined) return [...segments];
+  try {
+    const turns = await deps.diarizer.turns(wavPath, {
+      ...(options.speakers === undefined ? {} : { speakers: options.speakers }),
+    });
+    return assignSpeakers(segments, turns);
+  } catch (error) {
+    deps.onWarning?.(
+      `speaker diarization failed, so this transcript has no speakers: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return [...segments];
+  }
 }
 
 export async function transcribeRecording(
@@ -68,17 +114,22 @@ export async function transcribeRecording(
       throw new FailureError(`${deps.stt.name} found no speech in ${recording.sourcePath}`);
     }
 
+    // One diarizer pass over the whole recording, on the same full-recording
+    // wav the transcript just came from -- before tempWav.remove() runs in
+    // this try's finally.
+    const withSpeakerLabels = await withSpeakers(deps, options, tempWav.path, result.segments);
+
     const transcript: Transcript = {
       id: deps.ids.next(),
       recordingId: recording.id,
       provider: deps.stt.name,
       model: result.model,
       language: result.language,
-      text: result.segments.map((s) => s.text).join(' '),
+      text: withSpeakerLabels.map((s) => s.text).join(' '),
       createdAt: deps.clock.nowIso(),
     };
 
-    const segments = buildSegments(deps, transcript.id, result.segments);
+    const segments = buildSegments(deps, transcript.id, withSpeakerLabels);
 
     await deps.store.insertTranscript(transcript, segments);
     return transcript;
@@ -201,6 +252,11 @@ async function transcribeMultilingual(
       throw new FailureError(`${deps.stt.name} found no speech in ${recording.sourcePath}`);
     }
 
+    // Every run's segments are already shifted onto the recording's absolute
+    // timeline (see the comment above), so one diarizer pass over the whole
+    // wav -- not one per run -- lines up with all of them at once.
+    const withSpeakerLabels = await withSpeakers(deps, options, tempWav.path, allSegments);
+
     // The file has no single language; the longest run by duration is the
     // least wrong answer for a column that must hold one value. Strictly
     // greater-than, deliberately: a tie keeps whichever run was seen first,
@@ -219,11 +275,11 @@ async function transcribeMultilingual(
       provider: deps.stt.name,
       model: longest.model,
       language: longest.run.language,
-      text: allSegments.map((s) => s.text).join(' '),
+      text: withSpeakerLabels.map((s) => s.text).join(' '),
       createdAt: deps.clock.nowIso(),
     };
 
-    const segments = buildSegments(deps, transcript.id, allSegments);
+    const segments = buildSegments(deps, transcript.id, withSpeakerLabels);
 
     await deps.store.insertTranscript(transcript, segments);
     return transcript;

@@ -92,4 +92,8 @@ export class PlainUi implements Ui {
       }
     }
   }
+
+  public warn(message: string): void {
+    this.write(`warning: ${message}`);
+  }
 }

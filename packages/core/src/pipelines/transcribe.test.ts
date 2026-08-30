@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { RawSegment, Recording } from '../domain/model.js';
-import type { SpeechSpan, TranscriptionProvider } from '../domain/ports.js';
+import type { Diarizer, SpeechSpan, TranscriptionProvider } from '../domain/ports.js';
 import {
   FakeAudioTool,
   FakeClock,
+  FakeDiarizer,
   FakeIds,
   FakeSegmenter,
   FakeStt,
@@ -121,6 +122,85 @@ describe('transcribeRecording', () => {
   it('rejects a provider that returns no segments', async () => {
     const d = { ...deps(), stt: new FakeStt({ language: 'ru', model: 'b', segments: [] }) };
     await expect(transcribeRecording(d, recording, {})).rejects.toThrow(/no speech/);
+  });
+});
+
+describe('transcribeRecording --diarize', () => {
+  it('does not call the diarizer without --diarize', async () => {
+    const d = deps();
+    const diarizer = new FakeDiarizer([{ startMs: 0, endMs: 3200, speaker: 'speaker_00' }]);
+    await transcribeRecording({ ...d, diarizer }, recording, {});
+    expect(diarizer.calls).toHaveLength(0);
+  });
+
+  it('attributes each segment to a speaker by time overlap', async () => {
+    const d = deps();
+    const diarizer = new FakeDiarizer([
+      { startMs: 0, endMs: 1500, speaker: 'speaker_00' },
+      { startMs: 1500, endMs: 3200, speaker: 'speaker_01' },
+    ]);
+    const transcript = await transcribeRecording({ ...d, diarizer }, recording, { diarize: true });
+    const segments = await d.store.listSegments(transcript.id);
+    expect(segments.map((s) => s.speaker)).toEqual(['speaker_00', 'speaker_01']);
+  });
+
+  it('runs the diarizer on the same full-recording wav the provider transcribed', async () => {
+    const d = deps();
+    const diarizer = new FakeDiarizer([{ startMs: 0, endMs: 3200, speaker: 'speaker_00' }]);
+    await transcribeRecording({ ...d, diarizer }, recording, { diarize: true });
+    expect(diarizer.calls).toEqual([{ audioPath: '/tmp/fake-1.wav' }]);
+  });
+
+  it('forwards --speakers to the diarizer as a hint', async () => {
+    const d = deps();
+    const diarizer = new FakeDiarizer([{ startMs: 0, endMs: 3200, speaker: 'speaker_00' }]);
+    await transcribeRecording({ ...d, diarizer }, recording, { diarize: true, speakers: 3 });
+    expect(diarizer.calls).toEqual([{ audioPath: '/tmp/fake-1.wav', speakers: 3 }]);
+  });
+
+  it('still writes the transcript when the diarizer throws', async () => {
+    const d = deps();
+    const diarizer: Diarizer = {
+      turns: async () => {
+        throw new Error('boom');
+      },
+    };
+    const transcript = await transcribeRecording({ ...d, diarizer }, recording, {
+      diarize: true,
+    });
+    expect(transcript).not.toBeNull();
+    // The words survive; only the attribution is missing.
+    const segments = await d.store.listSegments(transcript.id);
+    expect(segments.map((s) => s.text)).toEqual(['Privet.', 'Kak dela?']);
+    expect(segments.every((s) => s.speaker === null)).toBe(true);
+  });
+
+  it('warns, but does not throw, when the diarizer fails', async () => {
+    const d = deps();
+    const warnings: string[] = [];
+    const diarizer: Diarizer = {
+      turns: async () => {
+        throw new Error('boom');
+      },
+    };
+    await transcribeRecording(
+      { ...d, diarizer, onWarning: (message) => warnings.push(message) },
+      recording,
+      { diarize: true },
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/boom/);
+  });
+
+  it('deletes the temporary wav even when the diarizer fails', async () => {
+    const d = deps();
+    const diarizer: Diarizer = {
+      turns: async () => {
+        throw new Error('boom');
+      },
+    };
+    await transcribeRecording({ ...d, diarizer }, recording, { diarize: true });
+    expect(d.fs.files.has('/tmp/fake-1.wav')).toBe(false);
   });
 });
 
@@ -332,5 +412,31 @@ describe('transcribeRecording --multilingual', () => {
     await expect(transcribeRecording(d, recording, { multilingual: true })).rejects.toThrow(
       /no speech/,
     );
+  });
+
+  it('diarizes once over the whole recording, not once per language run', async () => {
+    const d = multilingualDeps({
+      spans: [
+        { startMs: 0, endMs: 1750 },
+        { startMs: 1800, endMs: 3430 },
+      ],
+      languages: ['en', 'ru'],
+      texts: [
+        [{ startMs: 0, endMs: 1750, text: 'first' }],
+        [{ startMs: 0, endMs: 1630, text: 'second' }],
+      ],
+    });
+    const diarizer = new FakeDiarizer([
+      { startMs: 0, endMs: 1775, speaker: 'speaker_00' },
+      { startMs: 1775, endMs: 3430, speaker: 'speaker_01' },
+    ]);
+    const transcript = await transcribeRecording({ ...d, diarizer }, recording, {
+      multilingual: true,
+      diarize: true,
+    });
+    // One call, on the full-recording wav -- never one per merged run.
+    expect(diarizer.calls).toEqual([{ audioPath: '/tmp/fake-1.wav' }]);
+    const segments = await d.store.listSegments(transcript.id);
+    expect(segments.map((s) => s.speaker)).toEqual(['speaker_00', 'speaker_01']);
   });
 });

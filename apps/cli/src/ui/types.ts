@@ -128,4 +128,12 @@ export interface Ui {
 
   /** `doctor` finished running its checks: render the full report. */
   checks(checks: readonly Check[]): void;
+
+  /**
+   * A non-fatal problem worth the user's attention, e.g. `--diarize` failing
+   * to produce speaker labels. Distinct from the frame's own failure
+   * reporting: the command otherwise succeeded, so this must not look like
+   * the run itself failed.
+   */
+  warn(message: string): void;
 }

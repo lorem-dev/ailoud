@@ -2,6 +2,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import type {
   AudioTool,
   Clock,
+  Diarizer,
   Fs,
   Ids,
   ManagedRecordingStore,
@@ -12,6 +13,7 @@ import { EnvironmentError } from '@laud/core';
 import {
   FfmpegAudioTool,
   NodeFs,
+  SherpaDiarizer,
   SystemClock,
   UlidIds,
   WhisperCppProvider,
@@ -60,6 +62,16 @@ export interface CliContext {
    * model is missing.
    */
   createSegmenter(): SpeechSegmenter;
+  /**
+   * Builds the speaker diarizer on demand, for the same reason `createStt`
+   * and `createSegmenter` do: `createContext` runs before every command,
+   * including `doctor`, whose job is to report missing diarization models
+   * without dying while constructing the very thing it is reporting on.
+   * `transcribe --diarize` is the command that actually needs a diarizer,
+   * so it is the one that pays for this call failing when a model is
+   * missing.
+   */
+  createDiarizer(): Diarizer;
 }
 
 async function readConfigFile(path: string): Promise<string | null> {
@@ -109,6 +121,30 @@ export async function createContext(
       return new WhisperVadSegmenter({
         binary: config.stt.whisperCpp.vadBinary,
         vadModelPath: vadModel,
+      });
+    },
+    createDiarizer(): Diarizer {
+      const segmentationModel = config.stt.diarization.segmentationModel;
+      if (segmentationModel === null) {
+        throw new EnvironmentError(
+          `The diarization segmentation model is not configured. Set ` +
+            `"stt.diarization.segmentationModel" in ${paths.configFile} to the path of the ` +
+            `sherpa-onnx pyannote segmentation model; run "laud doctor" for details.`,
+        );
+      }
+      const embeddingModel = config.stt.diarization.embeddingModel;
+      if (embeddingModel === null) {
+        throw new EnvironmentError(
+          `The diarization embedding model is not configured. Set ` +
+            `"stt.diarization.embeddingModel" in ${paths.configFile} to the path of the ` +
+            `sherpa-onnx speaker embedding model; run "laud doctor" for details.`,
+        );
+      }
+      return new SherpaDiarizer({
+        binary: config.stt.diarization.binary,
+        segmentationModel,
+        embeddingModel,
+        threshold: config.stt.diarization.threshold,
       });
     },
   };

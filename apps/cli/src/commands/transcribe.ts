@@ -7,6 +7,21 @@ interface TranscribeOptions {
   readonly model?: string;
   readonly force?: boolean;
   readonly multilingual?: boolean;
+  readonly diarize?: boolean;
+  readonly speakers?: string;
+}
+
+/**
+ * Parses `--speakers`. Commander hands the raw string through untouched, so
+ * this is the only place that decides "3.5", "0", "-1", and "abc" are all
+ * rejected rather than silently becoming NaN or a nonsensical speaker count.
+ */
+function parseSpeakerCount(raw: string): number {
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new UsageError(`--speakers must be a positive integer, got "${raw}".`);
+  }
+  return value;
 }
 
 export function registerTranscribe(program: Command, context: CliContext): void {
@@ -20,6 +35,8 @@ export function registerTranscribe(program: Command, context: CliContext): void 
       '--multilingual',
       'segment the recording by speech and language, and transcribe each language run separately',
     )
+    .option('--diarize', 'attribute segments to speakers by running speaker diarization')
+    .option('--speakers <n>', 'known number of speakers, to help the diarizer')
     .description('Turn recordings into transcripts')
     .action(async (ids: string[], options: TranscribeOptions) => {
       await context.ui.frame('Transcribing', async () => {
@@ -35,6 +52,13 @@ export function registerTranscribe(program: Command, context: CliContext): void 
               'stretch. Drop one of the two.',
           );
         }
+        if (options.speakers !== undefined && options.diarize !== true) {
+          // A flag that silently does nothing is worse than one that
+          // complains: without --diarize, --speakers has nothing to inform.
+          throw new UsageError('--speakers needs --diarize: it has no effect without it.');
+        }
+        const speakers =
+          options.speakers === undefined ? undefined : parseSpeakerCount(options.speakers);
         const recordings =
           ids.length > 0
             ? await context.store.listRecordings({ ids })
@@ -62,6 +86,7 @@ export function registerTranscribe(program: Command, context: CliContext): void 
 
         const stt = context.createStt();
         const segmenter = options.multilingual === true ? context.createSegmenter() : undefined;
+        const diarizer = options.diarize === true ? context.createDiarizer() : undefined;
         for (const recording of recordings) {
           if (options.force !== true) {
             const existing = await context.store.latestTranscript(recording.id);
@@ -80,13 +105,17 @@ export function registerTranscribe(program: Command, context: CliContext): void 
                 clock: context.clock,
                 ids: context.ids,
                 mediaRoot: context.paths.mediaRoot,
+                onWarning: (message) => context.ui.warn(message),
                 ...(segmenter === undefined ? {} : { segmenter }),
+                ...(diarizer === undefined ? {} : { diarizer }),
               },
               recording,
               {
                 ...(options.sttLang === 'auto' ? {} : { language: options.sttLang }),
                 ...(options.model === undefined ? {} : { model: options.model }),
                 ...(options.multilingual === true ? { multilingual: true } : {}),
+                ...(options.diarize === true ? { diarize: true } : {}),
+                ...(speakers === undefined ? {} : { speakers }),
               },
             ),
           );

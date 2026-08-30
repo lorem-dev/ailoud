@@ -99,6 +99,61 @@ describe('createContext', () => {
     }
   });
 
+  it('defers the missing-segmentation-model failure to createDiarizer() instead of throwing eagerly', async () => {
+    const home = await tempHome();
+    const context = await createContext({ HOME: home }, () => {});
+    try {
+      expect(() => context.createDiarizer()).toThrow(EnvironmentError);
+      expect(() => context.createDiarizer()).toThrow(/stt\.diarization\.segmentationModel/);
+    } finally {
+      context.store.close();
+    }
+  });
+
+  it('names the config file path in the createDiarizer() segmentation-model failure', async () => {
+    const home = await tempHome();
+    const context = await createContext({ HOME: home }, () => {});
+    try {
+      expect(() => context.createDiarizer()).toThrow(
+        new RegExp(context.paths.configFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      );
+    } finally {
+      context.store.close();
+    }
+  });
+
+  it('reports the missing embedding model once the segmentation model is configured', async () => {
+    const home = await tempHome();
+    await mkdir(join(home, '.config', 'laud'), { recursive: true });
+    await writeFile(
+      join(home, '.config', 'laud', 'config.yaml'),
+      'stt:\n  diarization:\n    segmentationModel: /models/segmentation.onnx\n',
+    );
+    const context = await createContext({ HOME: home }, () => {});
+    try {
+      expect(() => context.createDiarizer()).toThrow(EnvironmentError);
+      expect(() => context.createDiarizer()).toThrow(/stt\.diarization\.embeddingModel/);
+    } finally {
+      context.store.close();
+    }
+  });
+
+  it('builds a working diarizer once both diarization models are configured', async () => {
+    const home = await tempHome();
+    await mkdir(join(home, '.config', 'laud'), { recursive: true });
+    await writeFile(
+      join(home, '.config', 'laud', 'config.yaml'),
+      'stt:\n  diarization:\n    segmentationModel: /models/segmentation.onnx\n' +
+        '    embeddingModel: /models/embedding.onnx\n',
+    );
+    const context = await createContext({ HOME: home }, () => {});
+    try {
+      expect(() => context.createDiarizer()).not.toThrow();
+    } finally {
+      context.store.close();
+    }
+  });
+
   it('creates the media root on disk', async () => {
     const home = await tempHome();
     const context = await createContext({ HOME: home }, () => {});

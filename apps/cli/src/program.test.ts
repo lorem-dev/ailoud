@@ -3,6 +3,7 @@ import { EnvironmentError, FailureError, UsageError } from '@laud/core';
 import {
   FakeAudioTool,
   FakeClock,
+  FakeDiarizer,
   FakeIds,
   FakeSegmenter,
   FakeStt,
@@ -133,6 +134,7 @@ describe('buildProgram', () => {
       ui: new PlainUi(write),
       createStt: () => new FakeStt({ language: 'en', model: 'fake', segments: [] }),
       createSegmenter: () => new FakeSegmenter([{ startMs: 0, endMs: 1000 }]),
+      createDiarizer: () => new FakeDiarizer([]),
     };
   }
 

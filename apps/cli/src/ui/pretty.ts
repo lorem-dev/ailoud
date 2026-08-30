@@ -262,4 +262,8 @@ export class PrettyUi implements Ui {
       emit(lines.join('\n'));
     }
   }
+
+  public warn(message: string): void {
+    log.warn(this.wrap(message));
+  }
 }

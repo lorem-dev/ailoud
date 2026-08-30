@@ -1,10 +1,12 @@
 import type {
   AudioTool,
   Clock,
+  Diarizer,
   Fs,
   Ids,
   ManagedRecordingStore,
   RecordingListFilter,
+  SpeakerTurn,
   SpeechSegmenter,
   SpeechSpan,
   TempFile,
@@ -171,6 +173,24 @@ export class FakeSegmenter implements SpeechSegmenter {
   async segments(audioPath: string): Promise<SpeechSpan[]> {
     this.calls.push(audioPath);
     return [...this.spans];
+  }
+}
+
+export class FakeDiarizer implements Diarizer {
+  /** Every (audioPath, options) pair this fake was asked to diarize, in call order. */
+  readonly calls: Array<{ readonly audioPath: string; readonly speakers?: number }> = [];
+
+  constructor(private readonly turnsResult: readonly SpeakerTurn[]) {}
+
+  async turns(
+    audioPath: string,
+    options: { readonly speakers?: number } = {},
+  ): Promise<readonly SpeakerTurn[]> {
+    this.calls.push({
+      audioPath,
+      ...(options.speakers === undefined ? {} : { speakers: options.speakers }),
+    });
+    return [...this.turnsResult];
   }
 }
 
