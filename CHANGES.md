@@ -48,11 +48,14 @@
   the speaker when a segment has one, and `--format json` carries it in the
   existing `speaker` field; SRT and VTT are unchanged.
 - Config gains `stt.diarization.binary`, `stt.diarization.segmentationModel`,
-  `stt.diarization.embeddingModel`, and `stt.diarization.threshold` (default
-  `0.6`).
+  `stt.diarization.embeddingModel`, `stt.diarization.threshold` (default
+  `0.6`), and `stt.diarization.threads` (default `4`).
 - `laud setup` and `laud doctor --fix` provision the diarizer and its models
   the same way as whisper.cpp. Its `doctor` checks are optional: they report
-  state but never make `doctor` fail on their own, since `--diarize` is
-  opt-in. Diarization is not available on Linux arm64, because sherpa-onnx
-  publishes no generic build for that target -- only vendor NPU builds that
-  cannot run on an ordinary ARM machine.
+  state, shown as `n/a` rather than `FAIL`, but never make `doctor` fail on
+  their own, since `--diarize` is opt-in. The prebuilt diarizer covers macOS
+  arm64 and Linux x64 only -- sherpa-onnx publishes no generic build for
+  Linux arm64 (only vendor NPU builds that cannot run on an ordinary ARM
+  machine), for an Intel Mac, or for Windows, so on those platforms
+  diarization needs sherpa-onnx built from source with
+  `stt.diarization.binary` pointed at it.

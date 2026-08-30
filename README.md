@@ -183,11 +183,13 @@ than letting the diarizer infer the count from the audio, so give it
 whenever you know it. `--speakers` without `--diarize` is a usage error, not
 a silent no-op, since without `--diarize` there is nothing for it to inform.
 
-Diarization is not available on Linux arm64: sherpa-onnx, the tool laud
-uses, publishes no generic build for that CPU architecture in the pinned
-release -- only vendor NPU builds (axcl, axera, rknn), which cannot run on
-an ordinary ARM machine. See "External tools" below for the other platforms
-it does cover.
+Diarization cannot be installed automatically on Linux arm64: sherpa-onnx,
+the tool laud uses, publishes no generic build for that CPU architecture in
+the pinned release -- only vendor NPU builds (axcl, axera, rknn), which
+cannot run on an ordinary ARM machine. Diarization itself still works there
+if you build sherpa-onnx from source and point `stt.diarization.binary` at
+the result; what is missing is the prebuilt download, not the feature. See
+"External tools" below for the platforms `laud setup` covers on its own.
 
 Naming speakers and separating overlapping speech are both out of scope:
 output is always `speaker_00`, `speaker_01`, and so on, and a segment where
@@ -245,10 +247,13 @@ under "External tools" below.
 --diarize` only; the single-speaker default needs none of it. Configured
   at `stt.diarization.binary`, `stt.diarization.segmentationModel`, and
   `stt.diarization.embeddingModel`, plus `stt.diarization.threshold` (the
-  clustering threshold used when `--speakers` is not given; default `0.6`).
-  Checked by `laud doctor`, but because `--diarize` is opt-in, a failing
-  diarization check reports its state without making `doctor` exit
-  non-zero on its own -- see "CLI quick start" above.
+  clustering threshold used when `--speakers` is not given; default `0.6`)
+  and `stt.diarization.threads` (threads for both diarizer passes; default
+  `4`, the setting diarization speed was measured at -- the binary's own
+  default of 1 is about half as fast). Checked by `laud doctor`, but
+  because `--diarize` is opt-in, a failing diarization check is reported as
+  `n/a` rather than `FAIL` and never makes `doctor` exit non-zero on its own
+  -- see "CLI quick start" above.
 
 ### First run: `laud setup`
 
@@ -309,14 +314,17 @@ downloading anything. On Windows, or on a Linux CPU architecture other than
 x64/arm64, install the pieces by hand as described next.
 
 The sherpa-onnx diarizer follows a narrower map, because upstream publishes
-fewer prebuilt binaries than whisper.cpp does: only macOS arm64 and Linux
-x64 have a generic build in the pinned release. On an Intel Mac, building
-sherpa-onnx from source is the only route. **On Linux arm64 there is no
-route at all** -- the only aarch64 assets upstream ships are vendor NPU
-builds (axcl, axera, rknn) that do not run on an ordinary ARM machine, so
-diarization is simply not available there. Either way, that one action is
-skipped with an explanation rather than aborting the rest of the plan, the
-same way an unsupported whisper.cpp architecture is handled.
+fewer prebuilt binaries than whisper.cpp does: **only macOS arm64 and Linux
+x64 have a generic build in the pinned release**, and those are the only two
+platforms `setup` and `doctor --fix` can install the diarizer on. Everywhere
+else -- an Intel Mac, Linux arm64 (where the only aarch64 assets upstream
+ships are vendor NPU builds that do not run on an ordinary ARM machine), any
+other Linux architecture, Windows -- there is no prebuilt asset to fetch, so
+building sherpa-onnx from source and pointing `stt.diarization.binary` at
+the result is the route. That is a real route, not a dead end: laud only
+ever invokes the binary the config names. In all those cases the install
+action is skipped with an explanation rather than aborting the rest of the
+plan, the same way an unsupported whisper.cpp architecture is handled.
 
 Neither command will run an installer it cannot supervise: with no terminal
 attached (CI, a pipe), an install that could prompt -- `sudo apt-get`, and
@@ -359,11 +367,13 @@ never answer.
     the sherpa-onnx releases page and extract it somewhere permanent, the
     same as whisper.cpp above. Point `stt.diarization.binary` at the
     extracted binary.
-  - macOS on Intel, or any other Linux CPU architecture: no prebuilt asset
-    is published; build sherpa-onnx from source and point
-    `stt.diarization.binary` at the result.
-  - Linux arm64: not available. Upstream ships only vendor NPU builds for
-    this target, and they do not run on an ordinary ARM machine.
+  - Every other platform -- macOS on Intel, Linux arm64, any other Linux
+    CPU architecture, Windows: no prebuilt asset is published, so build
+    sherpa-onnx from source and point `stt.diarization.binary` at the
+    resulting `sherpa-onnx-offline-speaker-diarization`. On Linux arm64 the
+    only aarch64 assets upstream ships are vendor NPU builds (axcl, axera,
+    rknn) that do not run on an ordinary ARM machine, which is why there is
+    nothing to download there -- a source build still works.
   - Download the segmentation model
     (`sherpa-onnx-pyannote-segmentation-3-0.tar.bz2`, extract `model.onnx`)
     and the embedding model
