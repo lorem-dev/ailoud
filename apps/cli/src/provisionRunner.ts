@@ -1,13 +1,14 @@
 import { join } from 'node:path';
-import { mkdir } from 'node:fs/promises';
+import { access, constants, mkdir } from 'node:fs/promises';
 import type { Action } from '@laud/core';
 import {
-  detectPackageManager,
   downloadFile,
-  ffmpegInstallCommand,
+  ffmpegInstallCommands,
+  formatInstallCommand,
   installWhisper,
   runInteractive,
 } from '@laud/providers';
+import type { InstallCommand, PackageManager } from '@laud/providers';
 import type { ConfigUpdates } from './configWrite.js';
 
 export interface ActionOutcome {
@@ -25,6 +26,14 @@ export interface ExecuteDeps {
   readonly platform: NodeJS.Platform;
   readonly arch: string;
   readonly dataDir: string;
+  /**
+   * Resolved once by the caller, before the plan was printed, and passed in
+   * rather than detected here. Detecting it at execution time is what let
+   * "Install ffmpeg" be confirmed without the user ever seeing the sudo
+   * command it stood for; the plan and the execution must be driven by the
+   * same answer.
+   */
+  readonly manager: PackageManager | null;
   readonly interactive: boolean;
   readonly onStep: (message: string) => void;
   /** Called at most once per percent, per file. Optional: tests pass nothing. */
@@ -53,13 +62,37 @@ export async function executePlan(
     try {
       switch (action.kind) {
         case 'create-directory': {
-          await mkdir(action.path, { recursive: true });
-          outcomes.push({ action, ok: true, detail: `created ${action.path}` });
+          // `mkdir(recursive)` returns the first directory it created, or
+          // undefined when there was nothing to create. That distinction
+          // matters: `createContext` already mkdirs the media root before any
+          // command runs, so the only way checkMediaRoot fails is on the
+          // writability branch -- where mkdir no-ops and reporting "created"
+          // would be a false claim about the one thing that is still wrong.
+          const created = await mkdir(action.path, { recursive: true });
+          try {
+            await access(action.path, constants.W_OK);
+          } catch {
+            outcomes.push({
+              action,
+              ok: false,
+              detail:
+                `${action.path} exists but laud's user cannot write to it; change its ` +
+                'owner or permissions',
+            });
+            break;
+          }
+          outcomes.push({
+            action,
+            ok: true,
+            detail:
+              created === undefined
+                ? `${action.path} (already writable)`
+                : `created ${action.path}`,
+          });
           break;
         }
         case 'install-ffmpeg': {
-          const manager = await detectPackageManager(deps.platform);
-          if (manager === null) {
+          if (deps.manager === null) {
             outcomes.push({
               action,
               ok: false,
@@ -67,35 +100,51 @@ export async function executePlan(
             });
             break;
           }
-          const command = ffmpegInstallCommand(manager);
-          if (command.needsSudo && !deps.interactive) {
+          const commands = ffmpegInstallCommands(deps.manager);
+          // Gated on `interactive`, not on `needsSudo`: runInteractive has no
+          // timeout at all (see run.ts), so ANY command it spawns can wait
+          // forever with nothing on stdin. `brew install` prompting for the
+          // Xcode command line tools is the case that made the sudo-only
+          // guard insufficient -- it needs no sudo and still hangs CI.
+          if (!deps.interactive) {
             outcomes.push({
               action,
               ok: false,
-              detail: `needs a terminal for sudo; run: ${command.command} ${command.args.join(' ')}`,
+              detail: skippedDetail(commands),
             });
             break;
           }
-          // No spinner is ever started for this step (see setup.ts): runInteractive
-          // uses stdio: 'inherit' so a sudo password prompt reaches the real
-          // terminal, and a live spinner drawing over that same terminal at the
-          // same time would make the prompt unreadable.
-          deps.onStep(`Running ${command.command} ${command.args.join(' ')}`);
-          const code = await runInteractive(command.command, command.args);
-          outcomes.push(
-            code === 0
-              ? { action, ok: true, detail: 'ffmpeg installed' }
-              : { action, ok: false, detail: `exited with code ${code}` },
-          );
+          outcomes.push(await runInstallCommands(action, commands, deps, 'ffmpeg installed'));
           break;
         }
         case 'install-whisper': {
+          // macOS installs whisper.cpp through brew; with no package manager
+          // there is nothing to run, and saying so here matches what the
+          // plan already told the user.
+          if (deps.platform === 'darwin' && deps.manager === null) {
+            outcomes.push({
+              action,
+              ok: false,
+              detail: 'no supported package manager found; install whisper.cpp by hand',
+            });
+            break;
+          }
           deps.onStep('Installing whisper.cpp');
-          const paths = await installWhisper({
+          const result = await installWhisper({
             platform: deps.platform,
             arch: deps.arch,
             dataDir: deps.dataDir,
+            interactive: deps.interactive,
           });
+          if (result.kind === 'skipped') {
+            outcomes.push({
+              action,
+              ok: false,
+              detail: `needs a terminal; run: ${result.commands.join(' && ')}`,
+            });
+            break;
+          }
+          const paths = result.paths;
           if (paths !== null) {
             updates = { ...updates, binary: paths.binary, vadBinary: paths.vadBinary };
           }
@@ -140,4 +189,41 @@ export async function executePlan(
   }
 
   return { outcomes, updates };
+}
+
+/** The refusal an action reports when it would have to spawn something with no terminal. */
+function skippedDetail(commands: readonly InstallCommand[]): string {
+  return `needs a terminal; run: ${commands.map(formatInstallCommand).join(' && ')}`;
+}
+
+/**
+ * Runs an install's commands in order and folds them into one outcome.
+ *
+ * A command marked `optional` (only `apt-get update` today) is reported and
+ * stepped over rather than treated as fatal: refreshing package lists can
+ * fail on a single unreachable repository while the install that follows
+ * still succeeds.
+ */
+async function runInstallCommands(
+  action: Action,
+  commands: readonly InstallCommand[],
+  deps: ExecuteDeps,
+  successDetail: string,
+): Promise<ActionOutcome> {
+  for (const command of commands) {
+    const line = formatInstallCommand(command);
+    // No spinner is ever started for this step (see setup.ts): runInteractive
+    // uses stdio: 'inherit' so a sudo password prompt reaches the real
+    // terminal, and a live spinner drawing over that same terminal at the
+    // same time would make the prompt unreadable.
+    deps.onStep(`Running ${line}`);
+    const code = await runInteractive(command.command, command.args);
+    if (code === 0) continue;
+    if (command.optional === true) {
+      deps.onStep(`  "${line}" exited with code ${code}; continuing`);
+      continue;
+    }
+    return { action, ok: false, detail: `"${line}" exited with code ${code}` };
+  }
+  return { action, ok: true, detail: successDetail };
 }
