@@ -6,6 +6,7 @@ import { styleText } from 'node:util';
 import { formatTimestamp } from '@laud/core';
 import type { Recording, Transcript } from '@laud/core';
 import type { Check, RecordingRow, Ui } from './types.js';
+import { languageLabel } from './languageLabel.js';
 
 /** The `ls` table's column headings, and the order its cells are built in. */
 const TABLE_HEAD = ['id', 'duration', 'lang', 'preview'] as const;
@@ -72,10 +73,15 @@ export class PrettyUi implements Ui {
     }
   }
 
-  public transcribed(recording: Recording, transcript: Transcript, segmentCount: number): void {
+  public transcribed(
+    recording: Recording,
+    transcript: Transcript,
+    segmentCount: number,
+    languages: readonly string[],
+  ): void {
     log.success(
       this.wrap(
-        `${recording.id}  ${transcript.language}  ${segmentCount} segment${segmentCount === 1 ? '' : 's'}`,
+        `${recording.id}  ${languageLabel(transcript, languages)}  ${segmentCount} segment${segmentCount === 1 ? '' : 's'}`,
       ),
     );
   }

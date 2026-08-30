@@ -1,6 +1,7 @@
 import { formatTimestamp } from '@laud/core';
 import type { Recording, Transcript } from '@laud/core';
 import type { Check, RecordingRow, Ui } from './types.js';
+import { languageLabel } from './languageLabel.js';
 
 /** Width of the leading "ok"/"FAIL" column in `checks()`, including its trailing padding. */
 const STATUS_WIDTH = 6;
@@ -38,9 +39,14 @@ export class PlainUi implements Ui {
     return task();
   }
 
-  public transcribed(recording: Recording, transcript: Transcript, segmentCount: number): void {
+  public transcribed(
+    recording: Recording,
+    transcript: Transcript,
+    segmentCount: number,
+    languages: readonly string[],
+  ): void {
     this.write(
-      `${recording.id}  ${transcript.language}  ${segmentCount} segment${segmentCount === 1 ? '' : 's'}`,
+      `${recording.id}  ${languageLabel(transcript, languages)}  ${segmentCount} segment${segmentCount === 1 ? '' : 's'}`,
     );
   }
 

@@ -78,14 +78,28 @@ describe('PlainUi', () => {
 
   it('reports a transcribed recording exactly like the old context.out line', () => {
     const { ui: sink, lines } = ui();
-    sink.transcribed(RECORDING, TRANSCRIPT, 1);
+    sink.transcribed(RECORDING, TRANSCRIPT, 1, []);
     expect(lines).toEqual(['ID001  ru  1 segment']);
   });
 
   it('pluralizes segment count', () => {
     const { ui: sink, lines } = ui();
-    sink.transcribed(RECORDING, TRANSCRIPT, 3);
+    sink.transcribed(RECORDING, TRANSCRIPT, 3, []);
     expect(lines).toEqual(['ID001  ru  3 segments']);
+  });
+
+  it('names every language of a code-switched recording, not just the dominant one', () => {
+    const { ui: sink, lines } = ui();
+    // TRANSCRIPT.language is 'ru' -- the stored dominant code. The recording
+    // is half English, and saying only "ru" would misreport it.
+    sink.transcribed(RECORDING, TRANSCRIPT, 2, ['en', 'ru']);
+    expect(lines).toEqual(['ID001  en+ru  2 segments']);
+  });
+
+  it('falls back to the stored language when no per-segment language was recorded', () => {
+    const { ui: sink, lines } = ui();
+    sink.transcribed(RECORDING, TRANSCRIPT, 1, []);
+    expect(lines).toEqual(['ID001  ru  1 segment']);
   });
 
   it('reports a skip exactly like the old context.out line', () => {

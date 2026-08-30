@@ -66,7 +66,20 @@ export interface Ui {
   transcribing<T>(recording: Recording, task: () => Promise<T>): Promise<T>;
 
   /** A recording finished transcribing into `transcript`, with `segmentCount` segments. */
-  transcribed(recording: Recording, transcript: Transcript, segmentCount: number): void;
+  /**
+   * `languages` is every language the segments were spoken in, most-spoken
+   * first (see summarizeLanguages in @laud/core). It is passed separately
+   * from `transcript.language`, which holds only the dominant one: showing
+   * a single code for a code-switched recording tells the user something
+   * untrue. Empty when the provider recorded no per-segment language, in
+   * which case the renderer falls back to `transcript.language`.
+   */
+  transcribed(
+    recording: Recording,
+    transcript: Transcript,
+    segmentCount: number,
+    languages: readonly string[],
+  ): void;
 
   /** A recording already had a transcript and was left alone (no `--force`). */
   skipped(recording: Recording): void;

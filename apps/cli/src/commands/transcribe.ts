@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { FailureError, transcribeRecording, UsageError } from '@laud/core';
+import { FailureError, summarizeLanguages, transcribeRecording, UsageError } from '@laud/core';
 import type { CliContext } from '../wiring.js';
 
 interface TranscribeOptions {
@@ -90,8 +90,13 @@ export function registerTranscribe(program: Command, context: CliContext): void 
               },
             ),
           );
-          const count = (await context.store.listSegments(transcript.id)).length;
-          context.ui.transcribed(recording, transcript, count);
+          const segments = await context.store.listSegments(transcript.id);
+          context.ui.transcribed(
+            recording,
+            transcript,
+            segments.length,
+            summarizeLanguages(segments),
+          );
         }
       });
     });
