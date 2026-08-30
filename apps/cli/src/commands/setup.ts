@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { confirm, isCancel, select } from '@clack/prompts';
 import type { Command } from 'commander';
 import {
@@ -12,13 +13,41 @@ import {
 import type { Action, Remedy } from '@laud/core';
 import { executePlan } from '../provisionRunner.js';
 import { writeConfigUpdates } from '../configWrite.js';
+import { parseConfig } from '../config.js';
+import type { LaudConfig } from '../config.js';
 import { runChecks } from './doctor.js';
 import type { CliContext } from '../wiring.js';
 
-/** Whether laud may prompt: a terminal on both ends, and not a CI runner. */
+/**
+ * Whether laud may prompt: a terminal on both ends, and not a CI runner.
+ *
+ * `CI=0` and `CI=false` are the `ci-info`/`is-ci` convention for "explicitly
+ * not CI, prompting is fine" -- only an unset, empty, or truthy `CI` counts
+ * as being in CI.
+ */
 export function isInteractive(env: NodeJS.ProcessEnv, stdinIsTty: boolean): boolean {
-  if (env['CI'] !== undefined && env['CI'] !== '') return false;
+  const ci = env['CI'];
+  const inCi = ci !== undefined && ci !== '' && ci !== '0' && ci !== 'false';
+  if (inCi) return false;
   return stdinIsTty;
+}
+
+/**
+ * Rebuilds the config from whatever is on disk right now, the same way
+ * `createContext` (wiring.ts) does at process startup. `context.config` is
+ * parsed once and never refreshed, but the checks below must see what
+ * `writeConfigUpdates` just wrote -- otherwise a fully successful install
+ * still fails the very check it just fixed, because the in-memory config
+ * still holds the pre-install (missing) value.
+ */
+async function readCurrentConfig(configFile: string): Promise<LaudConfig> {
+  let raw: string | null;
+  try {
+    raw = await readFile(configFile, 'utf8');
+  } catch {
+    raw = null; // no config file is a normal first run, not an error
+  }
+  return parseConfig(raw);
 }
 
 export interface ModelNameOptions {
@@ -204,7 +233,11 @@ export async function runProvisioning(
     context.write(`Updated ${context.paths.configFile}: ${updatedKeys.join(', ')}`);
   }
 
-  const finalChecks = await runChecks(context, platform);
+  // Re-read unconditionally, even when result.updates was empty: an action
+  // can change what the checks see (e.g. installing a binary onto PATH)
+  // without writing anything back to the config file.
+  const freshConfig = await readCurrentConfig(context.paths.configFile);
+  const finalChecks = await runChecks({ ...context, config: freshConfig }, platform);
   context.ui.checks(finalChecks);
   if (finalChecks.some((check) => !check.ok)) {
     throw new EnvironmentError('laud is still not ready: see the failing checks above.');

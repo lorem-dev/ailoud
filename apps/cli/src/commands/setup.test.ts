@@ -1,9 +1,9 @@
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Action } from '@laud/core';
-import { VAD_MODEL, findModel } from '@laud/core';
+import type { Action, Remedy } from '@laud/core';
+import { EnvironmentError, VAD_MODEL, findModel } from '@laud/core';
 import {
   chooseModel,
   describeAction,
@@ -12,7 +12,11 @@ import {
   isInteractive,
   requireConsent,
   resolveModelName,
+  runProvisioning,
 } from './setup.js';
+import type { LaudConfig, LaudPaths } from '../config.js';
+import type { CliContext } from '../wiring.js';
+import { context } from './testContext.js';
 
 describe('isInteractive', () => {
   it('is false under CI even with a real tty', () => {
@@ -29,6 +33,14 @@ describe('isInteractive', () => {
 
   it('treats an empty CI value as "not set"', () => {
     expect(isInteractive({ CI: '' }, true)).toBe(true);
+  });
+
+  it('treats CI=0 as "not CI", per the ci-info/is-ci convention', () => {
+    expect(isInteractive({ CI: '0' }, true)).toBe(true);
+  });
+
+  it('treats CI=false as "not CI", per the ci-info/is-ci convention', () => {
+    expect(isInteractive({ CI: 'false' }, true)).toBe(true);
   });
 });
 
@@ -169,15 +181,35 @@ describe('describeAction / describePlan', () => {
 // executePlan outcome accounting -- mocked providers, no real download,
 // package-manager invocation, or network request. Only create-directory
 // touches real disk, and only under a throwaway temp directory.
+//
+// `run` is also mocked here (rather than left real): runProvisioning's
+// integration tests below drive the real `runChecks` from doctor.ts, which
+// calls `run()` for every binary check (ffmpeg, ffprobe, whisper, vad). A
+// real spawn would make those tests depend on what happens to be on the
+// machine's PATH; the config-driven checks (model, vad model) are the ones
+// those tests actually care about; the binary checks are held fixed at "ok".
 const providers = vi.hoisted(() => ({
   detectPackageManager: vi.fn(),
   ffmpegInstallCommand: vi.fn(),
   installWhisper: vi.fn(),
   downloadFile: vi.fn(),
   runInteractive: vi.fn(),
+  run: vi.fn(),
 }));
 
 vi.mock('@laud/providers', () => providers);
+
+// Mocked so runProvisioning's consent test can control the answer and count
+// the calls without a real terminal. Every other test in this file passes
+// an explicit confirmImpl/selectImpl override, which takes precedence over
+// this mock, so it does not change their behavior.
+const clack = vi.hoisted(() => ({
+  confirm: vi.fn(),
+  isCancel: vi.fn(() => false),
+  select: vi.fn(),
+}));
+
+vi.mock('@clack/prompts', () => clack);
 
 const { executePlan } = await import('../provisionRunner.js');
 
@@ -321,5 +353,157 @@ describe('executePlan', () => {
       ok: false,
       detail: 'tar exited with code 1',
     });
+  });
+});
+
+// runProvisioning integration tests -- these drive the real executePlan,
+// writeConfigUpdates, and runChecks (only @laud/providers and @clack/prompts
+// are mocked, per the module-level vi.mock calls above). They exist because
+// every other test in this file targets a sub-function in isolation, which
+// is exactly how the previous bug survived: runChecks re-reading the config
+// context.config was built from at process startup, so a fully successful
+// setup still failed its own final check. Only a test that actually calls
+// runProvisioning and lets it write to and re-read a real config file can
+// catch that.
+describe('runProvisioning', () => {
+  let tmp: string;
+  let paths: LaudPaths;
+
+  const badConfig: LaudConfig = {
+    stt: {
+      provider: 'whisper-cpp',
+      whisperCpp: {
+        binary: 'whisper-cli',
+        model: null,
+        vadBinary: 'whisper-vad-speech-segments',
+        vadModel: null,
+      },
+    },
+  };
+
+  function provisioningContext(config: LaudConfig): CliContext & { lines: string[] } {
+    // Reuses testContext.ts's fakes for everything runChecks/runProvisioning
+    // do not care about here (store, fs, audio, clock, ids), but points
+    // `paths` at a real throwaway directory: checkModel, checkVadModel, and
+    // checkMediaRoot all call node:fs directly, so they need real files to
+    // see real state changes.
+    return { ...context(), paths, config };
+  }
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'laud-provisioning-test-'));
+    paths = {
+      configFile: join(tmp, 'config.yaml'),
+      dataDir: join(tmp, 'data'),
+      dbFile: join(tmp, 'data', 'laud.db'),
+      mediaRoot: join(tmp, 'data', 'media'),
+    };
+    await mkdir(paths.mediaRoot, { recursive: true });
+    for (const fn of Object.values(providers)) fn.mockReset();
+    for (const fn of Object.values(clack)) fn.mockReset();
+    clack.isCancel.mockReturnValue(false);
+    // Held fixed at "ok": these tests are about the model/config checks,
+    // not about whether ffmpeg or whisper-cli happen to be on this machine.
+    providers.run.mockResolvedValue({ code: 0, stdout: 'ok', stderr: '' });
+  });
+
+  afterEach(async () => {
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it('exits without throwing when every action succeeds and the config file ends up healthy (regression test for the stale-config bug)', async () => {
+    providers.downloadFile.mockImplementation(async (_url: string, target: string) => {
+      // Stands in for the real download: writes something checkModel and
+      // checkVadModel can find on disk at the path the action will record.
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, 'dummy-model-bytes');
+    });
+    const ctx = provisioningContext(badConfig);
+    const remedies: readonly Remedy[] = [
+      { kind: 'download-model', slot: 'transcription' },
+      { kind: 'download-model', slot: 'vad' },
+    ];
+
+    await expect(runProvisioning(ctx, { yes: true }, remedies, 'linux')).resolves.toBeUndefined();
+
+    const written = await readFile(paths.configFile, 'utf8');
+    expect(written).toMatch(/model:/);
+  });
+
+  it('still writes the config updates that did succeed, still re-checks, and still throws on a partial failure', async () => {
+    providers.downloadFile.mockImplementation(async (_url: string, target: string) => {
+      if (target.includes('silero')) throw new Error('network down');
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, 'dummy-model-bytes');
+    });
+    const ctx = provisioningContext(badConfig);
+    const remedies: readonly Remedy[] = [
+      { kind: 'download-model', slot: 'transcription' },
+      { kind: 'download-model', slot: 'vad' },
+    ];
+
+    await expect(runProvisioning(ctx, { yes: true }, remedies, 'linux')).rejects.toThrow(
+      EnvironmentError,
+    );
+
+    // The transcription model succeeded and must be on disk in the config
+    // even though the run, as a whole, still failed.
+    const written = await readFile(paths.configFile, 'utf8');
+    expect(written).toMatch(/model:/);
+    expect(written).not.toMatch(/vadModel:/);
+  });
+
+  it('prompts nothing, writes nothing, and returns cleanly on an already-healthy machine', async () => {
+    // Healthy means the caller (registerSetup, filtering doctor's checks)
+    // found nothing to fix, i.e. passed no remedies -- so context()'s
+    // already-configured default config is used as-is here.
+    const ctx = provisioningContext(context().config);
+
+    await expect(runProvisioning(ctx, {}, [], 'linux')).resolves.toBeUndefined();
+
+    expect(clack.confirm).not.toHaveBeenCalled();
+    expect(providers.downloadFile).not.toHaveBeenCalled();
+    expect(providers.installWhisper).not.toHaveBeenCalled();
+    await expect(stat(paths.configFile)).rejects.toThrow();
+    expect(ctx.lines.at(-1)).toBe('Everything laud needs is already in place.');
+  });
+
+  it('asks for consent exactly once, before any action runs, and only proceeds once it is given', async () => {
+    const isTtyDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const originalCi = process.env['CI'];
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    delete process.env['CI'];
+    try {
+      const order: string[] = [];
+      // Interactive and a transcription-model download is in the plan, so
+      // chooseModel opens the model picker before consent is asked at all;
+      // give it an answer so that prompt does not block the one under test.
+      clack.select.mockResolvedValue('small');
+      clack.confirm.mockImplementation(async () => {
+        order.push('consent');
+        return true;
+      });
+      providers.downloadFile.mockImplementation(async (_url: string, target: string) => {
+        order.push('action');
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, 'dummy-model-bytes');
+      });
+      const ctx = provisioningContext(badConfig);
+      const remedies: readonly Remedy[] = [{ kind: 'download-model', slot: 'transcription' }];
+
+      // The final re-check still fails here (the vad model is untouched by
+      // this remedy list), which is not what this test is about: it only
+      // cares about the consent/action ordering and call count, so a
+      // trailing EnvironmentError from that re-check is expected and ignored.
+      await runProvisioning(ctx, {}, remedies, 'linux').catch(() => {});
+
+      expect(clack.confirm).toHaveBeenCalledTimes(1);
+      expect(order).toEqual(['consent', 'action']);
+    } finally {
+      if (isTtyDescriptor === undefined) delete (process.stdin as { isTTY?: boolean }).isTTY;
+      else Object.defineProperty(process.stdin, 'isTTY', isTtyDescriptor);
+      if (originalCi === undefined) delete process.env['CI'];
+      else process.env['CI'] = originalCi;
+    }
   });
 });
