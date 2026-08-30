@@ -24,13 +24,20 @@ export function assignSpeakers(
   segments: readonly RawSegment[],
   turns: readonly SpeakerTurn[],
 ): RawSegment[] {
+  // Sorted by startMs so the tie-break below is a fact about this function,
+  // not a favour the caller has to remember to do. `Diarizer.turns` documents
+  // "timeline order", but that promise lives on a different type with
+  // nothing to enforce it; a parser feeding this from a binary's stdout could
+  // get it wrong without either type noticing. Copy first: the caller's array
+  // is not ours to reorder.
+  const orderedTurns = [...turns].sort((a, b) => a.startMs - b.startMs);
   return segments.map((segment) => {
     let best: string | undefined;
     let bestOverlap = 0;
-    for (const turn of turns) {
+    for (const turn of orderedTurns) {
       const shared = overlapMs(segment.startMs, segment.endMs, turn.startMs, turn.endMs);
-      // Strictly greater: an exact tie keeps the earlier turn, so the result
-      // does not depend on the order the diarizer happened to emit.
+      // Strictly greater: an exact tie keeps whichever turn sorted first,
+      // i.e. the earlier one, regardless of the order the diarizer emitted.
       if (shared > bestOverlap) {
         bestOverlap = shared;
         best = turn.speaker;

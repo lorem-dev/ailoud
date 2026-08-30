@@ -61,4 +61,22 @@ describe('assignSpeakers', () => {
     const out = assignSpeakers([seg(900, 1100)], turns);
     expect(out[0]?.speaker).toBe('speaker_00');
   });
+
+  it('leaves a zero-length segment without a speaker', () => {
+    // It can never share a positive span with anything, so it always misses.
+    const out = assignSpeakers([seg(1000, 1000)], [turn(0, 2000, 'speaker_00')]);
+    expect(out[0]?.speaker).toBeUndefined();
+  });
+
+  it('does not mutate its inputs', () => {
+    const segments = [seg(500, 1500)];
+    const turns = [turn(1000, 2000, 'speaker_01'), turn(0, 1000, 'speaker_00')];
+    const segmentsCopy = structuredClone(segments);
+    const turnsCopy = structuredClone(turns);
+
+    assignSpeakers(segments, turns);
+
+    expect(segments).toEqual(segmentsCopy);
+    expect(turns).toEqual(turnsCopy);
+  });
 });

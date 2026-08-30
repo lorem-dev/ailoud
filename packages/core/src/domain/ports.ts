@@ -97,7 +97,10 @@ export interface SpeakerTurn {
 
 export interface Diarizer {
   /** Speaker turns across the whole recording, in timeline order. */
-  turns(audioPath: string, options?: { readonly speakers?: number }): Promise<SpeakerTurn[]>;
+  turns(
+    audioPath: string,
+    options?: { readonly speakers?: number },
+  ): Promise<readonly SpeakerTurn[]>;
 }
 
 export interface RecordingListFilter {
