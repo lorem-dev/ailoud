@@ -133,7 +133,22 @@ async function withSpeakers(
     );
     return [...segments];
   }
-  return assignSpeakers(segments, turns);
+  try {
+    return assignSpeakers(segments, turns);
+  } catch (error) {
+    // assignSpeakers is pure arithmetic over typed spans and has no realistic
+    // way to throw, but the guarantee this function offers its callers -- that
+    // a diarization problem costs speaker labels and nothing else -- is worth
+    // holding by structure rather than by an argument about what pure code
+    // happens to do. Every escape hatch above returns the segments unchanged;
+    // so does this one.
+    deps.onWarning?.(
+      `assigning speakers failed, so this transcript has no speakers: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return [...segments];
+  }
 }
 
 export async function transcribeRecording(
