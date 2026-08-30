@@ -268,6 +268,15 @@ export async function executePlan(
             // otherwise step straight over both and never collect them.
             // Nothing here is precious: it is scratch space derived entirely
             // from the archive, re-downloadable at will.
+            //
+            // Unconditional, and deliberately not "reuse the archive if it
+            // looks complete": a run killed after a finished download pays for
+            // that ~7 MB again. The alternative is deciding whether a leftover
+            // archive is whole, which nothing on disk records -- a truncated
+            // download and a complete one are the same bytes plus or minus an
+            // end, and guessing wrong feeds tar a corrupt file whose failure
+            // then looks like a bad release. A re-download is the cheaper
+            // half of that trade; do not "optimise" this into a resume.
             await discardScratch();
             if (!(await pathExists(target))) {
               await downloadFile(action.model.url, archivePath, { onProgress });

@@ -5,6 +5,7 @@ import type {
   Fs,
   Ids,
   RecordingStore,
+  SpeakerTurn,
   SpeechSegmenter,
   TranscriptionProvider,
 } from '../domain/ports.js';
@@ -81,30 +82,36 @@ async function withSpeakers(
 ): Promise<RawSegment[]> {
   if (options.diarize !== true) return [...segments];
   if (deps.diarizer === undefined) {
+    // Unreachable from the CLI: `CliContext.createDiarizer()` is
+    // non-nullable, so `--diarize` either yields a diarizer or throws an
+    // EnvironmentError naming the unconfigured model. Kept as a guard for
+    // library callers, who can build deps without one -- and it must warn
+    // rather than throw, because the transcript is already worth keeping.
+    //
+    // Names no install command on purpose. `laud setup` and `laud doctor
+    // --fix` both refuse Windows, so naming them here would rebuild the same
+    // dead end checkDiarizerBinary's fix text was just cured of (see
+    // installHint in ../provision/remedy.ts). `laud doctor` is safe on every
+    // platform and reports the per-platform remedy itself.
     deps.onWarning?.(
       'speaker diarization was requested but no diarizer is available, so this transcript ' +
-        'has no speakers. Run "laud doctor" to see which diarization pieces are missing, ' +
-        'then "laud setup" or "laud doctor --fix" to install them.',
+        'has no speakers. Run "laud doctor" to see which diarization pieces are missing.',
     );
     return [...segments];
   }
+
+  // Only the call that can genuinely fail lives inside the try -- the
+  // diarizer, and nothing else. A warning raised in here would be
+  // caught below, relabelled as "diarization failed" against the sink's own
+  // error rather than the real cause, and rethrown out of withSpeakers --
+  // taking the finished transcription with it. Keeping every onWarning call
+  // outside makes "withSpeakers cannot throw" true by structure instead of
+  // by an argument about what a sink happens to do.
+  let turns: readonly SpeakerTurn[];
   try {
-    const turns = await deps.diarizer.turns(wavPath, {
+    turns = await deps.diarizer.turns(wavPath, {
       ...(options.speakers === undefined ? {} : { speakers: options.speakers }),
     });
-    if (turns.length === 0) {
-      // The binary can exit 0 having emitted nothing this side can parse --
-      // too little speech to cluster, or output in a shape the adapter's
-      // parser does not recognize. assignSpeakers on an empty turn list is
-      // a no-op, so without this branch the run is silent and indetectable.
-      deps.onWarning?.(
-        'speaker diarization found no speaker turns, so this transcript has no speakers. ' +
-          'Passing --speakers <n> is more reliable than letting the count be inferred; ' +
-          'a lower "stt.diarization.threshold" also splits more readily.',
-      );
-      return [...segments];
-    }
-    return assignSpeakers(segments, turns);
   } catch (error) {
     deps.onWarning?.(
       `speaker diarization failed, so this transcript has no speakers: ${
@@ -113,6 +120,20 @@ async function withSpeakers(
     );
     return [...segments];
   }
+
+  if (turns.length === 0) {
+    // The binary can exit 0 having emitted nothing this side can parse --
+    // too little speech to cluster, or output in a shape the adapter's
+    // parser does not recognize. assignSpeakers on an empty turn list is
+    // a no-op, so without this branch the run is silent and indetectable.
+    deps.onWarning?.(
+      'speaker diarization found no speaker turns, so this transcript has no speakers. ' +
+        'Passing --speakers <n> is more reliable than letting the count be inferred; ' +
+        'a lower "stt.diarization.threshold" also splits more readily.',
+    );
+    return [...segments];
+  }
+  return assignSpeakers(segments, turns);
 }
 
 export async function transcribeRecording(

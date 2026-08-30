@@ -159,6 +159,10 @@ describe('transcribeRecording --diarize', () => {
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/no diarizer is available/);
     expect(warnings[0]).toMatch(/laud doctor/);
+    // Not "laud setup" / "doctor --fix": both refuse Windows, so naming them
+    // here would rebuild the dead end checkDiarizerBinary was cured of.
+    expect(warnings[0]).not.toMatch(/laud setup/);
+    expect(warnings[0]).not.toMatch(/--fix/);
   });
 
   it('warns when the diarizer succeeds but yields no turns, pointing at --speakers', async () => {
