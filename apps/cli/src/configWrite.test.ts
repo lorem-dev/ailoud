@@ -1,7 +1,8 @@
 import { chmod, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Document } from 'yaml';
 import { UsageError } from '@laud/core';
 import { applyConfigUpdates, writeConfigUpdates } from './configWrite.js';
 import { parseConfig } from './config.js';
@@ -81,6 +82,29 @@ describe('applyConfigUpdates', () => {
     expect(message).toMatch(/not valid YAML/);
     expect(message).toMatch(/end with a \]/);
     expect(message).not.toMatch(/Document with errors cannot be stringified/);
+  });
+
+  it('reports the real cause, not "not valid YAML", when toString() fails for another reason', () => {
+    // doc.errors stays empty here -- the source parses fine -- so a
+    // toString() failure unrelated to a parse error must not be relabelled
+    // as one, and must not swallow what actually went wrong.
+    const spy = vi.spyOn(Document.prototype, 'toString').mockImplementationOnce(() => {
+      throw new Error('boom: not a parse error');
+    });
+    try {
+      let thrown: unknown;
+      try {
+        applyConfigUpdates('stt:\n  whisperCpp:\n    binary: w\n', { model: '/m.bin' });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(UsageError);
+      const message = thrown instanceof Error ? thrown.message : String(thrown);
+      expect(message).toContain('boom: not a parse error');
+      expect(message).not.toMatch(/not valid YAML/);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('produces valid, parseable YAML from an empty source string', () => {

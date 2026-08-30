@@ -58,21 +58,39 @@ export function applyConfigUpdates(source: string | null, updates: ConfigUpdates
   // "Document with errors cannot be stringified" names neither the file nor
   // the problem, and this is reached after a download of up to 1.6 GB, so
   // it is the last message the user gets and has to be actionable on its own.
+  //
+  // `doc.errors` is what actually distinguishes the two causes: it is only
+  // ever non-empty for the parse-error case above. A toString() failure with
+  // `doc.errors` empty is something else entirely (a yaml internals bug, a
+  // circular reference introduced by setIn, ...), and labeling that "not
+  // valid YAML" would both lie about the cause and throw away the real one.
   try {
     return doc.toString();
-  } catch {
+  } catch (error) {
+    if (doc.errors.length > 0) {
+      throw new UsageError(
+        `Cannot record the installed paths: the existing config is not valid YAML ` +
+          `(${describeParseErrors(doc.errors)}). Fix the file by hand, then re-run -- ` +
+          'nothing already downloaded is lost, laud will skip it.',
+      );
+    }
+    const message = error instanceof Error ? error.message : String(error);
     throw new UsageError(
-      `Cannot record the installed paths: the existing config is not valid YAML ` +
-        `(${describeParseErrors(doc.errors)}). Fix the file by hand, then re-run -- ` +
-        'nothing already downloaded is lost, laud will skip it.',
+      `Cannot record the installed paths: the config could not be serialized back to YAML ` +
+        `(${message}). Nothing already downloaded is lost, laud will skip it.`,
     );
   }
 }
 
-/** The parse problem, in the user's words rather than the yaml package's. */
+/**
+ * The parse problem, in the user's words rather than the yaml package's.
+ * Only called when `errors` is known non-empty (see the `doc.errors.length
+ * > 0` guard above); the `undefined` case below is unreachable in practice
+ * and exists only to satisfy noUncheckedIndexedAccess.
+ */
 function describeParseErrors(errors: readonly { readonly message: string }[]): string {
   const first = errors[0];
-  if (first === undefined) return 'it could not be serialized';
+  if (first === undefined) return 'unknown parse error';
   return errors.length > 1 ? `${first.message}; and ${errors.length - 1} more` : first.message;
 }
 
