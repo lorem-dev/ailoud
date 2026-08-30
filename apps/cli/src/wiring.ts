@@ -145,6 +145,7 @@ export async function createContext(
         segmentationModel,
         embeddingModel,
         threshold: config.stt.diarization.threshold,
+        threads: config.stt.diarization.threads,
       });
     },
   };

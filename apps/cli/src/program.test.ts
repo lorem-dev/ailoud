@@ -122,6 +122,7 @@ describe('buildProgram', () => {
             segmentationModel: null,
             embeddingModel: null,
             threshold: 0.6,
+            threads: 4,
           },
         },
       },

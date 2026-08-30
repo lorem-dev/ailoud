@@ -35,6 +35,14 @@ export interface SherpaDiarizerOptions {
   readonly segmentationModel: string;
   readonly embeddingModel: string;
   readonly threshold: number;
+  /**
+   * Threads for each of the binary's two passes. Required, with no fallback
+   * here: the binary's own default is 1, which is half the speed the design
+   * measured, and the number belongs to config (`stt.diarization.threads`,
+   * where its default and reasoning live) rather than to this adapter, which
+   * has no business deciding how much of the user's machine to take.
+   */
+  readonly threads: number;
   readonly runner?: typeof defaultRunner;
 }
 
@@ -52,6 +60,11 @@ export class SherpaDiarizer implements Diarizer {
     const args = [
       `--segmentation.pyannote-model=${this.options.segmentationModel}`,
       `--embedding.model=${this.options.embeddingModel}`,
+      // Both passes, always passed explicitly: omitting them leaves the
+      // binary on its own single-threaded default, which is roughly half the
+      // speed every published figure for this feature was measured at.
+      `--segmentation.num-threads=${this.options.threads}`,
+      `--embedding.num-threads=${this.options.threads}`,
       // Given a count, the tool ignores the threshold entirely. Measurements
       // during the design spike showed an explicit count is exact where the
       // threshold only guesses, so pass it whenever the caller supplied one.

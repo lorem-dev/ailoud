@@ -6,7 +6,7 @@ import { styleText } from 'node:util';
 import { formatDuration, formatTimestamp } from '@laud/core';
 import type { Recording, Transcript } from '@laud/core';
 import type { Check, RecordingRow, Ui } from './types.js';
-import { languageLabel, previewCell } from './cells.js';
+import { checkStatus, languageLabel, optionalNote, previewCell } from './cells.js';
 
 /** The `ls` table's column headings, and the order its cells are built in. */
 const TABLE_HEAD = ['id', 'duration', 'lang', 'preview'] as const;
@@ -244,7 +244,17 @@ export class PrettyUi implements Ui {
       // character, so the status reads down the frame itself. That is worth
       // the blank gutter line clack puts between separate calls -- grouping
       // them into one message would leave one glyph for the whole list.
-      const status = check.ok ? styleText('green', 'ok  ') : styleText('red', 'FAIL');
+      // Three states, not two -- see checkStatus. Yellow for the optional
+      // failure, between clack's green and red, because that is exactly what
+      // it means: not right, not fatal. Padded to four columns like the other
+      // two so the name column stays aligned down the list.
+      const word = checkStatus(check);
+      const status =
+        word === 'ok'
+          ? styleText('green', 'ok  ')
+          : word === 'n/a'
+            ? styleText('yellow', 'n/a ')
+            : styleText('red', 'FAIL');
       const detail = this.wrap(check.detail, detailIndent);
       const lines = [`${status}  ${check.name.padEnd(nameWidth)}  ${detail}`];
       if (!check.ok && check.fix !== undefined) {
@@ -252,15 +262,20 @@ export class PrettyUi implements Ui {
         // part of the check above rather than as an entry of its own.
         lines.push(`${FIX_PREFIX}${this.wrap(check.fix, FIX_PREFIX.length)}`);
       }
-      // clack's own log.success / log.error rather than a custom symbol: it
-      // owns these glyphs -- a diamond for pass, a square for failure -- and
-      // colors them itself, so the checklist matches every other framed tool
-      // the user runs instead of inventing a private vocabulary. The first
-      // line takes the glyph in place of the gutter; a fix line inside the
-      // same message takes a plain gutter and reads as part of the check.
-      const emit = check.ok ? log.success : log.error;
+      // clack's own log.success / log.warn / log.error rather than a custom
+      // symbol: it owns these glyphs -- a diamond for pass, a triangle for a
+      // warning, a square for failure -- and colors them itself, so the
+      // checklist matches every other framed tool the user runs instead of
+      // inventing a private vocabulary. The first line takes the glyph in
+      // place of the gutter; a fix line inside the same message takes a plain
+      // gutter and reads as part of the check.
+      const emit = word === 'ok' ? log.success : word === 'n/a' ? log.warn : log.error;
       emit(lines.join('\n'));
     }
+    const note = optionalNote(checks);
+    // log.info, not log.warn: the rows themselves already carry the warning
+    // glyph, and this line exists to say the run is fine in spite of them.
+    if (note !== null) log.info(this.wrap(note));
   }
 
   public warn(message: string): void {

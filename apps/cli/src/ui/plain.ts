@@ -1,9 +1,9 @@
 import { formatTimestamp } from '@laud/core';
 import type { Recording, Transcript } from '@laud/core';
 import type { Check, RecordingRow, Ui } from './types.js';
-import { languageLabel, previewCell } from './cells.js';
+import { checkStatus, languageLabel, optionalNote, previewCell } from './cells.js';
 
-/** Width of the leading "ok"/"FAIL" column in `checks()`, including its trailing padding. */
+/** Width of the leading "ok"/"FAIL"/"n/a" column in `checks()`, including its trailing padding. */
 const STATUS_WIDTH = 6;
 /** Width of the check-name column in `checks()`, including its trailing padding. */
 const NAME_WIDTH = 22;
@@ -85,12 +85,19 @@ export class PlainUi implements Ui {
 
   public checks(checks: readonly Check[]): void {
     for (const check of checks) {
-      const status = (check.ok ? 'ok' : 'FAIL').padEnd(STATUS_WIDTH);
+      // Three states, not two -- see checkStatus. An optional failure still
+      // gets its fix line: it is the one thing that tells the reader how to
+      // turn the feature on if they want it.
+      const status = checkStatus(check).padEnd(STATUS_WIDTH);
       this.write(`${status}${check.name.padEnd(NAME_WIDTH)}${check.detail}`);
       if (!check.ok && check.fix !== undefined) {
         this.write(`${' '.repeat(STATUS_WIDTH)}fix: ${check.fix}`);
       }
     }
+    const note = optionalNote(checks);
+    // Unpadded, so it reads as a note about the list rather than as another
+    // row of it.
+    if (note !== null) this.write(`note: ${note}`);
   }
 
   public warn(message: string): void {

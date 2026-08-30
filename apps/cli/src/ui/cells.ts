@@ -1,4 +1,5 @@
 import { quoteSample } from '@laud/core';
+import type { Check } from './types.js';
 
 /**
  * How a transcript's language is shown to a person.
@@ -32,4 +33,43 @@ export function languageLabel(
  */
 export function previewCell(preview: string): string {
   return preview === '' ? '' : quoteSample(preview);
+}
+
+/**
+ * The status word for one check, in the three-state vocabulary `Check`
+ * actually has: passed, failed, and failed-but-optional.
+ *
+ * `n/a`, not a second `FAIL`: `blocksReadiness` has always ignored an
+ * optional failure, so an Intel Mac or Linux arm64 user could watch `setup
+ * --yes` print red FAIL rows and then a green success frame with nothing
+ * connecting the two. Rendering the same word for "laud cannot run" and "one
+ * opt-in feature is unavailable" made the report contradict the exit code.
+ * Lowercase like `ok` and unlike the shouted `FAIL`, because that is the
+ * severity it carries. Four characters, so it fits both renderers' existing
+ * status column without changing either width.
+ *
+ * Shared by PlainUi and PrettyUi so the two cannot drift into calling the
+ * same state different things.
+ */
+export function checkStatus(check: Check): 'ok' | 'FAIL' | 'n/a' {
+  if (check.ok) return 'ok';
+  return check.optional === true ? 'n/a' : 'FAIL';
+}
+
+/**
+ * The one line printed after a checklist that contains an unsatisfied
+ * optional check, or null when there is none.
+ *
+ * The status word alone says a row is not fatal; it cannot say that the run
+ * as a whole is fine, which is the question a reader staring at a
+ * not-all-green list is actually asking. This says it once, in words, rather
+ * than leaving them to infer it from the exit code.
+ */
+export function optionalNote(checks: readonly Check[]): string | null {
+  const count = checks.filter((check) => !check.ok && check.optional === true).length;
+  if (count === 0) return null;
+  return (
+    `${count} optional check${count === 1 ? '' : 's'} marked "n/a" above: an opt-in feature ` +
+    'is unavailable until that is fixed, but laud does not need it to run.'
+  );
 }

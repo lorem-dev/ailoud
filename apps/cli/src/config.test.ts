@@ -43,6 +43,7 @@ describe('parseConfig', () => {
           segmentationModel: null,
           embeddingModel: null,
           threshold: 0.6,
+          threads: 4,
         },
       },
     });
@@ -95,7 +96,7 @@ describe('parseConfig', () => {
     });
   });
 
-  it('still defaults binary, embeddingModel, and threshold when only stt.diarization.segmentationModel is set', () => {
+  it('still defaults binary, embeddingModel, threshold, and threads when only stt.diarization.segmentationModel is set', () => {
     // Regression guard for the .prefault({}) requirement, mirroring the
     // whisperCpp guard above: a config that mentions only one leaf of
     // diarization must not lose the other leaves' own defaults.
@@ -105,6 +106,7 @@ describe('parseConfig', () => {
       segmentationModel: '/m/seg.onnx',
       embeddingModel: null,
       threshold: 0.6,
+      threads: 4,
     });
   });
 
@@ -117,7 +119,25 @@ describe('parseConfig', () => {
       segmentationModel: null,
       embeddingModel: null,
       threshold: 0.8,
+      threads: 4,
     });
+  });
+
+  it('reads a diarization thread count', () => {
+    const config = parseConfig('stt:\n  diarization:\n    threads: 8\n');
+    expect(config.stt.diarization.threads).toBe(8);
+  });
+
+  it('rejects a thread count that is not a positive integer', () => {
+    // A zero, a negative, or a fraction reaches the binary as a flag it
+    // would either reject or silently reinterpret; catching it at parse time
+    // names the key instead.
+    expect(() => parseConfig('stt:\n  diarization:\n    threads: 0\n')).toThrow(
+      /stt\.diarization\.threads/,
+    );
+    expect(() => parseConfig('stt:\n  diarization:\n    threads: 2.5\n')).toThrow(
+      /stt\.diarization\.threads/,
+    );
   });
 
   it('names the offending key when the shape is wrong', () => {

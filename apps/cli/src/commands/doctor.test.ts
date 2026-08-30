@@ -136,6 +136,26 @@ describe('checkDiarizerBinary', () => {
     expect(darwin.fix).toContain('laud setup');
     expect(linux.fix).toContain('laud setup');
   });
+
+  it('names "laud setup" exactly once on the platforms it applies to', async () => {
+    // The fix text used to hardcode the command AND interpolate the hint,
+    // which renders as 'run "laud setup" (laud setup)'.
+    const missing = join(dir, 'no-such-diarizer-binary');
+    const darwin = await checkDiarizerBinary('/c', missing, 'darwin');
+    expect(darwin.fix?.match(/laud setup/g)).toHaveLength(1);
+  });
+
+  it('never points a win32 user at "laud setup", which refuses Windows', async () => {
+    // installHint's own comment: setup refuses to provision Windows, so
+    // sending the user there is a circle -- run setup, be told setup cannot
+    // help, run doctor, be told to run setup. The Windows route is the
+    // manual one, and windowsManualSteps now covers the diarizer.
+    const missing = join(dir, 'no-such-diarizer-binary');
+    const win32 = await checkDiarizerBinary('/c', missing, 'win32');
+    expect(win32.fix).not.toContain('laud setup');
+    expect(win32.fix).toContain('install it by hand');
+    expect(win32.fix).toContain('README.md');
+  });
 });
 
 describe('checkBinary', () => {
@@ -296,6 +316,7 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
             segmentationModel: join(scopedDir, 'seg-model.bin'),
             embeddingModel: join(scopedDir, 'emb-model.bin'),
             threshold: 0.6,
+            threads: 4,
           },
         },
       },
@@ -352,6 +373,7 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
               segmentationModel: null,
               embeddingModel: null,
               threshold: 0.6,
+              threads: 4,
             },
           },
         },
@@ -421,6 +443,7 @@ describe('doctor: an unconfigured optional feature does not mean "not ready"', (
             segmentationModel: null,
             embeddingModel: null,
             threshold: 0.6,
+            threads: 4,
           },
         },
       },
@@ -559,6 +582,7 @@ describe('a corrupt database: every entry point must refuse', () => {
             segmentationModel: join(corruptDir, 'seg-model.bin'),
             embeddingModel: join(corruptDir, 'emb-model.bin'),
             threshold: 0.6,
+            threads: 4,
           },
         },
       },

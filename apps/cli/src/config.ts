@@ -27,6 +27,16 @@ const ConfigSchema = z.object({
           segmentationModel: z.string().nullable().default(null),
           embeddingModel: z.string().nullable().default(null),
           threshold: z.number().default(0.6),
+          // Threads for both diarizer passes (segmentation and embedding).
+          // The binary itself defaults to 1, which halves the throughput the
+          // design measured and the README quotes: 16 s of audio in 2.58 s on
+          // one thread against 57 s in 5.19 s on four. Four is the default
+          // here because it is the configuration those numbers were taken on,
+          // and because any machine that can run a 465 MB whisper model has
+          // four cores. Configurable rather than baked into the adapter: a
+          // 2-core VM wants fewer, and a workstation transcribing a long
+          // meeting wants more.
+          threads: z.number().int().min(1).default(4),
         })
         .prefault({}),
     })

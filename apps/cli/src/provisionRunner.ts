@@ -246,7 +246,7 @@ export async function executePlan(
           };
           if (action.model.archiveMember === undefined) {
             await downloadFile(action.model.url, target, { onProgress });
-          } else if (!(await pathExists(target))) {
+          } else {
             // The segmentation model ships inside a .tar.bz2 alongside an
             // int8 sibling and other files laud has no use for (see
             // catalogue.ts). Download the archive next to the target,
@@ -256,23 +256,37 @@ export async function executePlan(
             // wanted, then discard the rest.
             const archivePath = `${target}.tar.bz2`;
             const extractDir = `${target}.extracted`;
-            await downloadFile(action.model.url, archivePath, { onProgress });
-            await mkdir(extractDir, { recursive: true });
-            const extracted = await run('tar', [
-              '-xjf',
-              archivePath,
-              '-C',
-              extractDir,
-              '--strip-components=1',
-            ]);
-            if (extracted.code !== 0) {
-              throw new FailureError(
-                `extracting ${archivePath} failed: ${extracted.stderr.trim()}`,
-              );
+            const discardScratch = async (): Promise<void> => {
+              await rm(archivePath, { force: true });
+              await rm(extractDir, { recursive: true, force: true });
+            };
+            // Cleared BEFORE the "already have it" short-circuit below, not
+            // only after a successful extraction. A hard kill between the
+            // rename and the removals -- or a tar failure, which throws past
+            // them -- leaves ~7 MB of archive and ~13 MB of extracted tree in
+            // models/, and a later run that finds the finished target would
+            // otherwise step straight over both and never collect them.
+            // Nothing here is precious: it is scratch space derived entirely
+            // from the archive, re-downloadable at will.
+            await discardScratch();
+            if (!(await pathExists(target))) {
+              await downloadFile(action.model.url, archivePath, { onProgress });
+              await mkdir(extractDir, { recursive: true });
+              const extracted = await run('tar', [
+                '-xjf',
+                archivePath,
+                '-C',
+                extractDir,
+                '--strip-components=1',
+              ]);
+              if (extracted.code !== 0) {
+                throw new FailureError(
+                  `extracting ${archivePath} failed: ${extracted.stderr.trim()}`,
+                );
+              }
+              await rename(join(extractDir, action.model.archiveMember), target);
+              await discardScratch();
             }
-            await rename(join(extractDir, action.model.archiveMember), target);
-            await rm(archivePath, { force: true });
-            await rm(extractDir, { recursive: true, force: true });
           }
           updates =
             action.slot === 'segmentation'

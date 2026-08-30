@@ -505,11 +505,17 @@ export async function runProvisioning(
  * from `doctor --fix` too (runProvisioning is the one engine behind both),
  * and a Windows user running `doctor --fix` must be told that command
  * refused, not a command they never typed.
+ *
+ * Step 5 covers diarization even though `doctor`'s diarization checks are
+ * optional. `checkDiarizerBinary`'s fix text sends a Windows user here (via
+ * `WINDOWS_MANUAL_HINT`), so leaving the diarizer out of this list left that
+ * user reading four steps that never mention the thing they were sent to
+ * read about.
  */
 export function windowsManualSteps(commandName: CommandName): readonly string[] {
   return [
     `laud ${commandName} does not provision Windows, and will not pretend to.`,
-    'Install the four pieces by hand:',
+    'Install the pieces by hand -- 1 to 4 are required, 5 only for --diarize:',
     '  1. ffmpeg and ffprobe -- take a build from https://ffmpeg.org/download.html',
     '     and put both on PATH.',
     `  2. whisper.cpp -- take the Windows assets of release ${WHISPER_TAG} from`,
@@ -519,9 +525,15 @@ export function windowsManualSteps(commandName: CommandName): readonly string[] 
     '     https://huggingface.co/ggerganov/whisper.cpp',
     '  4. The VAD model, only needed by --multilingual -- ggml-silero-v5.1.2.bin',
     '     from https://huggingface.co/ggml-org/whisper-vad',
+    '  5. The diarizer, only needed by --diarize -- sherpa-onnx publishes no',
+    '     Windows asset in the pinned release, so build sherpa-onnx from source to',
+    '     get sherpa-onnx-offline-speaker-diarization, and take the segmentation',
+    '     and speaker-embedding models from',
+    '     https://github.com/k2-fsa/sherpa-onnx/releases',
     'Then set stt.whisperCpp.binary, .vadBinary, .model and .vadModel in the config',
-    'file to those paths, and run "laud doctor" to confirm. The full version of',
-    'these steps is under "Manual install (fallback)" in README.md.',
+    'file to those paths -- plus stt.diarization.binary, .segmentationModel and',
+    '.embeddingModel if you did step 5 -- and run "laud doctor" to confirm. The',
+    'full version of these steps is under "Manual install (fallback)" in README.md.',
   ];
 }
 

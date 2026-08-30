@@ -755,6 +755,72 @@ describe('executePlan', () => {
     await expect(stat(`${target}.extracted`)).rejects.toThrow();
   });
 
+  it('clears archive junk a killed earlier run left behind, instead of stepping over it', async () => {
+    // The window: rename() has moved the member into place, and the process
+    // dies before the two rm()s. The next run sees a finished target, skips
+    // the whole branch, and ~20 MB sits in models/ with nothing that will
+    // ever remove it.
+    providers.downloadFile.mockResolvedValue(undefined);
+    const target = join(dataDir, 'models', SEGMENTATION_MODEL.file);
+    await mkdir(join(dataDir, 'models'), { recursive: true });
+    await writeFile(target, 'the model, already extracted by the killed run', 'utf8');
+    await writeFile(`${target}.tar.bz2`, 'orphaned archive', 'utf8');
+    await mkdir(`${target}.extracted`, { recursive: true });
+    await writeFile(join(`${target}.extracted`, 'model.int8.onnx'), 'orphaned member', 'utf8');
+
+    const result = await executePlan(
+      [{ kind: 'download-diarization-model', slot: 'segmentation', model: SEGMENTATION_MODEL }],
+      deps(true),
+    );
+
+    expect(result.outcomes[0]!.ok).toBe(true);
+    await expect(stat(`${target}.tar.bz2`)).rejects.toThrow();
+    await expect(stat(`${target}.extracted`)).rejects.toThrow();
+    // The finished model is still the one on disk: the cleanup must not cost
+    // a re-download, and must not touch the target itself.
+    expect(await readFile(target, 'utf8')).toBe('the model, already extracted by the killed run');
+    expect(providers.downloadFile).not.toHaveBeenCalled();
+    expect(providers.run).not.toHaveBeenCalled();
+  });
+
+  it('leaves the archive behind for nobody: a failed tar is collected by the next run', async () => {
+    // The other leak of the same scratch space -- the FailureError thrown on
+    // a bad tar exits past the removals. The retry has to clear it, and does
+    // so through the same up-front cleanup.
+    providers.downloadFile.mockResolvedValue(undefined);
+    const target = join(dataDir, 'models', SEGMENTATION_MODEL.file);
+    providers.run.mockImplementation(async (_command: string, args: readonly string[]) => {
+      const extractDir = args[3] as string;
+      await mkdir(extractDir, { recursive: true });
+      await writeFile(join(extractDir, 'junk'), 'partial extraction', 'utf8');
+      return { code: 2, stdout: '', stderr: 'bzip2: data error' };
+    });
+    await mkdir(join(dataDir, 'models'), { recursive: true });
+    await writeFile(`${target}.tar.bz2`, 'half-written archive', 'utf8');
+
+    const failed = await executePlan(
+      [{ kind: 'download-diarization-model', slot: 'segmentation', model: SEGMENTATION_MODEL }],
+      deps(true),
+    );
+    expect(failed.outcomes[0]!.ok).toBe(false);
+    // Left behind by the throw, as designed -- and collected on the retry.
+    await expect(stat(`${target}.extracted`)).resolves.toBeDefined();
+
+    providers.run.mockImplementation(async (_command: string, args: readonly string[]) => {
+      const extractDir = args[3] as string;
+      await mkdir(extractDir, { recursive: true });
+      await writeFile(join(extractDir, 'model.onnx'), 'fake pyannote segmentation model', 'utf8');
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    const retried = await executePlan(
+      [{ kind: 'download-diarization-model', slot: 'segmentation', model: SEGMENTATION_MODEL }],
+      deps(true),
+    );
+    expect(retried.outcomes[0]!.ok).toBe(true);
+    await expect(stat(`${target}.tar.bz2`)).rejects.toThrow();
+    await expect(stat(`${target}.extracted`)).rejects.toThrow();
+  });
+
   it('reports a failed tar extraction as a failed outcome, not a rejection', async () => {
     providers.downloadFile.mockResolvedValue(undefined);
     providers.run.mockResolvedValue({ code: 2, stdout: '', stderr: 'bzip2: data error' });
@@ -828,6 +894,7 @@ describe('runProvisioning', () => {
         segmentationModel: process.execPath,
         embeddingModel: process.execPath,
         threshold: 0.6,
+        threads: 4,
       },
     },
   };
@@ -1189,5 +1256,22 @@ describe('laud setup on Windows', () => {
     expect(providers.installWhisper).not.toHaveBeenCalled();
     expect(providers.detectPackageManager).not.toHaveBeenCalled();
     expect(clack.confirm).not.toHaveBeenCalled();
+  });
+
+  it('covers the diarizer, since the diarizer check sends win32 users to these steps', async () => {
+    // checkDiarizerBinary's fix on win32 is WINDOWS_MANUAL_HINT, i.e. "see
+    // the manual steps". Those steps used to list four pieces and never
+    // mention diarization, leaving that user with nothing to act on.
+    const ctx = context();
+    const program = new Command();
+    program.exitOverride();
+    registerSetup(program, ctx, 'win32');
+
+    await program.parseAsync(['node', 'laud', 'setup', '--yes']).catch(() => undefined);
+
+    const output = ctx.lines.join('\n');
+    expect(output).toContain('sherpa-onnx');
+    expect(output).toContain('--diarize');
+    expect(output).toContain('stt.diarization.binary');
   });
 });

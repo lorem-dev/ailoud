@@ -388,3 +388,65 @@ describe('PrettyUi general messages wrap to the available width', () => {
     expect(stringWidth(rendered)).toBeLessThanOrEqual(77);
   });
 });
+
+describe('PrettyUi.checks distinguishes an optional failure', () => {
+  const OPTIONAL_FAILURE = {
+    name: 'diarizer binary',
+    ok: false as const,
+    detail: 'not found on PATH',
+    fix: 'install sherpa-onnx',
+    optional: true as const,
+  };
+
+  it('emits it through log.warn with an "n/a" status, not log.error with "FAIL"', () => {
+    log.success.mockClear();
+    log.warn.mockClear();
+    log.error.mockClear();
+    new PrettyUi().checks([
+      { name: 'ffmpeg', ok: true, detail: 'version 9.0.1' },
+      OPTIONAL_FAILURE,
+    ]);
+    expect(log.error).not.toHaveBeenCalled();
+    const rendered = log.warn.mock.calls[0]?.[0] as string;
+    expect(rendered).toContain('n/a');
+    expect(rendered).not.toContain('FAIL');
+    // The fix still travels with it: it is how a reader turns the feature on.
+    expect(rendered).toContain('fix: install sherpa-onnx');
+  });
+
+  it('keeps FAIL and log.error for a mandatory failure alongside it', () => {
+    log.warn.mockClear();
+    log.error.mockClear();
+    new PrettyUi().checks([
+      OPTIONAL_FAILURE,
+      { name: 'whisper model', ok: false, detail: 'not configured', fix: 'set it' },
+    ]);
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    expect(log.error).toHaveBeenCalledTimes(1);
+    expect(log.error.mock.calls[0]?.[0] as string).toContain('FAIL');
+  });
+
+  it('follows the list with one note saying laud can still run', () => {
+    log.info.mockClear();
+    new PrettyUi().checks([OPTIONAL_FAILURE]);
+    expect(log.info).toHaveBeenCalledTimes(1);
+    expect(log.info.mock.calls[0]?.[0] as string).toContain('1 optional check');
+  });
+
+  it('prints no note when no optional check failed', () => {
+    log.info.mockClear();
+    new PrettyUi().checks([{ name: 'ffmpeg', ok: true, detail: 'version 9.0.1' }]);
+    expect(log.info).not.toHaveBeenCalled();
+  });
+
+  it('keeps the status column four columns wide, so names stay aligned', () => {
+    log.success.mockClear();
+    log.warn.mockClear();
+    new PrettyUi().checks([{ name: 'ffmpeg', ok: true, detail: 'v9' }, OPTIONAL_FAILURE]);
+    const ok = log.success.mock.calls[0]?.[0] as string;
+    const na = log.warn.mock.calls[0]?.[0] as string;
+    // Both names are padded to the widest name, so the detail column lands at
+    // the same offset on every row regardless of status word.
+    expect(ok.indexOf('v9')).toBe(na.indexOf('not found on PATH'));
+  });
+});

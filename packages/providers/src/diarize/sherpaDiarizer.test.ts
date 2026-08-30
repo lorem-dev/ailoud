@@ -50,6 +50,7 @@ describe('SherpaDiarizer', () => {
       segmentationModel: 's',
       embeddingModel: 'e',
       threshold: 0.6,
+      threads: 4,
       runner,
     });
     await d.turns('a.wav', { speakers: 3 });
@@ -68,11 +69,34 @@ describe('SherpaDiarizer', () => {
       segmentationModel: 's',
       embeddingModel: 'e',
       threshold: 0.6,
+      threads: 4,
       runner,
     });
     await d.turns('a.wav');
     expect(seen.join(' ')).toContain('--clustering.cluster-threshold=0.6');
     expect(seen.join(' ')).not.toContain('num-clusters');
+  });
+
+  it('passes the configured thread count to both passes', async () => {
+    // Without these two flags the binary runs single-threaded, which is
+    // roughly half the speed every published figure for --diarize was
+    // measured at.
+    let seen: readonly string[] = [];
+    const runner = async (_c: string, args: readonly string[]) => {
+      seen = args;
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    const d = new SherpaDiarizer({
+      binary: 'b',
+      segmentationModel: 's',
+      embeddingModel: 'e',
+      threshold: 0.6,
+      threads: 2,
+      runner,
+    });
+    await d.turns('a.wav');
+    expect(seen).toContain('--segmentation.num-threads=2');
+    expect(seen).toContain('--embedding.num-threads=2');
   });
 
   it('turns a non-zero exit into a FailureError naming the stderr', async () => {
@@ -81,6 +105,7 @@ describe('SherpaDiarizer', () => {
       segmentationModel: 's',
       embeddingModel: 'e',
       threshold: 0.6,
+      threads: 4,
       runner: async () => ({ code: 2, stdout: '', stderr: 'bad model' }),
     });
     await expect(d.turns('a.wav')).rejects.toThrow(/bad model/);

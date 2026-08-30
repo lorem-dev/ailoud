@@ -162,6 +162,15 @@ export async function checkVadBinary(
  * branch). Saying "on PATH" here would describe an outcome that never
  * happens.
  *
+ * What it does NOT do is name a command alongside the hint. `installHint`
+ * already answers "what do I run", per platform, and it deliberately does
+ * not answer "laud setup" on win32 -- setup refuses to provision Windows,
+ * so sending a Windows user there is the circle installHint's own comment
+ * warns about. Hardcoding "laud setup" here on top of the interpolated hint
+ * both re-created that circle and read as a contradiction on every other
+ * platform ('run "laud setup" (laud setup)'). The hint alone, exactly as
+ * checkVadBinary uses it.
+ *
  * NOT VERIFIED AGAINST A REAL BUILD: like the whisper-cli check above, this
  * assumes sherpa-onnx-offline-speaker-diarization exits 0 on "--help". No
  * such binary is available in this environment to confirm that.
@@ -183,8 +192,8 @@ export async function checkDiarizerBinary(
   const name = 'diarizer binary';
   const fix =
     `Set "stt.diarization.binary" in ${configFile} to the path of the ` +
-    `sherpa-onnx-offline-speaker-diarization binary, or run "laud setup" ` +
-    `(${installHint('diarizer', platform)}) to install it.`;
+    `sherpa-onnx-offline-speaker-diarization binary, or install sherpa-onnx ` +
+    `(${installHint('diarizer', platform)}).`;
   if (diarizerBinary.includes('/')) {
     try {
       await access(diarizerBinary, constants.F_OK);

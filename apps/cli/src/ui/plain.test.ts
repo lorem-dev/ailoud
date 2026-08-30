@@ -164,4 +164,47 @@ describe('PlainUi', () => {
       '      fix: set stt.whisperCpp.model in the laud config file to a model path',
     ]);
   });
+
+  it('renders an optional failure as "n/a", not as a second kind of FAIL', () => {
+    // blocksReadiness ignores an optional failure, so rendering it in the
+    // same red word as a fatal one made the report contradict the exit code:
+    // red rows, then a green frame, then exit 0.
+    const { ui: sink, lines } = ui();
+    sink.checks([
+      { name: 'ffmpeg', ok: true, detail: 'version 9.0.1' },
+      {
+        name: 'diarizer binary',
+        ok: false,
+        detail: 'not found on PATH',
+        fix: 'install sherpa-onnx',
+        optional: true,
+      },
+    ]);
+    expect(lines).toEqual([
+      'ok    ffmpeg                version 9.0.1',
+      'n/a   diarizer binary       not found on PATH',
+      '      fix: install sherpa-onnx',
+      'note: 1 optional check marked "n/a" above: an opt-in feature is unavailable until that ' +
+        'is fixed, but laud does not need it to run.',
+    ]);
+  });
+
+  it('does not print the optional note when nothing optional failed', () => {
+    const { ui: sink, lines } = ui();
+    sink.checks([
+      { name: 'ffmpeg', ok: true, detail: 'version 9.0.1' },
+      { name: 'diarizer binary', ok: true, detail: '/opt/sherpa', optional: true },
+      { name: 'whisper model', ok: false, detail: 'not configured', fix: 'set it' },
+    ]);
+    expect(lines.some((line) => line.startsWith('note:'))).toBe(false);
+  });
+
+  it('counts every optional failure in the note', () => {
+    const { ui: sink, lines } = ui();
+    sink.checks([
+      { name: 'diarizer binary', ok: false, detail: 'x', optional: true },
+      { name: 'diarization segmentation model', ok: false, detail: 'x', optional: true },
+    ]);
+    expect(lines.at(-1)).toContain('2 optional checks');
+  });
 });
