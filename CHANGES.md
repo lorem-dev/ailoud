@@ -24,5 +24,13 @@
 - `laud setup` provisions a fresh machine -- ffmpeg, whisper.cpp, and a
   transcription model -- asking once for consent (`--yes` to skip it, e.g.
   in CI) and letting `--model` pick which model to download.
-- `laud doctor --fix` runs the same provisioning engine as `setup`, scoped
-  to only the checks that are currently failing, then re-checks.
+- `laud doctor --fix` runs the same provisioning engine as `setup`, acting on
+  the checks that are currently failing, then re-checks.
+- The setup plan names every command it will run, including any `sudo`, so
+  consent is never given blind.
+- `laud setup` detects Windows up front and prints manual instructions
+  instead of downloading anything.
+- With no terminal, an install that could prompt is reported with its exact
+  command rather than spawned and left to hang.
+- A failing check with no automated repair, such as a corrupt database, is
+  reported with its manual fix and exits non-zero.

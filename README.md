@@ -213,12 +213,15 @@ The fastest way to get all of the above is to let laud install it:
 laud setup
 ```
 
-`setup` runs the same checks `doctor` does, prints what is missing and how
+`setup` runs the same checks `doctor` does, prints what is missing, the exact
+command line of every install it will run (including any `sudo`), and how
 much it will download, asks once for confirmation, then installs ffmpeg,
 installs whisper.cpp, and downloads a transcription model -- writing
 whatever it installed into `config.yaml`. Checks that already pass are left
 alone, so running `setup` again on an already-provisioned machine reports
-nothing to do.
+nothing to do. A check that failed but has no automated repair -- a corrupt
+database is the only one -- is reported with its manual fix, and the command
+exits non-zero rather than claiming everything is in place.
 
 - `--yes` skips the confirmation prompt. It is required (not just
   convenient) when there is no terminal to ask on -- CI, a script, anything
@@ -233,8 +236,11 @@ nothing to do.
 
 If the environment drifts after that -- an OS update removes a binary, a
 model file gets deleted -- `laud doctor --fix` runs the exact same
-provisioning engine as `setup`, but scoped to only the checks that are
-currently failing:
+provisioning engine as `setup`. Both act on exactly the checks that are
+currently failing, and both skip the ones that pass; the difference is only
+which command you reach for. `setup` is the first-run entry point, and prints
+nothing but the plan; `doctor --fix` prints the full check report first, so
+you see what is wrong before you see what it proposes to do:
 
 ```shell
 laud doctor --fix
@@ -248,9 +254,16 @@ missing ffmpeg asks nothing.
 
 `setup` and `doctor --fix` provision macOS (via Homebrew) and Linux x64/arm64
 (via whisper.cpp's own prebuilt release tarball -- there is no apt package
-for it) automatically. **Windows is not provisioned automatically.** On
-Windows, or on a Linux CPU architecture other than x64/arm64, install the
-pieces by hand as described next.
+for it) automatically. **Windows is not provisioned automatically.** `setup`
+detects Windows up front, prints the manual steps, and exits without
+downloading anything. On Windows, or on a Linux CPU architecture other than
+x64/arm64, install the pieces by hand as described next.
+
+Neither command will run an installer it cannot supervise: with no terminal
+attached (CI, a pipe), an install that could prompt -- `sudo apt-get`, and
+`brew`, which asks about the Xcode command line tools -- is reported with the
+exact command to run by hand instead of being spawned into a stdin that will
+never answer.
 
 ### Manual install (fallback)
 
