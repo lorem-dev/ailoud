@@ -62,6 +62,20 @@ describe('resolveModelName', () => {
     expect(await resolveModelName({ interactive: true, selectImpl })).toBe('medium');
     expect(selectImpl).toHaveBeenCalledOnce();
   });
+
+  it('names the invoking command, not "setup", when the model prompt is cancelled', async () => {
+    // Same drift risk as requireConsent above: this message is reachable
+    // from `doctor --fix` too (a machine missing only the model, prompted
+    // interactively, then cancelled), and must not default to naming the
+    // other caller. isCancel is mocked module-wide (see the vi.mock calls
+    // below); mockReturnValueOnce reverts to its normal "false" after this
+    // one call, so it cannot leak into any other test in this file.
+    clack.isCancel.mockReturnValueOnce(true);
+    const selectImpl = vi.fn().mockResolvedValue('medium');
+    await expect(
+      resolveModelName({ interactive: true, selectImpl, commandName: 'doctor' }),
+    ).rejects.toThrow(/doctor cancelled/);
+  });
 });
 
 describe('chooseModel', () => {
@@ -124,6 +138,22 @@ describe('requireConsent', () => {
 
   it('refuses non-interactively without --yes rather than hanging', async () => {
     await expect(requireConsent({ yes: false, interactive: false })).rejects.toThrow(/--yes/);
+  });
+
+  it('defaults the guard message to "setup" when no commandName is given', async () => {
+    await expect(requireConsent({ yes: false, interactive: false })).rejects.toThrow(
+      /laud setup needs confirmation/,
+    );
+  });
+
+  it('names the invoking command, not "setup", when doctor --fix is the caller', async () => {
+    // This is the exact bug the shared-engine design exists to prevent, just
+    // in the copy rather than the logic: `doctor --fix` and `setup` share
+    // this one guard, so a CI job running `doctor --fix` must not be told
+    // that `setup` needs confirmation -- a command it never ran.
+    await expect(
+      requireConsent({ yes: false, interactive: false, commandName: 'doctor' }),
+    ).rejects.toThrow(/laud doctor needs confirmation/);
   });
 
   it('asks when interactive and returns the answer', async () => {

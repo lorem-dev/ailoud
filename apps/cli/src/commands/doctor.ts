@@ -271,7 +271,10 @@ export function registerDoctor(program: Command, context: CliContext): void {
         const remedies = checks
           .filter((check) => !check.ok)
           .flatMap((check) => (check.remedy !== undefined ? [check.remedy] : []));
-        await runProvisioning(context, options, remedies);
+        // 'doctor', explicitly: runProvisioning's messages (the consent
+        // guard, a cancelled model prompt) must name the command the user
+        // actually typed, not default to the other caller's name.
+        await runProvisioning(context, options, remedies, process.platform, 'doctor');
       });
     });
 }

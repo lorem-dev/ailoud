@@ -50,10 +50,20 @@ async function readCurrentConfig(configFile: string): Promise<LaudConfig> {
   return parseConfig(raw);
 }
 
+/**
+ * The one label every user-visible message in this file may name: whichever
+ * command the user actually typed. `runProvisioning` is shared by `setup`
+ * and `doctor --fix`, so any string here that hard-codes "setup" is wrong
+ * half the time it is reached -- exactly the drift the shared engine exists
+ * to prevent, just relocated into the copy instead of the logic.
+ */
+export type CommandName = 'setup' | 'doctor';
+
 export interface ModelNameOptions {
   readonly model?: string;
   readonly interactive: boolean;
   readonly selectImpl?: typeof select;
+  readonly commandName?: CommandName;
 }
 
 export async function resolveModelName(options: ModelNameOptions): Promise<string> {
@@ -76,7 +86,7 @@ export async function resolveModelName(options: ModelNameOptions): Promise<strin
       hint: model.summary,
     })),
   });
-  if (isCancel(answer)) throw new UsageError('setup cancelled');
+  if (isCancel(answer)) throw new UsageError(`${options.commandName ?? 'setup'} cancelled`);
   return String(answer);
 }
 
@@ -85,6 +95,7 @@ export interface ChooseModelOptions {
   readonly remedies: readonly Remedy[];
   readonly interactive: boolean;
   readonly selectImpl?: typeof select;
+  readonly commandName?: CommandName;
 }
 
 /**
@@ -102,6 +113,7 @@ export async function chooseModel(options: ChooseModelOptions): Promise<string> 
     ...(options.model === undefined ? {} : { model: options.model }),
     interactive: options.interactive && needsTranscriptionModel,
     ...(options.selectImpl === undefined ? {} : { selectImpl: options.selectImpl }),
+    ...(options.commandName === undefined ? {} : { commandName: options.commandName }),
   });
 }
 
@@ -109,6 +121,7 @@ export interface ConsentOptions {
   readonly yes: boolean;
   readonly interactive: boolean;
   readonly confirmImpl?: (message: string) => Promise<boolean>;
+  readonly commandName?: CommandName;
 }
 
 /**
@@ -123,9 +136,10 @@ export interface ConsentOptions {
 export async function requireConsent(options: ConsentOptions): Promise<boolean> {
   if (options.yes) return true;
   if (!options.interactive) {
+    const commandName = options.commandName ?? 'setup';
     throw new UsageError(
-      'laud setup needs confirmation before installing software, but there is no terminal to ' +
-        'ask on. Re-run with --yes to confirm in advance.',
+      `laud ${commandName} needs confirmation before installing software, but there is no ` +
+        'terminal to ask on. Re-run with --yes to confirm in advance.',
     );
   }
   const confirmImpl =
@@ -175,17 +189,25 @@ export interface SetupOptions {
 }
 
 /**
- * Runs the plan-and-confirm-and-execute pipeline shared by `setup` and (in a
- * later task) `doctor --fix`: both resolve a model, build a plan from
- * whatever remedies their caller selected, get consent once, execute
- * sequentially, write config updates, and re-check. Exported so that command
- * does not have to copy this instead of importing it.
+ * Runs the plan-and-confirm-and-execute pipeline shared by `setup` and
+ * `doctor --fix`: both resolve a model, build a plan from whatever remedies
+ * their caller selected, get consent once, execute sequentially, write
+ * config updates, and re-check. Exported so that command does not have to
+ * copy this instead of importing it.
+ *
+ * `commandName` is not part of `SetupOptions`: it is not a CLI flag, it is
+ * which of the two callers is asking, threaded through so every message
+ * this function's helpers can throw (the consent guard, a cancelled model
+ * prompt) names the command the user actually typed. Defaults to 'setup'
+ * so every existing call site that predates `doctor --fix` keeps behaving
+ * exactly as it did.
  */
 export async function runProvisioning(
   context: CliContext,
   options: SetupOptions,
   remedies: readonly Remedy[],
   platform: NodeJS.Platform = process.platform,
+  commandName: CommandName = 'setup',
 ): Promise<void> {
   if (remedies.length === 0) {
     context.write('Everything laud needs is already in place.');
@@ -197,12 +219,13 @@ export async function runProvisioning(
     ...(options.model === undefined ? {} : { model: options.model }),
     remedies,
     interactive,
+    commandName,
   });
 
   const actions = planProvisioning(remedies, { modelName });
   for (const line of describePlan(actions)) context.write(line);
 
-  const consented = await requireConsent({ yes: options.yes === true, interactive });
+  const consented = await requireConsent({ yes: options.yes === true, interactive, commandName });
   if (!consented) {
     context.write('Nothing was changed.');
     return;

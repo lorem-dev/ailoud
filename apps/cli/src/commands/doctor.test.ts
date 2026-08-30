@@ -2,7 +2,8 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { planProvisioning } from '@laud/core';
+import { UsageError, planProvisioning } from '@laud/core';
+import { buildProgram } from '../program.js';
 import type { CliContext } from '../wiring.js';
 import { context } from './testContext.js';
 import { checkBinary, checkModel, checkVadBinary, checkVadModel, runChecks } from './doctor.js';
@@ -220,5 +221,35 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+/**
+ * Drives `doctor --fix` through the real CLI action (registerDoctor, via
+ * buildProgram), not just the remedy-filtering line inside it. Every test
+ * above this one calls `runChecks`/`planProvisioning` directly and would
+ * stay green even if registerDoctor's own call to `runProvisioning` fell
+ * back to naming "setup" -- which is exactly what shipped in the first cut
+ * of this file: `runProvisioning`'s shared consent guard hard-coded "laud
+ * setup needs confirmation", so `laud doctor --fix` in CI reported an error
+ * about a command nobody ran. Only a test that goes through the real
+ * action, the way a CI job actually invokes it, can catch that.
+ */
+describe('doctor --fix: the real CLI action', () => {
+  it('names doctor, not setup, in the no-terminal consent guard', async () => {
+    // context() (testContext.ts) is unconfigured, so at least one check --
+    // the media root -- fails and produces a remedy; runProvisioning would
+    // otherwise short-circuit with "already in place" before ever reaching
+    // the guard this test is about. No TTY is stubbed: the test runner's
+    // own process already has none, which is exactly the unattended-CI case
+    // this guard exists for.
+    const ctx = context();
+    const error: unknown = await buildProgram(ctx)
+      .parseAsync(['node', 'laud', 'doctor', '--fix'])
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(UsageError);
+    const message = error instanceof Error ? error.message : String(error);
+    expect(message).toMatch(/laud doctor needs confirmation/);
+    expect(message).not.toMatch(/laud setup/);
   });
 });
