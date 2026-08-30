@@ -71,7 +71,7 @@ export function registerLs(program: Command, context: CliContext): void {
           // the transcript, which machine consumers read as one value. The
           // multi-language rendering below is for the human table only; the
           // per-segment languages are available from `show --format json`.
-          context.write(JSON.stringify(rows));
+          context.ui.content(JSON.stringify(rows));
           return;
         }
 

@@ -120,6 +120,21 @@ describe('PlainUi', () => {
     expect(lines).toEqual(['The library is empty. Add something with "laud import".']);
   });
 
+  it('writes payload content verbatim, since this is the path a redirect takes', () => {
+    const { ui: sink, lines } = ui();
+    // PlainUi runs whenever stdout is not a terminal, so `laud show ID
+    // --format srt > out.srt` comes through here. One added or removed
+    // character would corrupt the subtitle file.
+    sink.content('1\n00:00:00,000 --> 00:00:01,680\nHello.\n');
+    expect(lines).toEqual(['1\n00:00:00,000 --> 00:00:01,680\nHello.\n']);
+  });
+
+  it('does not trim a trailing newline out of payload content', () => {
+    const { ui: sink, lines } = ui();
+    sink.content('{"a":1}\n');
+    expect(lines.at(-1)).toBe('{"a":1}\n');
+  });
+
   it('renders one ls row per recording exactly like the old context.out line', () => {
     const { ui: sink, lines } = ui();
     sink.recordings([{ id: 'ID001', durationMs: 3200, language: 'ru', preview: 'Privet.' }]);

@@ -14,10 +14,10 @@ export function registerShow(program: Command, context: CliContext): void {
     .option('--transcript <id>', 'a specific transcript instead of the newest')
     .description('Print a transcript')
     .action(async (id: string, options: { format: string; transcript?: string }) => {
-      // The frame (in pretty mode) still goes to stderr, same as every
-      // other command's -- see PrettyUi.frame -- so it never touches the
-      // transcript data below, which stays on stdout, unchanged, in
-      // either mode.
+      // The transcript goes through ui.content(), not straight to stdout:
+      // that puts it inside the frame for someone reading a terminal, while
+      // a redirect or a pipe -- which selects PlainUi -- still receives the
+      // exact bytes. See Ui.content.
       await context.ui.frame('Transcript', async () => {
         if (!FORMATS.includes(options.format as Format)) {
           throw new UsageError(
@@ -44,16 +44,16 @@ export function registerShow(program: Command, context: CliContext): void {
 
         switch (options.format as Format) {
           case 'text':
-            context.write(toPlainText(segments));
+            context.ui.content(toPlainText(segments));
             return;
           case 'srt':
-            context.write(toSrt(segments));
+            context.ui.content(toSrt(segments));
             return;
           case 'vtt':
-            context.write(toVtt(segments));
+            context.ui.content(toVtt(segments));
             return;
           case 'json':
-            context.write(JSON.stringify({ recording, transcript, segments }, null, 2));
+            context.ui.content(JSON.stringify({ recording, transcript, segments }, null, 2));
             return;
         }
       });

@@ -138,6 +138,27 @@ describe('PrettyUi.frame', () => {
     expect(outro.mock.calls[0]?.[0]).toContain('Failed in 2m 5.000s');
   });
 
+  it('renders payload content inside the frame, not spilling out around it', async () => {
+    log.message.mockClear();
+    const ui = new PrettyUi(72);
+    ui.content('[00:00:00] Hello.\n[00:00:01] Privet.\n');
+    // log.message is what draws inside the frame's gutter; the payload must
+    // go through it rather than straight to stdout.
+    expect(log.message).toHaveBeenCalledTimes(1);
+    expect(log.message.mock.calls[0]?.[0]).toBe('[00:00:00] Hello.\n[00:00:01] Privet.');
+  });
+
+  it('wraps a payload line too long for the terminal, so it cannot tear the frame', () => {
+    log.message.mockClear();
+    const ui = new PrettyUi(40);
+    ui.content('x'.repeat(100));
+    const rendered = log.message.mock.calls[0]?.[0] as string;
+    expect(rendered.split('\n').length).toBeGreaterThan(1);
+    for (const line of rendered.split('\n')) {
+      expect(stringWidth(line)).toBeLessThanOrEqual(40);
+    }
+  });
+
   it('sends the frame to stderr, not stdout', async () => {
     intro.mockClear();
     outro.mockClear();

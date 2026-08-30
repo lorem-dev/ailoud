@@ -27,6 +27,14 @@ export class PlainUi implements Ui {
     return task();
   }
 
+  public content(text: string): void {
+    // Verbatim. PlainUi is what runs whenever stdout is not a terminal, so
+    // this is the path a redirect or a pipe takes, and a single added
+    // character would corrupt the subtitle file or break the JSON parser on
+    // the other end.
+    this.write(text);
+  }
+
   public imported(recording: Recording, alreadyPresent: boolean): void {
     this.write(
       `${recording.id}  ${alreadyPresent ? 'already present' : 'imported'}  ${recording.sourcePath}`,

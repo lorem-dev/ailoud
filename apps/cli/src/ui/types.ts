@@ -36,11 +36,14 @@ export interface Check {
  * A command states what happened; the active implementation (`PlainUi` or
  * `PrettyUi`) decides how that looks.
  *
- * Deliberately not part of this interface: raw JSON (`ls --json`, `show
- * --format json`) and transcript data (`show`'s text/srt/vtt output). Both
- * go straight to stdout through `CliContext.write` instead, undecorated in
- * either mode -- deviating from the recording's actual content is not an
- * option, and neither is emitting something `JSON.parse` cannot read back.
+ * Payload output -- raw JSON (`ls --json`, `show --format json`) and
+ * transcript data (`show`'s text/srt/vtt) -- goes through `content()` rather
+ * than straight to stdout. That routing is what lets a terminal reader see
+ * the payload inside the command's frame while a redirect still receives the
+ * exact bytes: `PlainUi`, which is what runs whenever stdout is not a
+ * terminal, writes it undecorated. Deviating from the recording's actual
+ * content is not an option, and neither is emitting something `JSON.parse`
+ * cannot read back.
  */
 export interface Ui {
   /**
@@ -74,6 +77,20 @@ export interface Ui {
    * untrue. Empty when the provider recorded no per-segment language, in
    * which case the renderer falls back to `transcript.language`.
    */
+  /**
+   * Payload a command was asked to produce: a transcript, or the JSON
+   * behind `--json`. Distinct from every other method here, which reports
+   * what happened rather than emitting content.
+   *
+   * `PrettyUi` renders it inside the open frame, so an interactive reader
+   * sees one coherent block instead of a frame with content spilling out
+   * around it. `PlainUi` writes it verbatim -- and `PlainUi` is what runs
+   * whenever stdout is not a terminal, so `laud show ID --format srt >
+   * out.srt` still produces a byte-exact subtitle file and `--format json`
+   * still pipes into a parser.
+   */
+  content(text: string): void;
+
   transcribed(
     recording: Recording,
     transcript: Transcript,

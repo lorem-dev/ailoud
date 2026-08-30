@@ -81,6 +81,17 @@ export class PrettyUi implements Ui {
     return ` in ${formatDuration(elapsedMs)}`;
   }
 
+  public content(text: string): void {
+    // Inside the frame, wrapped to the terminal's width: an unwrapped
+    // transcript line longer than the terminal tears through the frame's
+    // gutter, which is exactly the breakage this rendering exists to avoid.
+    //
+    // Trailing newlines are trimmed because the formatters end their output
+    // with one; passing it through would draw an empty gutter line before
+    // the frame closes.
+    log.message(this.wrap(text.replace(/\n+$/, '')));
+  }
+
   public imported(recording: Recording, alreadyPresent: boolean): void {
     const line = `${recording.id}  ${recording.sourcePath}`;
     if (alreadyPresent) {
