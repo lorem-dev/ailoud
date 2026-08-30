@@ -68,6 +68,9 @@ export class SherpaDiarizer implements Diarizer {
         `speaker diarization failed: ${result.stderr.trim() || `exit ${result.code}`}`,
       );
     }
+    // Unlike whisperVad.ts's zero-spans case, zero turns here is not an
+    // error worth throwing on: no speech means nothing to transcribe, but no
+    // speaker attribution still leaves a usable transcript as the product.
     return parseSpeakerTurns(result.stdout);
   }
 }

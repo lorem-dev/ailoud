@@ -50,7 +50,7 @@ describe('SherpaDiarizer', () => {
       segmentationModel: 's',
       embeddingModel: 'e',
       threshold: 0.6,
-      runner: runner as never,
+      runner,
     });
     await d.turns('a.wav', { speakers: 3 });
     expect(seen.join(' ')).toContain('--clustering.num-clusters=3');
@@ -68,7 +68,7 @@ describe('SherpaDiarizer', () => {
       segmentationModel: 's',
       embeddingModel: 'e',
       threshold: 0.6,
-      runner: runner as never,
+      runner,
     });
     await d.turns('a.wav');
     expect(seen.join(' ')).toContain('--clustering.cluster-threshold=0.6');
@@ -81,7 +81,7 @@ describe('SherpaDiarizer', () => {
       segmentationModel: 's',
       embeddingModel: 'e',
       threshold: 0.6,
-      runner: (async () => ({ code: 2, stdout: '', stderr: 'bad model' })) as never,
+      runner: async () => ({ code: 2, stdout: '', stderr: 'bad model' }),
     });
     await expect(d.turns('a.wav')).rejects.toThrow(/bad model/);
   });
