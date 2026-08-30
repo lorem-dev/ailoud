@@ -31,3 +31,6 @@ export type { WhisperCppOptions } from './stt/whisperCpp.js';
 
 export { WhisperVadSegmenter, parseVadSegments } from './vad/whisperVad.js';
 export type { WhisperVadOptions } from './vad/whisperVad.js';
+
+export { SherpaDiarizer, parseSpeakerTurns } from './diarize/sherpaDiarizer.js';
+export type { SherpaDiarizerOptions } from './diarize/sherpaDiarizer.js';
