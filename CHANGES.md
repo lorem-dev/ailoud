@@ -41,3 +41,18 @@
   command rather than spawned and left to hang.
 - A failing check with no automated repair, such as a corrupt database, is
   reported with its manual fix and exits non-zero.
+- `laud transcribe --diarize` attributes each segment to a speaker with a
+  local sherpa-onnx diarizer, joined to the transcript by time overlap;
+  `--speakers <n>` gives the known speaker count, which measured more
+  reliably than letting the count be inferred. `show --format text` prints
+  the speaker when a segment has one, and `--format json` carries it in the
+  existing `speaker` field; SRT and VTT are unchanged.
+- Config gains `stt.diarization.binary`, `stt.diarization.segmentationModel`,
+  `stt.diarization.embeddingModel`, and `stt.diarization.threshold` (default
+  `0.6`).
+- `laud setup` and `laud doctor --fix` provision the diarizer and its models
+  the same way as whisper.cpp. Its `doctor` checks are optional: they report
+  state but never make `doctor` fail on their own, since `--diarize` is
+  opt-in. Diarization is not available on Linux arm64, because sherpa-onnx
+  publishes no generic build for that target -- only vendor NPU builds that
+  cannot run on an ordinary ARM machine.

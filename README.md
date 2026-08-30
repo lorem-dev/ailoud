@@ -165,6 +165,37 @@ decide what counts as speech. Disclosing this is the point of writing it
 down here, since eliminating silent loss from a code-switched recording is
 the entire reason `--multilingual` exists.
 
+`--diarize` opts into speaker diarization: a second, local pass over the
+audio attributes each transcript segment to a speaker (`speaker_00`,
+`speaker_01`, ...) by running a standalone diarizer and joining its output to
+the transcript by time overlap. Off by default, for the same reason
+`--multilingual` is: it costs a model download and a second pass over the
+audio, and most recordings are one person.
+
+```shell
+laud transcribe ID001 --diarize
+laud transcribe ID001 --diarize --speakers 2
+```
+
+`--speakers <n>` tells the diarizer how many speakers to expect. Measured
+during this feature's design, an explicit count was exact far more often
+than letting the diarizer infer the count from the audio, so give it
+whenever you know it. `--speakers` without `--diarize` is a usage error, not
+a silent no-op, since without `--diarize` there is nothing for it to inform.
+
+Diarization is not available on Linux arm64: sherpa-onnx, the tool laud
+uses, publishes no generic build for that CPU architecture in the pinned
+release -- only vendor NPU builds (axcl, axera, rknn), which cannot run on
+an ordinary ARM machine. See "External tools" below for the other platforms
+it does cover.
+
+Naming speakers and separating overlapping speech are both out of scope:
+output is always `speaker_00`, `speaker_01`, and so on, and a segment where
+two people talk at once is attributed to whichever speaker dominates it.
+`show --format text` prints the speaker before each attributed segment;
+`--format json` carries the same value in its `speaker` field. SRT and VTT
+are unchanged -- subtitle formats have their own speaker conventions.
+
 List the library, and show a transcript:
 
 ```shell
@@ -181,14 +212,19 @@ laud doctor
 ```
 
 `doctor` is a first-class command, not a diagnostic afterthought: it reports
-nine checks -- `ffmpeg` presence, `ffprobe` presence, the whisper binary, the
-whisper model file, the VAD binary, the VAD model file, the config file, the
-database path and its integrity, and the media root -- with a fix for each
-failing check. The VAD checks only matter for `--multilingual`, but `doctor`
-reports them either way. See section 12 of the design doc for the exit code
-convention `doctor` failures use. Add `--fix` to have it install or download
-whatever failed, using the same engine `laud setup` uses -- see "First run:
-`laud setup`" under "External tools" below.
+twelve checks -- `ffmpeg` presence, `ffprobe` presence, the whisper binary,
+the whisper model file, the VAD binary, the VAD model file, the diarizer
+binary, the two diarization model files, the config file, the database path
+and its integrity, and the media root -- with a fix for each failing check.
+The VAD checks only matter for `--multilingual`, but `doctor` reports them
+either way, and a failing one still leaves `doctor` non-zero. The three
+diarization checks are different: because `--diarize` is opt-in the same
+way, they report their state, but a failing diarization check never makes
+`doctor` exit non-zero by itself -- only checks unrelated to diarization do.
+See section 12 of the design doc for the exit code convention `doctor`
+failures use. Add `--fix` to have it install or download whatever failed,
+using the same engine `laud setup` uses -- see "First run: `laud setup`"
+under "External tools" below.
 
 ## External tools
 
@@ -204,6 +240,15 @@ whatever failed, using the same engine `laud setup` uses -- see "First run:
 - **`whisper-cli`** (whisper.cpp) and a **model file** -- local speech to
   text. The binary and model path are set in the config file, described
   below, and checked by `laud doctor`.
+- **`sherpa-onnx-offline-speaker-diarization`**, a **segmentation model**,
+  and an **embedding model** -- speaker attribution for `transcribe
+--diarize` only; the single-speaker default needs none of it. Configured
+  at `stt.diarization.binary`, `stt.diarization.segmentationModel`, and
+  `stt.diarization.embeddingModel`, plus `stt.diarization.threshold` (the
+  clustering threshold used when `--speakers` is not given; default `0.6`).
+  Checked by `laud doctor`, but because `--diarize` is opt-in, a failing
+  diarization check reports its state without making `doctor` exit
+  non-zero on its own -- see "CLI quick start" above.
 
 ### First run: `laud setup`
 
@@ -216,12 +261,16 @@ laud setup
 `setup` runs the same checks `doctor` does, prints what is missing, the exact
 command line of every install it will run (including any `sudo`), and how
 much it will download, asks once for confirmation, then installs ffmpeg,
-installs whisper.cpp, and downloads a transcription model -- writing
-whatever it installed into `config.yaml`. Checks that already pass are left
-alone, so running `setup` again on an already-provisioned machine reports
-nothing to do. A check that failed but has no automated repair -- a corrupt
-database is the only one -- is reported with its manual fix, and the command
-exits non-zero rather than claiming everything is in place.
+installs whisper.cpp, downloads a transcription model, installs the
+sherpa-onnx diarizer, and downloads its two models -- writing whatever it
+installed into `config.yaml`. The diarizer is provisioned right alongside
+the rest even though `--diarize` is opt-in: its `doctor` checks are optional
+(they cannot make `doctor` fail), but `setup` and `doctor --fix` still act on
+any check that is failing, optional or not. Checks that already pass are
+left alone, so running `setup` again on an already-provisioned machine
+reports nothing to do. A check that failed but has no automated repair -- a
+corrupt database is the only one -- is reported with its manual fix, and the
+command exits non-zero rather than claiming everything is in place.
 
 - `--yes` skips the confirmation prompt. It is required (not just
   convenient) when there is no terminal to ask on -- CI, a script, anything
@@ -259,6 +308,16 @@ detects Windows up front, prints the manual steps, and exits without
 downloading anything. On Windows, or on a Linux CPU architecture other than
 x64/arm64, install the pieces by hand as described next.
 
+The sherpa-onnx diarizer follows a narrower map, because upstream publishes
+fewer prebuilt binaries than whisper.cpp does: only macOS arm64 and Linux
+x64 have a generic build in the pinned release. On an Intel Mac, building
+sherpa-onnx from source is the only route. **On Linux arm64 there is no
+route at all** -- the only aarch64 assets upstream ships are vendor NPU
+builds (axcl, axera, rknn) that do not run on an ordinary ARM machine, so
+diarization is simply not available there. Either way, that one action is
+skipped with an explanation rather than aborting the rest of the plan, the
+same way an unsupported whisper.cpp architecture is handled.
+
 Neither command will run an installer it cannot supervise: with no terminal
 attached (CI, a pipe), an install that could prompt -- `sudo apt-get`, and
 `brew`, which asks about the Xcode command line tools -- is reported with the
@@ -294,6 +353,23 @@ never answer.
   the VAD model `ggml-silero-v5.1.2.bin` from
   https://huggingface.co/ggml-org/whisper-vad. Set `stt.whisperCpp.model`
   and `stt.whisperCpp.vadModel` to their paths.
+- **sherpa-onnx** (`sherpa-onnx-offline-speaker-diarization`), for
+  `--diarize`
+  - macOS arm64 and Linux x64: download the `v1.13.6` release tarball from
+    the sherpa-onnx releases page and extract it somewhere permanent, the
+    same as whisper.cpp above. Point `stt.diarization.binary` at the
+    extracted binary.
+  - macOS on Intel, or any other Linux CPU architecture: no prebuilt asset
+    is published; build sherpa-onnx from source and point
+    `stt.diarization.binary` at the result.
+  - Linux arm64: not available. Upstream ships only vendor NPU builds for
+    this target, and they do not run on an ordinary ARM machine.
+  - Download the segmentation model
+    (`sherpa-onnx-pyannote-segmentation-3-0.tar.bz2`, extract `model.onnx`)
+    and the embedding model
+    (`3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx`) from the
+    same sherpa-onnx releases page, and set `stt.diarization.segmentationModel`
+    and `stt.diarization.embeddingModel` to their paths.
 
 Either way, `laud doctor` confirms what is still missing.
 

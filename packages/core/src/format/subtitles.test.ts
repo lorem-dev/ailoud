@@ -57,4 +57,21 @@ describe('toPlainText', () => {
   it('prefixes each line with a bracketed timestamp', () => {
     expect(toPlainText(segments)).toBe('[00:00:00] Hello there\n[01:01:01] General Kenobi\n');
   });
+
+  it('prefixes the speaker when a segment has one', () => {
+    const seg = segments[0];
+    if (seg === undefined) throw new Error('fixture segment missing');
+    expect(toPlainText([{ ...seg, speaker: 'speaker_00', text: 'Hello.' }])).toBe(
+      '[00:00:00] speaker_00: Hello.\n',
+    );
+  });
+
+  it('renders exactly as before when no segment has a speaker', () => {
+    // Load-bearing: the e2e suite parses this format and its fixtures are
+    // transcribed without --diarize. A change here that fired unconditionally
+    // would break specs that have nothing to do with this feature.
+    const seg = segments[0];
+    if (seg === undefined) throw new Error('fixture segment missing');
+    expect(toPlainText([{ ...seg, text: 'Hello.' }])).toBe('[00:00:00] Hello.\n');
+  });
 });
