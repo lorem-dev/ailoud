@@ -9,6 +9,8 @@ export type {
   TranscriptionProvider,
   SpeechSpan,
   SpeechSegmenter,
+  SpeakerTurn,
+  Diarizer,
   RecordingListFilter,
   RecordingStore,
   ManagedRecordingStore,
@@ -19,6 +21,8 @@ export type { Migration } from './db/schema.js';
 export type { DetectedSpan, LanguageRun } from './transcribe/merge.js';
 export { orderLanguages, summarizeLanguages } from './transcribe/languages.js';
 export type { LanguageTotal } from './transcribe/languages.js';
+
+export { assignSpeakers } from './diarize/assign.js';
 
 export {
   MIN_RUN_DURATION_MS,

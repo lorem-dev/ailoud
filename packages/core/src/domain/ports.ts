@@ -88,6 +88,18 @@ export interface SpeechSegmenter {
   segments(audioPath: string): Promise<SpeechSpan[]>;
 }
 
+export interface SpeakerTurn {
+  readonly startMs: number;
+  readonly endMs: number;
+  /** Provider-assigned label, e.g. "speaker_00". Not a person's name. */
+  readonly speaker: string;
+}
+
+export interface Diarizer {
+  /** Speaker turns across the whole recording, in timeline order. */
+  turns(audioPath: string, options?: { readonly speakers?: number }): Promise<SpeakerTurn[]>;
+}
+
 export interface RecordingListFilter {
   readonly ids?: readonly string[];
   readonly withoutTranscript?: boolean;
