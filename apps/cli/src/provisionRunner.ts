@@ -64,10 +64,15 @@ export async function executePlan(
         case 'create-directory': {
           // `mkdir(recursive)` returns the first directory it created, or
           // undefined when there was nothing to create. That distinction
-          // matters: `createContext` already mkdirs the media root before any
-          // command runs, so the only way checkMediaRoot fails is on the
-          // writability branch -- where mkdir no-ops and reporting "created"
-          // would be a false claim about the one thing that is still wrong.
+          // matters for checkMediaRoot's "exists but unwritable" failure:
+          // mkdir no-ops on it, and reporting "created" would be a false
+          // claim about the one thing that is still wrong -- the access()
+          // check just below exists to catch exactly that case. checkMediaRoot
+          // can also fail because the path is not a directory at all, or does
+          // not exist and cannot be created (e.g. an unwritable parent); both
+          // of those make mkdir itself throw, which the outer catch below
+          // reports as a raw errno -- correct, just not what this branch is
+          // for.
           const created = await mkdir(action.path, { recursive: true });
           try {
             await access(action.path, constants.W_OK);
@@ -129,7 +134,14 @@ export async function executePlan(
             });
             break;
           }
-          deps.onStep('Installing whisper.cpp');
+          // installWhisper reports 'skipped' immediately, without spawning
+          // anything, exactly when macOS has no terminal to run brew in
+          // interactively (see whisperInstall.ts) -- mirrored here, the same
+          // way the ffmpeg branch above checks `interactive` before its own
+          // "Running ..." step, so laud never announces work it is about to
+          // decline instead of doing.
+          const willSkip = deps.platform === 'darwin' && !deps.interactive;
+          if (!willSkip) deps.onStep('Installing whisper.cpp');
           const result = await installWhisper({
             platform: deps.platform,
             arch: deps.arch,
