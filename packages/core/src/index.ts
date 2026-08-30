@@ -47,7 +47,7 @@ export { toPlainText } from './format/text.js';
 
 export type { Remedy, InstallTarget } from './provision/remedy.js';
 
-export { installHint } from './provision/remedy.js';
+export { installHint, WINDOWS_MANUAL_HINT } from './provision/remedy.js';
 
 export type { ModelChoice } from './provision/catalogue.js';
 

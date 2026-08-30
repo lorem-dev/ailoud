@@ -18,6 +18,10 @@ export type Remedy =
 
 export type InstallTarget = 'ffmpeg' | 'whisper';
 
+/** What Windows users get told instead of a command laud can run for them. */
+export const WINDOWS_MANUAL_HINT =
+  'install it by hand -- see "Manual install (fallback)" in README.md';
+
 /**
  * The command a user would run by hand for `target` on `platform`.
  *
@@ -25,10 +29,18 @@ export type InstallTarget = 'ffmpeg' | 'whisper';
  * there is no apt package for whisper.cpp -- laud installs it from the
  * project's own prebuilt release tarball. Printing `apt-get install
  * whisper-cpp` would send people to a package that does not exist.
+ *
+ * Windows gets neither a package command nor `laud setup`: setup refuses to
+ * provision Windows (section 3 of the provisioning design), so pointing
+ * there would send the user in a circle -- run setup, be told setup cannot
+ * help, run doctor, be told to run setup.
  */
 export function installHint(target: InstallTarget, platform: NodeJS.Platform): string {
   if (platform === 'darwin') {
     return target === 'ffmpeg' ? 'brew install ffmpeg' : 'brew install whisper-cpp';
+  }
+  if (platform === 'win32') {
+    return WINDOWS_MANUAL_HINT;
   }
   if (platform === 'linux' && target === 'ffmpeg') {
     return 'sudo apt-get install ffmpeg';

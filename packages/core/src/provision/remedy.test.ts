@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { installHint } from './remedy.js';
+import { WINDOWS_MANUAL_HINT, installHint } from './remedy.js';
 
 describe('installHint', () => {
   it('names brew on macOS', () => {
@@ -14,7 +14,16 @@ describe('installHint', () => {
     expect(installHint('whisper', 'linux')).toBe('laud setup');
   });
 
-  it('falls back to laud setup on platforms with no known package manager', () => {
-    expect(installHint('ffmpeg', 'win32')).toBe('laud setup');
+  it('sends Windows users to the manual steps, never in a circle back to laud setup', () => {
+    // `laud setup` refuses to provision Windows, so recommending it here
+    // would loop the user: doctor says run setup, setup says it cannot help.
+    for (const target of ['ffmpeg', 'whisper'] as const) {
+      expect(installHint(target, 'win32')).toBe(WINDOWS_MANUAL_HINT);
+      expect(installHint(target, 'win32')).not.toContain('laud setup');
+    }
+  });
+
+  it('still falls back to laud setup for whisper on an unrecognized unix', () => {
+    expect(installHint('whisper', 'freebsd')).toBe('laud setup');
   });
 });

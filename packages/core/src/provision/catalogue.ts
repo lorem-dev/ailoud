@@ -62,7 +62,7 @@ export const VAD_MODEL: ModelChoice = {
   name: 'silero-v5.1.2',
   file: 'ggml-silero-v5.1.2.bin',
   url: 'https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin',
-  bytes: 1_055_723,
+  bytes: 885_098,
   summary: 'voice activity detection, needed by --multilingual',
 };
 
