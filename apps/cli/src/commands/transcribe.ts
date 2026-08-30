@@ -18,7 +18,7 @@ interface TranscribeOptions {
  */
 function parseSpeakerCount(raw: string): number {
   const value = Number(raw);
-  if (!Number.isInteger(value) || value <= 0) {
+  if (!Number.isSafeInteger(value) || value <= 0) {
     throw new UsageError(`--speakers must be a positive integer, got "${raw}".`);
   }
   return value;

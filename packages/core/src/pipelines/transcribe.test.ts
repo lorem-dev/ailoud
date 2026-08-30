@@ -133,6 +133,20 @@ describe('transcribeRecording --diarize', () => {
     expect(diarizer.calls).toHaveLength(0);
   });
 
+  it('still writes the transcript with no speakers when --diarize is set but no diarizer was wired', async () => {
+    // The inverse of the case above: a caller can pass diarize: true while
+    // building deps without a diarizer (e.g. the CLI only calls
+    // createDiarizer() when --diarize is set, but nothing in the type
+    // system stops some other caller from doing this). withSpeakers's guard
+    // must treat this exactly like "diarization disabled", not throw.
+    const d = deps();
+    const transcript = await transcribeRecording(d, recording, { diarize: true });
+    expect(transcript).not.toBeNull();
+    const segments = await d.store.listSegments(transcript.id);
+    expect(segments.map((s) => s.text)).toEqual(['Privet.', 'Kak dela?']);
+    expect(segments.every((s) => s.speaker === null)).toBe(true);
+  });
+
   it('attributes each segment to a speaker by time overlap', async () => {
     const d = deps();
     const diarizer = new FakeDiarizer([

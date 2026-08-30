@@ -181,7 +181,7 @@ describe('laud transcribe --diarize', () => {
     ).rejects.toThrow(/--speakers needs --diarize/);
   });
 
-  it.each(['0', '-1', 'abc', '1.5'])(
+  it.each(['0', '-1', 'abc', '1.5', '1e21'])(
     'rejects --speakers %s as not a positive integer',
     async (value) => {
       const ctx = context();
