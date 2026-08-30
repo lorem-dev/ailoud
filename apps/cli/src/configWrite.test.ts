@@ -62,6 +62,27 @@ describe('applyConfigUpdates', () => {
     expect(parsed.stt.whisperCpp.vadModel).toBe('/v.bin');
   });
 
+  it('names the problem when the file parses but cannot be serialized back', () => {
+    // An unclosed flow sequence somewhere unrelated: setIn succeeds (the
+    // broken node and the edited node are different), but toString() refuses
+    // to serialize a document carrying parse errors. Before this was
+    // rewrapped, the user got a bare "Document with errors cannot be
+    // stringified" -- after downloading up to 1.6 GB, with no filename and
+    // no hint at what to fix.
+    const source = 'stt:\n  whisperCpp:\n    binary: w\nother: [1, 2\n';
+    let thrown: unknown;
+    try {
+      applyConfigUpdates(source, { model: '/m.bin' });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(UsageError);
+    const message = thrown instanceof Error ? thrown.message : String(thrown);
+    expect(message).toMatch(/not valid YAML/);
+    expect(message).toMatch(/end with a \]/);
+    expect(message).not.toMatch(/Document with errors cannot be stringified/);
+  });
+
   it('produces valid, parseable YAML from an empty source string', () => {
     // parseDocument('') yields a document whose contents start out null;
     // pinning this case guards against a yaml upgrade changing whether
@@ -139,6 +160,20 @@ describe('writeConfigUpdates', () => {
     await expect(writeConfigUpdates(target, { model: '/new.bin' })).rejects.toThrow(
       new RegExp(`${escapeRegExp(target)}.*stt\\.whisperCpp\\.model`, 's'),
     );
+    expect(await readFile(target, 'utf8')).toBe(source);
+    expect(await readdir(dir)).toEqual(['config.yaml']);
+  });
+
+  it('names the config file, and leaves it untouched, when it is not serializable YAML', async () => {
+    const dir = await tempDir();
+    const target = join(dir, 'config.yaml');
+    const source = 'stt:\n  whisperCpp:\n    binary: w\nother: [1, 2\n';
+    await writeFile(target, source, 'utf8');
+    await expect(writeConfigUpdates(target, { model: '/new.bin' })).rejects.toThrow(
+      new RegExp(`${escapeRegExp(target)}.*not valid YAML`, 's'),
+    );
+    // The original is intact and no half-written temp file is left behind:
+    // an installer must never make a file someone is mid-edit on worse.
     expect(await readFile(target, 'utf8')).toBe(source);
     expect(await readdir(dir)).toEqual(['config.yaml']);
   });
