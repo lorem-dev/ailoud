@@ -2,11 +2,12 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { UsageError, planProvisioning } from '@laud/core';
-import { buildProgram } from '../program.js';
+import { EnvironmentError, UsageError, planProvisioning } from '@laud/core';
+import { buildProgram, exitCodeFor } from '../program.js';
 import type { CliContext } from '../wiring.js';
 import { context } from './testContext.js';
 import { checkBinary, checkModel, checkVadBinary, checkVadModel, runChecks } from './doctor.js';
+import { collectRemedies } from './setup.js';
 
 // A real temporary directory, not a string literal path: this guarantees
 // the "missing" paths below genuinely do not exist on disk, rather than
@@ -197,8 +198,7 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
     vi.stubEnv('PATH', binDir);
     try {
       const checks = await runChecks(healthyContext(), 'linux');
-      const remedies = checks.filter((c) => !c.ok).flatMap((c) => (c.remedy ? [c.remedy] : []));
-      expect(planProvisioning(remedies, { modelName: 'small' })).toEqual([]);
+      expect(planProvisioning(collectRemedies(checks), { modelName: 'small' })).toEqual([]);
     } finally {
       vi.unstubAllEnvs();
     }
@@ -214,8 +214,7 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
       const checks = await runChecks(healthyContext(), 'linux');
       expect(checks.find((c) => c.name === 'ffmpeg')?.ok).toBe(false);
       expect(checks.find((c) => c.name === 'ffprobe')?.ok).toBe(true);
-      const remedies = checks.filter((c) => !c.ok).flatMap((c) => (c.remedy ? [c.remedy] : []));
-      expect(planProvisioning(remedies, { modelName: 'small' })).toEqual([
+      expect(planProvisioning(collectRemedies(checks), { modelName: 'small' })).toEqual([
         { kind: 'install-ffmpeg' },
       ]);
     } finally {
@@ -251,5 +250,113 @@ describe('doctor --fix: the real CLI action', () => {
     const message = error instanceof Error ? error.message : String(error);
     expect(message).toMatch(/laud doctor needs confirmation/);
     expect(message).not.toMatch(/laud setup/);
+  });
+});
+
+/**
+ * A corrupt database is the one failing check with no remedy: `--fix` never
+ * deletes user data, so its repair stays a human's job (design section 3).
+ * That made it the state where the three entry points could disagree --
+ * `doctor` exited 3 while `doctor --fix` on the identical library printed
+ * "Everything laud needs is already in place" and exited 0, and `setup`,
+ * which never prints the checks, printed that one false sentence and
+ * nothing else. All three must refuse.
+ */
+describe('a corrupt database: every entry point must refuse', () => {
+  let corruptDir: string;
+  let binDir: string;
+
+  beforeEach(async () => {
+    corruptDir = await mkdtemp(join(tmpdir(), 'laud-corrupt-db-test-'));
+    binDir = join(corruptDir, 'bin');
+    await mkdir(binDir, { recursive: true });
+    await mkdir(join(corruptDir, 'media'), { recursive: true });
+    await writeFile(join(corruptDir, 'model.bin'), 'fake model', 'utf8');
+    await writeFile(join(corruptDir, 'vad-model.bin'), 'fake vad model', 'utf8');
+    for (const name of ['ffmpeg', 'ffprobe']) {
+      const scriptPath = join(binDir, name);
+      await writeFile(scriptPath, '#!/bin/sh\nexit 0\n', 'utf8');
+      await chmod(scriptPath, 0o755);
+    }
+  });
+
+  afterEach(async () => {
+    await rm(corruptDir, { recursive: true, force: true });
+  });
+
+  /** Everything healthy except the database, which reports itself malformed. */
+  function corruptContext(): CliContext & { lines: string[] } {
+    const ctx = context();
+    // Shadows the prototype method with an own property; the store is
+    // otherwise the real in-memory fake.
+    Object.defineProperty(ctx.store, 'integrityCheck', {
+      value: () => 'malformed database schema',
+      configurable: true,
+    });
+    return {
+      ...ctx,
+      paths: {
+        configFile: join(corruptDir, 'config.yaml'),
+        dataDir: corruptDir,
+        dbFile: join(corruptDir, 'laud.db'),
+        mediaRoot: join(corruptDir, 'media'),
+      },
+      config: {
+        stt: {
+          provider: 'whisper-cpp',
+          whisperCpp: {
+            binary: process.execPath,
+            model: join(corruptDir, 'model.bin'),
+            vadBinary: process.execPath,
+            vadModel: join(corruptDir, 'vad-model.bin'),
+          },
+        },
+      },
+    };
+  }
+
+  async function runCommand(argv: readonly string[]): Promise<{
+    error: unknown;
+    lines: readonly string[];
+  }> {
+    vi.stubEnv('PATH', binDir);
+    try {
+      const ctx = corruptContext();
+      const error: unknown = await buildProgram(ctx)
+        .parseAsync(['node', 'laud', ...argv])
+        .catch((caught: unknown) => caught);
+      return { error, lines: ctx.lines };
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  }
+
+  it('doctor exits non-zero', async () => {
+    const { error } = await runCommand(['doctor']);
+    expect(error).toBeInstanceOf(EnvironmentError);
+  });
+
+  it('doctor --fix exits non-zero on the same state, instead of claiming success', async () => {
+    const { error, lines } = await runCommand(['doctor', '--fix']);
+    expect(error).toBeInstanceOf(EnvironmentError);
+    expect(lines.join('\n')).not.toContain('Everything laud needs is already in place.');
+  });
+
+  it('setup exits non-zero and names the check it cannot repair, with its fix text', async () => {
+    const { error, lines } = await runCommand(['setup']);
+    expect(error).toBeInstanceOf(EnvironmentError);
+    const output = lines.join('\n');
+    expect(output).not.toContain('Everything laud needs is already in place.');
+    expect(output).toContain('database');
+    expect(output).toContain('Back up');
+  });
+
+  it('all three exit with the same code', async () => {
+    const codes: number[] = [];
+    for (const argv of [['doctor'], ['doctor', '--fix'], ['setup']]) {
+      const { error } = await runCommand(argv);
+      codes.push(exitCodeFor(error));
+    }
+    expect(codes).toEqual([3, 3, 3]);
   });
 });

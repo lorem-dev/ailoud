@@ -16,6 +16,13 @@ import type { SetupOptions } from './setup.js';
 export type { Check };
 
 /**
+ * The one sentence both "not ready" exits use: plain `doctor`, and the
+ * provisioning path when everything that failed is un-fixable. Shared so the
+ * two cannot drift into reporting the same state differently.
+ */
+export const NOT_READY_MESSAGE = 'laud is not ready to run: see the failing checks above.';
+
+/**
  * `run()` already turns a missing binary into an `EnvironmentError` whose
  * message points back at "laud doctor" for details -- useful advice from
  * every other caller, but circular when the caller already is doctor. This
@@ -262,19 +269,20 @@ export function registerDoctor(program: Command, context: CliContext): void {
         context.ui.checks(checks);
         if (options.fix !== true) {
           if (checks.some((check) => !check.ok)) {
-            throw new EnvironmentError('laud is not ready to run: see the failing checks above.');
+            throw new EnvironmentError(NOT_READY_MESSAGE);
           }
           return;
         }
-        // Only the failing checks' remedies -- --fix acts on what is
-        // actually broken, never on checks that already passed.
-        const remedies = checks
-          .filter((check) => !check.ok)
-          .flatMap((check) => (check.remedy !== undefined ? [check.remedy] : []));
+        // The whole check list, not a pre-filtered remedy list:
+        // runProvisioning owns the "which of these are auto-fixable"
+        // decision (collectRemedies), so --fix still acts only on what
+        // actually failed while keeping "nothing failed" distinguishable
+        // from "nothing fixable failed".
+        //
         // 'doctor', explicitly: runProvisioning's messages (the consent
         // guard, a cancelled model prompt) must name the command the user
         // actually typed, not default to the other caller's name.
-        await runProvisioning(context, options, remedies, process.platform, 'doctor');
+        await runProvisioning(context, options, checks, process.platform, 'doctor');
       });
     });
 }

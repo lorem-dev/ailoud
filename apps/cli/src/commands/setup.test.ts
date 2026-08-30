@@ -1,22 +1,32 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Action, Remedy } from '@laud/core';
+import type { Action } from '@laud/core';
 import { EnvironmentError, VAD_MODEL, findModel } from '@laud/core';
 import {
   chooseModel,
+  collectRemedies,
   describeAction,
   describePlan,
   formatBytes,
   isInteractive,
+  planNeedsPackageManager,
   requireConsent,
   resolveModelName,
   runProvisioning,
+  unfixableChecks,
 } from './setup.js';
+import type { PlanEnvironment } from './setup.js';
+import type { PackageManager } from '@laud/providers';
+import type { Remedy } from '@laud/core';
+import type * as Providers from '@laud/providers';
 import type { LaudConfig, LaudPaths } from '../config.js';
 import type { CliContext } from '../wiring.js';
+import type { Check } from '../ui/index.js';
 import { context } from './testContext.js';
+import { Command } from 'commander';
+import { registerSetup } from './setup.js';
 
 describe('isInteractive', () => {
   it('is false under CI even with a real tty', () => {
@@ -192,19 +202,112 @@ describe('describeAction / describePlan', () => {
     ]);
   });
 
+  const apt: PlanEnvironment = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/data',
+    manager: 'apt-get',
+  };
+  const brew: PlanEnvironment = {
+    platform: 'darwin',
+    arch: 'arm64',
+    dataDir: '/data',
+    manager: 'brew',
+  };
+
   it('appends the total download size as the last line', () => {
     const actions: readonly Action[] = [
       { kind: 'install-ffmpeg' },
       { kind: 'download-model', slot: 'transcription', model: smallModel },
     ];
-    const lines = describePlan(actions);
+    const lines = describePlan(actions, apt);
     expect(lines.at(-1)).toBe(`Total download: ${formatBytes(smallModel.bytes)}`);
-    expect(lines).toHaveLength(3);
   });
 
   it('reports a total of 0 bytes when nothing downloads', () => {
-    const lines = describePlan([{ kind: 'install-ffmpeg' }]);
+    const lines = describePlan([{ kind: 'install-ffmpeg' }], apt);
     expect(lines.at(-1)).toBe('Total download: 0 MB');
+  });
+
+  it('spells out the sudo commands "Install ffmpeg" stands for, before consent', () => {
+    // Design section 5.5: sudo is never invoked silently, and the exact
+    // command appears in the plan. "Install ffmpeg" alone told a Debian user
+    // nothing about the root password prompt they were agreeing to.
+    const lines = describePlan([{ kind: 'install-ffmpeg' }], apt);
+    expect(lines).toContain('Install ffmpeg');
+    expect(lines).toContain('  Runs: sudo apt-get update');
+    expect(lines).toContain('  Runs: sudo apt-get install -y ffmpeg');
+  });
+
+  it('spells out brew install ffmpeg on macOS', () => {
+    expect(describePlan([{ kind: 'install-ffmpeg' }], brew)).toContain(
+      '  Runs: brew install ffmpeg',
+    );
+  });
+
+  it('spells out brew install whisper-cpp on macOS', () => {
+    expect(describePlan([{ kind: 'install-whisper' }], brew)).toContain(
+      '  Runs: brew install whisper-cpp',
+    );
+  });
+
+  it('names the tarball and where it lands for the Linux whisper route', () => {
+    const lines = describePlan([{ kind: 'install-whisper' }], apt);
+    expect(lines.some((line) => line.includes('whisper-bin-ubuntu-x64.tar.gz'))).toBe(true);
+    expect(lines.some((line) => line.includes(join('/data', 'whisper')))).toBe(true);
+  });
+
+  it('says so in the plan when no package manager was found, rather than at execution time', () => {
+    const lines = describePlan([{ kind: 'install-ffmpeg' }], { ...apt, manager: null });
+    expect(lines.some((line) => line.includes('No supported package manager'))).toBe(true);
+  });
+
+  it('reports an unsupported CPU architecture as a plan line, not by throwing', () => {
+    const lines = describePlan([{ kind: 'install-whisper' }], { ...apt, arch: 'ia32' });
+    expect(lines.some((line) => line.includes('ia32'))).toBe(true);
+  });
+});
+
+describe('planNeedsPackageManager', () => {
+  it('is true for an ffmpeg install on any platform', () => {
+    expect(planNeedsPackageManager([{ kind: 'install-ffmpeg' }], 'linux')).toBe(true);
+  });
+
+  it('is true for a whisper install on macOS, where brew does the work', () => {
+    expect(planNeedsPackageManager([{ kind: 'install-whisper' }], 'darwin')).toBe(true);
+  });
+
+  it('is false for a whisper install on Linux, which uses the release tarball', () => {
+    expect(planNeedsPackageManager([{ kind: 'install-whisper' }], 'linux')).toBe(false);
+  });
+
+  it('is false for a download-only plan, so no probe runs for nothing', () => {
+    const model = findModel('tiny')!;
+    expect(
+      planNeedsPackageManager([{ kind: 'download-model', slot: 'transcription', model }], 'linux'),
+    ).toBe(false);
+  });
+});
+
+describe('collectRemedies / unfixableChecks', () => {
+  const checks: readonly Check[] = [
+    { name: 'ffmpeg', ok: true, detail: 'fine' },
+    { name: 'ffprobe', ok: false, detail: 'gone', remedy: { kind: 'install-ffmpeg' } },
+    { name: 'database', ok: false, detail: 'integrity_check: corrupt', fix: 'Back it up.' },
+  ];
+
+  it('takes remedies only from the checks that failed', () => {
+    expect(collectRemedies(checks)).toEqual([{ kind: 'install-ffmpeg' }]);
+  });
+
+  it('separates out the failing checks that carry no remedy', () => {
+    expect(unfixableChecks(checks).map((c) => c.name)).toEqual(['database']);
+  });
+
+  it('counts a passing check with no remedy as neither', () => {
+    const passing: readonly Check[] = [{ name: 'config file', ok: true, detail: 'present' }];
+    expect(collectRemedies(passing)).toEqual([]);
+    expect(unfixableChecks(passing)).toEqual([]);
   });
 });
 
@@ -220,14 +323,21 @@ describe('describeAction / describePlan', () => {
 // those tests actually care about; the binary checks are held fixed at "ok".
 const providers = vi.hoisted(() => ({
   detectPackageManager: vi.fn(),
-  ffmpegInstallCommand: vi.fn(),
   installWhisper: vi.fn(),
   downloadFile: vi.fn(),
   runInteractive: vi.fn(),
   run: vi.fn(),
 }));
 
-vi.mock('@laud/providers', () => providers);
+// Only the I/O is faked. The command builders (ffmpegInstallCommands,
+// whisperInstallCommands, formatInstallCommand, whisperTarballUrl) stay real,
+// because the plan text tests below assert on the exact command lines a user
+// would be shown -- a mocked builder would let those pass while the real
+// consent plan said something else entirely.
+vi.mock('@laud/providers', async (importOriginal) => ({
+  ...(await importOriginal<typeof Providers>()),
+  ...providers,
+}));
 
 // Mocked so runProvisioning's consent test can control the answer and count
 // the calls without a real terminal. Every other test in this file passes
@@ -255,19 +365,27 @@ describe('executePlan', () => {
     await rm(dataDir, { recursive: true, force: true });
   });
 
-  function deps(interactive: boolean): {
+  function deps(
+    interactive: boolean,
+    overrides: {
+      platform?: NodeJS.Platform;
+      manager?: PackageManager | null;
+    } = {},
+  ): {
     platform: NodeJS.Platform;
     arch: string;
     dataDir: string;
+    manager: PackageManager | null;
     interactive: boolean;
     onStep: (message: string) => void;
     steps: string[];
   } {
     const steps: string[] = [];
     return {
-      platform: 'linux',
+      platform: overrides.platform ?? 'linux',
       arch: 'x64',
       dataDir,
+      manager: overrides.manager ?? null,
       interactive,
       onStep: (message: string) => steps.push(message),
       steps,
@@ -283,36 +401,120 @@ describe('executePlan', () => {
     expect((await stat(target)).isDirectory()).toBe(true);
   });
 
+  it('reports the directory as failed, not created, when it exists but is unwritable', async () => {
+    // createContext already mkdirs the media root before any command runs,
+    // so the only way checkMediaRoot fails is on writability -- where mkdir
+    // no-ops and the old code still reported "created <path>".
+    if (process.getuid?.() === 0) return; // root ignores the mode bits
+    const target = join(dataDir, 'readonly');
+    await mkdir(target);
+    await chmod(target, 0o500);
+    try {
+      const result = await executePlan([{ kind: 'create-directory', path: target }], deps(true));
+      expect(result.outcomes[0]!.ok).toBe(false);
+      expect(result.outcomes[0]!.detail).toMatch(/cannot write to it/);
+      expect(result.outcomes[0]!.detail).toContain(target);
+    } finally {
+      await chmod(target, 0o700);
+    }
+  });
+
+  it('does not claim to have created a directory that was already there', async () => {
+    const target = join(dataDir, 'already');
+    await mkdir(target);
+    const result = await executePlan([{ kind: 'create-directory', path: target }], deps(true));
+    expect(result.outcomes[0]!.ok).toBe(true);
+    expect(result.outcomes[0]!.detail).not.toMatch(/created/);
+  });
+
   it('reports install-ffmpeg as failed, without running anything, when no package manager is found', async () => {
-    providers.detectPackageManager.mockResolvedValue(null);
-    const result = await executePlan([{ kind: 'install-ffmpeg' }], deps(true));
+    const result = await executePlan([{ kind: 'install-ffmpeg' }], deps(true, { manager: null }));
     expect(result.outcomes[0]!.ok).toBe(false);
     expect(result.outcomes[0]!.detail).toMatch(/no supported package manager/);
     expect(providers.runInteractive).not.toHaveBeenCalled();
   });
 
   it('skips a sudo-needing ffmpeg install non-interactively instead of running it', async () => {
-    providers.detectPackageManager.mockResolvedValue('apt-get');
-    providers.ffmpegInstallCommand.mockReturnValue({
-      command: 'sudo',
-      args: ['apt-get', 'install', '-y', 'ffmpeg'],
-      needsSudo: true,
-    });
-    const result = await executePlan([{ kind: 'install-ffmpeg' }], deps(false));
+    const result = await executePlan(
+      [{ kind: 'install-ffmpeg' }],
+      deps(false, { manager: 'apt-get' }),
+    );
     expect(result.outcomes[0]!.ok).toBe(false);
     expect(result.outcomes[0]!.detail).toMatch(/sudo apt-get install -y ffmpeg/);
     expect(providers.runInteractive).not.toHaveBeenCalled();
   });
 
-  it('runs a non-sudo ffmpeg install and reports success', async () => {
-    providers.detectPackageManager.mockResolvedValue('brew');
-    providers.ffmpegInstallCommand.mockReturnValue({
-      command: 'brew',
-      args: ['install', 'ffmpeg'],
-      needsSudo: false,
+  it('skips even a sudo-free brew install non-interactively, because brew can prompt too', async () => {
+    // The guard used to key off needsSudo, which is false for brew -- so a
+    // macOS CI job hit `brew install ffmpeg`, brew asked about the Xcode
+    // command line tools, and runInteractive (no timeout, by design) waited
+    // until the job itself timed out.
+    const result = await executePlan(
+      [{ kind: 'install-ffmpeg' }],
+      deps(false, { platform: 'darwin', manager: 'brew' }),
+    );
+    expect(result.outcomes[0]!.ok).toBe(false);
+    expect(result.outcomes[0]!.detail).toMatch(/brew install ffmpeg/);
+    expect(providers.runInteractive).not.toHaveBeenCalled();
+  });
+
+  it('refuses the macOS whisper install non-interactively as well', async () => {
+    providers.installWhisper.mockResolvedValue({
+      kind: 'skipped',
+      commands: ['brew install whisper-cpp'],
     });
+    const result = await executePlan(
+      [{ kind: 'install-whisper' }],
+      deps(false, { platform: 'darwin', manager: 'brew' }),
+    );
+    expect(result.outcomes[0]!.ok).toBe(false);
+    expect(result.outcomes[0]!.detail).toMatch(/brew install whisper-cpp/);
+    expect(providers.installWhisper).toHaveBeenCalledWith(
+      expect.objectContaining({ interactive: false }),
+    );
+  });
+
+  it('refreshes the apt package lists before installing ffmpeg', async () => {
+    // Without it, a container-fresh /var/lib/apt/lists makes apt-get install
+    // exit 100 with nothing the user can act on.
     providers.runInteractive.mockResolvedValue(0);
-    const result = await executePlan([{ kind: 'install-ffmpeg' }], deps(false));
+    const d = deps(true, { manager: 'apt-get' });
+    const result = await executePlan([{ kind: 'install-ffmpeg' }], d);
+    expect(providers.runInteractive.mock.calls.map((call) => call[1])).toEqual([
+      ['apt-get', 'update'],
+      ['apt-get', 'install', '-y', 'ffmpeg'],
+    ]);
+    expect(result.outcomes[0]!.ok).toBe(true);
+  });
+
+  it('does not let a failing apt-get update block the install that follows', async () => {
+    providers.runInteractive.mockResolvedValueOnce(100).mockResolvedValueOnce(0);
+    const result = await executePlan(
+      [{ kind: 'install-ffmpeg' }],
+      deps(true, { manager: 'apt-get' }),
+    );
+    expect(providers.runInteractive).toHaveBeenCalledTimes(2);
+    expect(result.outcomes[0]!.ok).toBe(true);
+  });
+
+  it('names the command that failed, not just its exit code', async () => {
+    providers.runInteractive.mockResolvedValueOnce(0).mockResolvedValueOnce(100);
+    const result = await executePlan(
+      [{ kind: 'install-ffmpeg' }],
+      deps(true, { manager: 'apt-get' }),
+    );
+    expect(result.outcomes[0]!.ok).toBe(false);
+    expect(result.outcomes[0]!.detail).toBe(
+      '"sudo apt-get install -y ffmpeg" exited with code 100',
+    );
+  });
+
+  it('runs a non-sudo ffmpeg install and reports success', async () => {
+    providers.runInteractive.mockResolvedValue(0);
+    const result = await executePlan(
+      [{ kind: 'install-ffmpeg' }],
+      deps(true, { platform: 'darwin', manager: 'brew' }),
+    );
     expect(result.outcomes[0]).toEqual({
       action: { kind: 'install-ffmpeg' },
       ok: true,
@@ -322,8 +524,11 @@ describe('executePlan', () => {
 
   it('collects the whisper binary paths into config updates when installWhisper returns them', async () => {
     providers.installWhisper.mockResolvedValue({
-      binary: '/data/whisper/whisper-cli',
-      vadBinary: '/data/whisper/whisper-vad-speech-segments',
+      kind: 'installed',
+      paths: {
+        binary: '/data/whisper/whisper-cli',
+        vadBinary: '/data/whisper/whisper-vad-speech-segments',
+      },
     });
     const result = await executePlan([{ kind: 'install-whisper' }], deps(true));
     expect(result.outcomes[0]!.ok).toBe(true);
@@ -333,8 +538,8 @@ describe('executePlan', () => {
     });
   });
 
-  it('leaves config updates empty when installWhisper returns null (already on PATH)', async () => {
-    providers.installWhisper.mockResolvedValue(null);
+  it('leaves config updates empty when whisper landed on PATH', async () => {
+    providers.installWhisper.mockResolvedValue({ kind: 'installed', paths: null });
     const result = await executePlan([{ kind: 'install-whisper' }], deps(true));
     expect(result.outcomes[0]).toEqual({
       action: { kind: 'install-whisper' },
@@ -362,7 +567,7 @@ describe('executePlan', () => {
   });
 
   it('does not let one failing action abandon the rest of the plan', async () => {
-    providers.detectPackageManager.mockResolvedValue(null); // install-ffmpeg fails
+    // manager: null makes install-ffmpeg fail without spawning anything.
     providers.downloadFile.mockResolvedValue(undefined); // download-model succeeds
     const model = findModel('small')!;
     const result = await executePlan(
@@ -411,6 +616,11 @@ describe('runProvisioning', () => {
     },
   };
 
+  /** A failing check carrying `remedy`, shaped the way runChecks would emit it. */
+  function failing(name: string, remedy: Remedy): Check {
+    return { name, ok: false, detail: 'missing', fix: `fix ${name} by hand`, remedy };
+  }
+
   function provisioningContext(config: LaudConfig): CliContext & { lines: string[] } {
     // Reuses testContext.ts's fakes for everything runChecks/runProvisioning
     // do not care about here (store, fs, audio, clock, ids), but points
@@ -449,12 +659,12 @@ describe('runProvisioning', () => {
       await writeFile(target, 'dummy-model-bytes');
     });
     const ctx = provisioningContext(badConfig);
-    const remedies: readonly Remedy[] = [
-      { kind: 'download-model', slot: 'transcription' },
-      { kind: 'download-model', slot: 'vad' },
+    const checks: readonly Check[] = [
+      failing('whisper model', { kind: 'download-model', slot: 'transcription' }),
+      failing('vad model', { kind: 'download-model', slot: 'vad' }),
     ];
 
-    await expect(runProvisioning(ctx, { yes: true }, remedies, 'linux')).resolves.toBeUndefined();
+    await expect(runProvisioning(ctx, { yes: true }, checks, 'linux')).resolves.toBeUndefined();
 
     const written = await readFile(paths.configFile, 'utf8');
     expect(written).toMatch(/model:/);
@@ -467,12 +677,12 @@ describe('runProvisioning', () => {
       await writeFile(target, 'dummy-model-bytes');
     });
     const ctx = provisioningContext(badConfig);
-    const remedies: readonly Remedy[] = [
-      { kind: 'download-model', slot: 'transcription' },
-      { kind: 'download-model', slot: 'vad' },
+    const checks: readonly Check[] = [
+      failing('whisper model', { kind: 'download-model', slot: 'transcription' }),
+      failing('vad model', { kind: 'download-model', slot: 'vad' }),
     ];
 
-    await expect(runProvisioning(ctx, { yes: true }, remedies, 'linux')).rejects.toThrow(
+    await expect(runProvisioning(ctx, { yes: true }, checks, 'linux')).rejects.toThrow(
       EnvironmentError,
     );
 
@@ -484,18 +694,106 @@ describe('runProvisioning', () => {
   });
 
   it('prompts nothing, writes nothing, and returns cleanly on an already-healthy machine', async () => {
-    // Healthy means the caller (registerSetup, filtering doctor's checks)
-    // found nothing to fix, i.e. passed no remedies -- so context()'s
-    // already-configured default config is used as-is here.
+    // Healthy means every check passed -- so context()'s already-configured
+    // default config is used as-is here.
     const ctx = provisioningContext(context().config);
+    const checks: readonly Check[] = [{ name: 'database', ok: true, detail: 'fine' }];
 
-    await expect(runProvisioning(ctx, {}, [], 'linux')).resolves.toBeUndefined();
+    await expect(runProvisioning(ctx, {}, checks, 'linux')).resolves.toBeUndefined();
 
     expect(clack.confirm).not.toHaveBeenCalled();
     expect(providers.downloadFile).not.toHaveBeenCalled();
     expect(providers.installWhisper).not.toHaveBeenCalled();
     await expect(stat(paths.configFile)).rejects.toThrow();
     expect(ctx.lines.at(-1)).toBe('Everything laud needs is already in place.');
+  });
+
+  it('refuses, rather than reporting success, when every failing check is un-fixable', async () => {
+    // The corrupt-database check deliberately carries no remedy: its repair
+    // is "back up, then delete", which is destructive and belongs to a
+    // human. That used to reach the same "Everything laud needs is already
+    // in place" as a genuinely healthy machine, so `doctor --fix` exited 0
+    // on a library `doctor` had just exited 3 over.
+    const ctx = provisioningContext(context().config);
+    const checks: readonly Check[] = [
+      { name: 'ffmpeg', ok: true, detail: 'ffmpeg version 7' },
+      {
+        name: 'database',
+        ok: false,
+        detail: 'integrity_check: malformed',
+        fix: 'Back up /d/laud.db, then delete it.',
+      },
+    ];
+
+    await expect(runProvisioning(ctx, { yes: true }, checks, 'linux')).rejects.toThrow(
+      EnvironmentError,
+    );
+
+    const output = ctx.lines.join('\n');
+    expect(output).toContain('database');
+    expect(output).toContain('Back up /d/laud.db, then delete it.');
+    expect(output).not.toContain('Everything laud needs is already in place.');
+    expect(providers.downloadFile).not.toHaveBeenCalled();
+    expect(clack.confirm).not.toHaveBeenCalled();
+  });
+
+  it('still says everything is in place when nothing failed at all', async () => {
+    const ctx = provisioningContext(context().config);
+    const checks: readonly Check[] = [
+      { name: 'ffmpeg', ok: true, detail: 'ffmpeg version 7' },
+      { name: 'database', ok: true, detail: 'integrity_check: ok' },
+    ];
+
+    await expect(runProvisioning(ctx, { yes: true }, checks, 'linux')).resolves.toBeUndefined();
+    expect(ctx.lines.at(-1)).toBe('Everything laud needs is already in place.');
+  });
+
+  it('prints the exact sudo command line before it asks for consent', async () => {
+    // Design section 5.5: sudo is never invoked silently, and the exact
+    // command appears in the plan. Asserted against what had been written at
+    // the moment consent was requested, not afterwards, because "the plan
+    // named it eventually" is not consent.
+    const isTtyDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const originalCi = process.env['CI'];
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    delete process.env['CI'];
+    try {
+      providers.detectPackageManager.mockResolvedValue('apt-get');
+      const ctx = provisioningContext(context().config);
+      let shownAtConsent: readonly string[] = [];
+      clack.confirm.mockImplementation(async () => {
+        shownAtConsent = [...ctx.lines];
+        return false; // decline: nothing must run
+      });
+
+      await runProvisioning(ctx, {}, [failing('ffmpeg', { kind: 'install-ffmpeg' })], 'linux');
+
+      expect(shownAtConsent).toContain('Install ffmpeg');
+      expect(shownAtConsent).toContain('  Runs: sudo apt-get update');
+      expect(shownAtConsent).toContain('  Runs: sudo apt-get install -y ffmpeg');
+      expect(providers.runInteractive).not.toHaveBeenCalled();
+      expect(ctx.lines.at(-1)).toBe('Nothing was changed.');
+    } finally {
+      if (isTtyDescriptor === undefined) delete (process.stdin as { isTTY?: boolean }).isTTY;
+      else Object.defineProperty(process.stdin, 'isTTY', isTtyDescriptor);
+      if (originalCi === undefined) delete process.env['CI'];
+      else process.env['CI'] = originalCi;
+    }
+  });
+
+  it('does not probe for a package manager when the plan needs none', async () => {
+    providers.downloadFile.mockImplementation(async (_url: string, target: string) => {
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, 'dummy-model-bytes');
+    });
+    const ctx = provisioningContext(badConfig);
+    const checks: readonly Check[] = [
+      failing('whisper model', { kind: 'download-model', slot: 'transcription' }),
+      failing('vad model', { kind: 'download-model', slot: 'vad' }),
+    ];
+
+    await runProvisioning(ctx, { yes: true }, checks, 'linux');
+    expect(providers.detectPackageManager).not.toHaveBeenCalled();
   });
 
   it('asks for consent exactly once, before any action runs, and only proceeds once it is given', async () => {
@@ -519,13 +817,15 @@ describe('runProvisioning', () => {
         await writeFile(target, 'dummy-model-bytes');
       });
       const ctx = provisioningContext(badConfig);
-      const remedies: readonly Remedy[] = [{ kind: 'download-model', slot: 'transcription' }];
+      const checks: readonly Check[] = [
+        failing('whisper model', { kind: 'download-model', slot: 'transcription' }),
+      ];
 
       // The final re-check still fails here (the vad model is untouched by
       // this remedy list), which is not what this test is about: it only
       // cares about the consent/action ordering and call count, so a
       // trailing EnvironmentError from that re-check is expected and ignored.
-      await runProvisioning(ctx, {}, remedies, 'linux').catch(() => {});
+      await runProvisioning(ctx, {}, checks, 'linux').catch(() => {});
 
       expect(clack.confirm).toHaveBeenCalledTimes(1);
       expect(order).toEqual(['consent', 'action']);
@@ -535,5 +835,37 @@ describe('runProvisioning', () => {
       if (originalCi === undefined) delete process.env['CI'];
       else process.env['CI'] = originalCi;
     }
+  });
+});
+
+describe('laud setup on Windows', () => {
+  beforeEach(() => {
+    // The mocks are shared across this file; this block asserts on what was
+    // NOT called, so it has to start from a clean count.
+    for (const fn of Object.values(providers)) fn.mockReset();
+    for (const fn of Object.values(clack)) fn.mockReset();
+  });
+
+  it('prints the manual steps and exits non-zero without planning or downloading anything', async () => {
+    // Section 3 of the design: setup detects Windows and prints manual
+    // instructions. It used to build a plan, take consent, download both
+    // models, fail both installs, and only then exit 3.
+    const ctx = context();
+    const program = new Command();
+    program.exitOverride();
+    registerSetup(program, ctx, 'win32');
+
+    const error: unknown = await program
+      .parseAsync(['node', 'laud', 'setup', '--yes'])
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(EnvironmentError);
+    const output = ctx.lines.join('\n');
+    expect(output).toContain('does not provision Windows');
+    expect(output).toContain('README.md');
+    expect(providers.downloadFile).not.toHaveBeenCalled();
+    expect(providers.installWhisper).not.toHaveBeenCalled();
+    expect(providers.detectPackageManager).not.toHaveBeenCalled();
+    expect(clack.confirm).not.toHaveBeenCalled();
   });
 });
