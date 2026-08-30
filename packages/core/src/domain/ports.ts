@@ -104,6 +104,19 @@ export interface RecordingStore {
   /** Looks up a transcript by its own id, regardless of which recording it belongs to. */
   getTranscript(id: string): Promise<Transcript | null>;
   listSegments(transcriptId: string): Promise<Segment[]>;
+  /**
+   * The languages each of these transcripts is spoken in, most-spoken first.
+   *
+   * Batched deliberately. `ls` renders a language per row, and asking for the
+   * segments of every listed recording would load every word of the library
+   * to draw one column. Implementations answer this from an aggregate, not by
+   * fetching segments.
+   *
+   * Transcripts with no per-segment language recorded are absent from the
+   * result rather than mapping to an empty array, so a caller can tell "no
+   * languages recorded" from "this transcript was not asked about".
+   */
+  languagesByTranscript(transcriptIds: readonly string[]): Promise<Map<string, readonly string[]>>;
 }
 
 /**

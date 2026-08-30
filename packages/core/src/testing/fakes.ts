@@ -12,6 +12,7 @@ import type {
 } from '../domain/ports.js';
 import type { RawSegment, Recording, Segment, Transcript } from '../domain/model.js';
 import { SCHEMA_VERSION } from '../db/schema.js';
+import { summarizeLanguages } from '../transcribe/languages.js';
 
 export class FakeClock implements Clock {
   private ms = Date.parse('2026-01-01T00:00:00.000Z');
@@ -222,6 +223,21 @@ export class InMemoryStore implements ManagedRecordingStore {
     // Mirrors SqliteStore's `ORDER BY idx`: insertTranscript already sorts
     // by idx before storing, this just keeps the contract explicit here too.
     return [...(this.segments.get(transcriptId) ?? [])].sort((a, b) => a.idx - b.idx);
+  }
+  async languagesByTranscript(
+    transcriptIds: readonly string[],
+  ): Promise<Map<string, readonly string[]>> {
+    // Built from the same summarizeLanguages the real store's SQL aggregate
+    // is written to match, so a test passing against this fake is evidence
+    // about the contract rather than about the fake.
+    const result = new Map<string, readonly string[]>();
+    for (const id of transcriptIds) {
+      const segments = this.segments.get(id);
+      if (segments === undefined) continue;
+      const languages = summarizeLanguages(segments);
+      if (languages.length > 0) result.set(id, languages);
+    }
+    return result;
   }
   async getTranscript(id: string): Promise<Transcript | null> {
     return this.transcripts.get(id) ?? null;

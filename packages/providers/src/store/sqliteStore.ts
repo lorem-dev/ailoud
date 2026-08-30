@@ -6,7 +6,7 @@ import type {
   Segment,
   Transcript,
 } from '@laud/core';
-import { pendingMigrations } from '@laud/core';
+import { orderLanguages, pendingMigrations } from '@laud/core';
 
 interface RecordingRow {
   id: string;
@@ -28,6 +28,13 @@ interface TranscriptRow {
   language: string;
   text: string;
   created_at: string;
+}
+
+interface LanguageTotalRow {
+  transcript_id: string;
+  language: string;
+  spoken_ms: number;
+  first_idx: number;
 }
 
 interface SegmentRow {
@@ -231,6 +238,51 @@ export class SqliteStore implements ManagedRecordingStore {
       .prepare('SELECT * FROM segment WHERE transcript_id = ? ORDER BY idx')
       .all(transcriptId) as unknown as SegmentRow[];
     return rows.map(toSegment);
+  }
+
+  async languagesByTranscript(
+    transcriptIds: readonly string[],
+  ): Promise<Map<string, readonly string[]>> {
+    // `IN ()` is a syntax error, and there is nothing to ask about anyway.
+    if (transcriptIds.length === 0) return new Map();
+
+    // One aggregate for the whole list, not one query per transcript: this
+    // exists so that `ls` can show a language per row without loading the
+    // segments of every recording in the library.
+    //
+    // max(x, 0) clamps a segment whose end precedes its start, matching what
+    // summarizeLanguages does in memory -- a negative span must not subtract
+    // from a language's total and reorder the result. Rows with no language
+    // are excluded here rather than filtered later, so a transcript with no
+    // languages recorded produces no rows and stays absent from the map.
+    const placeholders = transcriptIds.map(() => '?').join(',');
+    const rows = this.db
+      .prepare(
+        `SELECT transcript_id, language,
+                SUM(max(end_ms - start_ms, 0)) AS spoken_ms,
+                MIN(idx) AS first_idx
+         FROM segment
+         WHERE transcript_id IN (${placeholders})
+           AND language IS NOT NULL AND language <> ''
+         GROUP BY transcript_id, language`,
+      )
+      .all(...transcriptIds) as unknown as LanguageTotalRow[];
+
+    const totalsByTranscript = new Map<
+      string,
+      { language: string; spokenMs: number; firstIdx: number }[]
+    >();
+    for (const row of rows) {
+      const totals = totalsByTranscript.get(row.transcript_id) ?? [];
+      totals.push({ language: row.language, spokenMs: row.spoken_ms, firstIdx: row.first_idx });
+      totalsByTranscript.set(row.transcript_id, totals);
+    }
+
+    // The ordering rule itself lives in core (orderLanguages), shared with
+    // summarizeLanguages, so SQL and TypeScript cannot drift apart on it.
+    return new Map(
+      [...totalsByTranscript.entries()].map(([id, totals]) => [id, orderLanguages(totals)]),
+    );
   }
 }
 

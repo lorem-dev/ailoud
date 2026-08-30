@@ -46,7 +46,7 @@ export class PlainUi implements Ui {
     languages: readonly string[],
   ): void {
     this.write(
-      `${recording.id}  ${languageLabel(transcript, languages)}  ${segmentCount} segment${segmentCount === 1 ? '' : 's'}`,
+      `${recording.id}  ${languageLabel(languages, transcript.language)}  ${segmentCount} segment${segmentCount === 1 ? '' : 's'}`,
     );
   }
 

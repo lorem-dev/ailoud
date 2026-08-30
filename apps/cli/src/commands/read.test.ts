@@ -2,6 +2,59 @@ import { describe, expect, it } from 'vitest';
 import type { Recording, Segment, Transcript } from '@laud/core';
 import { buildProgram } from '../program.js';
 import { context, contextWithTranscript } from './testContext.js';
+import type { CliContext } from '../wiring.js';
+
+/**
+ * A recording whose transcript really is code-switched: two segments, each
+ * carrying its own language. The shared fixture deliberately records no
+ * per-segment language, so these tests build their own.
+ */
+async function seedCodeSwitched(ctx: CliContext): Promise<void> {
+  const recording: Recording = {
+    id: 'ID002',
+    sha256: 'mixedsha',
+    sourcePath: '/in/mixed.wav',
+    mediaPath: 'mi/mixedsha.wav',
+    durationMs: 3431,
+    mime: 'audio/wav',
+    title: null,
+    notes: null,
+    importedAt: '2026-01-01T00:00:00.000Z',
+  };
+  const transcript: Transcript = {
+    id: 'TX002',
+    recordingId: 'ID002',
+    provider: 'whisper-cpp',
+    model: 'small',
+    language: 'en',
+    text: 'I will call you tomorrow morning. Pozvoni mne segodnya vecherom.',
+    createdAt: '2026-01-01T00:01:00.000Z',
+  };
+  const segments: Segment[] = [
+    {
+      id: 'SX1',
+      transcriptId: 'TX002',
+      idx: 0,
+      startMs: 0,
+      endMs: 1680,
+      text: 'I will call you tomorrow morning.',
+      speaker: null,
+      language: 'en',
+    },
+    {
+      id: 'SX2',
+      transcriptId: 'TX002',
+      idx: 1,
+      startMs: 1730,
+      endMs: 3410,
+      text: 'Pozvoni mne segodnya vecherom.',
+      speaker: null,
+      language: 'ru',
+    },
+  ];
+  await ctx.store.insertRecording(recording);
+  await ctx.store.insertTranscript(transcript, segments);
+}
 
 describe('laud ls', () => {
   it('prints one line per recording with its state', async () => {
@@ -15,6 +68,31 @@ describe('laud ls', () => {
     await buildProgram(ctx).parseAsync(['node', 'laud', 'ls', '--json']);
     const rows = JSON.parse(ctx.lines.at(-1)!);
     expect(rows[0]).toMatchObject({ id: 'ID001', language: 'ru', durationMs: 3200 });
+  });
+
+  it('names every language of a code-switched recording, not just the dominant one', async () => {
+    const ctx = await contextWithTranscript({ skipImport: true, clearLines: true });
+    await seedCodeSwitched(ctx);
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'ls']);
+    // The transcript stores 'en' as its single dominant code; the row must
+    // still say both, or it misreports a recording that is half Russian.
+    expect(ctx.lines.at(-1)).toContain('en+ru');
+  });
+
+  it('leaves --json carrying the single stored code, for machine consumers', async () => {
+    const ctx = await contextWithTranscript({ skipImport: true, clearLines: true });
+    await seedCodeSwitched(ctx);
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'ls', '--json']);
+    const rows: { language: string }[] = JSON.parse(ctx.lines.at(-1)!);
+    expect(rows[0]?.language).toBe('en');
+  });
+
+  it('falls back to the stored code when no per-segment language was recorded', async () => {
+    // The ordinary fixture records no per-segment language, which is the
+    // normal case for a plain (non-multilingual) transcription.
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'ls']);
+    expect(ctx.lines.at(-1)).toBe('ID001  00:00:03  ru  Privet.');
   });
 
   it('says the library is empty rather than printing nothing', async () => {

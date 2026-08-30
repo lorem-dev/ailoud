@@ -48,6 +48,104 @@ const segments: Segment[] = [
   },
 ];
 
+/** A segment with only the fields these language tests care about. */
+function seg(partial: Partial<Segment> & { id: string; idx: number }): Segment {
+  return {
+    transcriptId: 'T1',
+    startMs: 0,
+    endMs: 1000,
+    text: 'x',
+    speaker: null,
+    language: null,
+    ...partial,
+  };
+}
+
+describe('SqliteStore.languagesByTranscript', () => {
+  it('returns nothing, and runs no query, for an empty id list', async () => {
+    const store = openStore(':memory:');
+    // `IN ()` is a SQL syntax error, so the empty case must short-circuit.
+    expect(await store.languagesByTranscript([])).toEqual(new Map());
+    store.close();
+  });
+
+  it('lists every language of a code-switched transcript, most-spoken first', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await store.insertTranscript(transcript, [
+      seg({ id: 'S1', idx: 0, startMs: 0, endMs: 500, language: 'en' }),
+      seg({ id: 'S2', idx: 1, startMs: 500, endMs: 4000, language: 'ru' }),
+    ]);
+    expect(await store.languagesByTranscript(['T1'])).toEqual(new Map([['T1', ['ru', 'en']]]));
+    store.close();
+  });
+
+  it('sums a language spread across separated runs', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await store.insertTranscript(transcript, [
+      seg({ id: 'S1', idx: 0, startMs: 0, endMs: 1000, language: 'en' }),
+      seg({ id: 'S2', idx: 1, startMs: 1000, endMs: 2500, language: 'ru' }),
+      seg({ id: 'S3', idx: 2, startMs: 2500, endMs: 3600, language: 'en' }),
+    ]);
+    // en totals 2100 ms across two runs, ru 1500 ms in one.
+    expect(await store.languagesByTranscript(['T1'])).toEqual(new Map([['T1', ['en', 'ru']]]));
+    store.close();
+  });
+
+  it('breaks a duration tie by first appearance, matching summarizeLanguages', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await store.insertTranscript(transcript, [
+      seg({ id: 'S1', idx: 0, startMs: 0, endMs: 1000, language: 'ru' }),
+      seg({ id: 'S2', idx: 1, startMs: 1000, endMs: 2000, language: 'en' }),
+    ]);
+    expect(await store.languagesByTranscript(['T1'])).toEqual(new Map([['T1', ['ru', 'en']]]));
+    store.close();
+  });
+
+  it('clamps a negative span so it cannot reorder the result', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await store.insertTranscript(transcript, [
+      seg({ id: 'S1', idx: 0, startMs: 0, endMs: 3000, language: 'en' }),
+      seg({ id: 'S2', idx: 1, startMs: 3000, endMs: 1000, language: 'en' }),
+      seg({ id: 'S3', idx: 2, startMs: 3000, endMs: 4000, language: 'ru' }),
+    ]);
+    // Without the max(x, 0) clamp the bad span would subtract 2000 ms from en
+    // and drop it below ru.
+    expect(await store.languagesByTranscript(['T1'])).toEqual(new Map([['T1', ['en', 'ru']]]));
+    store.close();
+  });
+
+  it('omits a transcript whose segments record no language', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await store.insertTranscript(transcript, segments); // both segments have language null
+    expect(await store.languagesByTranscript(['T1'])).toEqual(new Map());
+    store.close();
+  });
+
+  it('answers for several transcripts in one call, keeping them apart', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await store.insertRecording({ ...recording, id: 'R2', sha256: 'def', mediaPath: 'de/def.mp3' });
+    await store.insertTranscript(transcript, [
+      seg({ id: 'S1', idx: 0, startMs: 0, endMs: 1000, language: 'en' }),
+    ]);
+    await store.insertTranscript({ ...transcript, id: 'T2', recordingId: 'R2' }, [
+      seg({ id: 'S2', transcriptId: 'T2', idx: 0, startMs: 0, endMs: 1000, language: 'de' }),
+    ]);
+    expect(await store.languagesByTranscript(['T1', 'T2'])).toEqual(
+      new Map([
+        ['T1', ['en']],
+        ['T2', ['de']],
+      ]),
+    );
+    store.close();
+  });
+});
+
 describe('SqliteStore', () => {
   it('migrates a fresh database to the current version', () => {
     const store = openStore(':memory:');

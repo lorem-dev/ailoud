@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import type { CliContext } from '../wiring.js';
 import type { RecordingRow } from '../ui/index.js';
+import { languageLabel } from '../ui/languageLabel.js';
 
 /** Characters of transcript text shown in the human-readable preview column. */
 const PREVIEW_LENGTH = 60;
@@ -40,6 +41,7 @@ export function registerLs(program: Command, context: CliContext): void {
 
         const rows: LsRow[] = [];
         const previews = new Map<string, string>();
+        const transcriptIdByRecording = new Map<string, string>();
         for (const recording of recordings) {
           const transcript = await context.store.latestTranscript(recording.id);
           rows.push({
@@ -53,6 +55,7 @@ export function registerLs(program: Command, context: CliContext): void {
             transcriptId: transcript?.id ?? null,
           });
           if (transcript !== null) {
+            transcriptIdByRecording.set(recording.id, transcript.id);
             // Slice by code point, not UTF-16 code unit: a plain .slice() can
             // land inside a surrogate pair (any astral-plane character, e.g.
             // emoji or some CJK extension characters) and emit a lone
@@ -64,16 +67,32 @@ export function registerLs(program: Command, context: CliContext): void {
         }
 
         if (options.json === true) {
+          // Unchanged on purpose: `language` here is the single code stored on
+          // the transcript, which machine consumers read as one value. The
+          // multi-language rendering below is for the human table only; the
+          // per-segment languages are available from `show --format json`.
           context.write(JSON.stringify(rows));
           return;
         }
 
-        const displayRows: RecordingRow[] = rows.map((row) => ({
-          id: row.id,
-          durationMs: row.durationMs,
-          language: row.language,
-          preview: previews.get(row.id) ?? '',
-        }));
+        // One aggregate query for the whole listing rather than fetching each
+        // recording's segments, which would mean loading every word in the
+        // library to draw one column.
+        const languagesByTranscript = await context.store.languagesByTranscript([
+          ...transcriptIdByRecording.values(),
+        ]);
+
+        const displayRows: RecordingRow[] = rows.map((row) => {
+          const transcriptId = transcriptIdByRecording.get(row.id);
+          const languages =
+            transcriptId === undefined ? [] : (languagesByTranscript.get(transcriptId) ?? []);
+          return {
+            id: row.id,
+            durationMs: row.durationMs,
+            language: languageLabel(languages, row.language),
+            preview: previews.get(row.id) ?? '',
+          };
+        });
         context.ui.recordings(displayRows);
       });
     });
