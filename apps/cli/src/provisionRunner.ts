@@ -1,15 +1,33 @@
 import { join } from 'node:path';
-import { access, constants, mkdir } from 'node:fs/promises';
+import { access, constants, mkdir, rename, rm } from 'node:fs/promises';
+import { FailureError } from '@laud/core';
 import type { Action } from '@laud/core';
 import {
   downloadFile,
   ffmpegInstallCommands,
   formatInstallCommand,
+  installSherpa,
   installWhisper,
+  run,
   runInteractive,
 } from '@laud/providers';
 import type { InstallCommand, PackageManager } from '@laud/providers';
 import type { ConfigUpdates } from './configWrite.js';
+
+/**
+ * True when `path` exists. Gives the archive-extraction branch below the
+ * same idempotency `downloadFile` gives every bare-file download -- it
+ * no-ops when its target already exists -- even though that branch's own
+ * `downloadFile` call targets the archive, not the extracted model.
+ */
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export interface ActionOutcome {
   readonly action: Action;
@@ -167,6 +185,31 @@ export async function executePlan(
           });
           break;
         }
+        case 'install-diarizer': {
+          // Unlike install-ffmpeg and (on macOS) install-whisper above, this
+          // never calls runInteractive: installSherpa only downloads a
+          // tarball and runs `tar` (see sherpaInstall.ts) -- there is no
+          // package-manager route on any platform for sherpa-onnx, so
+          // nothing here can prompt or block on a terminal, and there is
+          // nothing to gate on `deps.interactive`.
+          deps.onStep('Installing the sherpa-onnx diarizer');
+          let lastPercent = -1;
+          const binary = await installSherpa({
+            platform: deps.platform,
+            arch: deps.arch,
+            dataDir: deps.dataDir,
+            onProgress: (received, total) => {
+              if (total === null || total === 0) return;
+              const percent = Math.floor((received / total) * 100);
+              if (percent === lastPercent) return;
+              lastPercent = percent;
+              deps.onProgress?.('sherpa-onnx', percent);
+            },
+          });
+          updates = { ...updates, diarizerBinary: binary };
+          outcomes.push({ action, ok: true, detail: `installed at ${binary}` });
+          break;
+        }
         case 'download-model': {
           const target = join(deps.dataDir, 'models', action.model.file);
           deps.onStep(`Downloading ${action.model.file}`);
@@ -187,6 +230,54 @@ export async function executePlan(
             action.slot === 'vad'
               ? { ...updates, vadModel: target }
               : { ...updates, model: target };
+          outcomes.push({ action, ok: true, detail: target });
+          break;
+        }
+        case 'download-diarization-model': {
+          const target = join(deps.dataDir, 'models', action.model.file);
+          deps.onStep(`Downloading ${action.model.file}`);
+          let lastPercent = -1;
+          const onProgress = (received: number, total: number | null): void => {
+            if (total === null || total === 0) return;
+            const percent = Math.floor((received / total) * 100);
+            if (percent === lastPercent) return;
+            lastPercent = percent;
+            deps.onProgress?.(action.model.file, percent);
+          };
+          if (action.model.archiveMember === undefined) {
+            await downloadFile(action.model.url, target, { onProgress });
+          } else if (!(await pathExists(target))) {
+            // The segmentation model ships inside a .tar.bz2 alongside an
+            // int8 sibling and other files laud has no use for (see
+            // catalogue.ts). Download the archive next to the target,
+            // extract it the same way sherpaInstall.ts and
+            // whisperInstall.ts do (--strip-components=1 drops the
+            // release's own wrapper directory), pull out just the member
+            // wanted, then discard the rest.
+            const archivePath = `${target}.tar.bz2`;
+            const extractDir = `${target}.extracted`;
+            await downloadFile(action.model.url, archivePath, { onProgress });
+            await mkdir(extractDir, { recursive: true });
+            const extracted = await run('tar', [
+              '-xjf',
+              archivePath,
+              '-C',
+              extractDir,
+              '--strip-components=1',
+            ]);
+            if (extracted.code !== 0) {
+              throw new FailureError(
+                `extracting ${archivePath} failed: ${extracted.stderr.trim()}`,
+              );
+            }
+            await rename(join(extractDir, action.model.archiveMember), target);
+            await rm(archivePath, { force: true });
+            await rm(extractDir, { recursive: true, force: true });
+          }
+          updates =
+            action.slot === 'segmentation'
+              ? { ...updates, segmentationModel: target }
+              : { ...updates, embeddingModel: target };
           outcomes.push({ action, ok: true, detail: target });
           break;
         }

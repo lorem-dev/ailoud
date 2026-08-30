@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Action } from '@laud/core';
-import { EnvironmentError, VAD_MODEL, findModel } from '@laud/core';
+import {
+  EMBEDDING_MODEL,
+  EnvironmentError,
+  SEGMENTATION_MODEL,
+  VAD_MODEL,
+  findModel,
+} from '@laud/core';
 import {
   chooseModel,
   collectRemedies,
@@ -190,15 +196,21 @@ describe('describeAction / describePlan', () => {
       { kind: 'create-directory', path: '/data/media' },
       { kind: 'install-ffmpeg' },
       { kind: 'install-whisper' },
+      { kind: 'install-diarizer' },
       { kind: 'download-model', slot: 'transcription', model: smallModel },
       { kind: 'download-model', slot: 'vad', model: VAD_MODEL },
+      { kind: 'download-diarization-model', slot: 'segmentation', model: SEGMENTATION_MODEL },
+      { kind: 'download-diarization-model', slot: 'embedding', model: EMBEDDING_MODEL },
     ];
     expect(actions.map(describeAction)).toEqual([
       'Create directory /data/media',
       'Install ffmpeg',
       'Install whisper.cpp',
+      'Install the sherpa-onnx diarizer',
       `Download the small transcription model (${formatBytes(smallModel.bytes)})`,
       `Download the silero-v5.1.2 vad model (${formatBytes(VAD_MODEL.bytes)})`,
+      `Download the ${SEGMENTATION_MODEL.name} segmentation model (${formatBytes(SEGMENTATION_MODEL.bytes)})`,
+      `Download the ${EMBEDDING_MODEL.name} embedding model (${formatBytes(EMBEDDING_MODEL.bytes)})`,
     ]);
   });
 
@@ -266,6 +278,37 @@ describe('describeAction / describePlan', () => {
     const lines = describePlan([{ kind: 'install-whisper' }], { ...apt, arch: 'ia32' });
     expect(lines.some((line) => line.includes('ia32'))).toBe(true);
   });
+
+  it('names the sherpa-onnx tarball and where it lands, on both supported platforms', () => {
+    const linuxLines = describePlan([{ kind: 'install-diarizer' }], apt);
+    expect(
+      linuxLines.some((line) => line.includes('sherpa-onnx') && line.includes('.tar.bz2')),
+    ).toBe(true);
+    expect(linuxLines.some((line) => line.includes(join('/data', 'sherpa')))).toBe(true);
+
+    const macLines = describePlan([{ kind: 'install-diarizer' }], brew);
+    expect(macLines.some((line) => line.includes('.tar.bz2'))).toBe(true);
+    // No brew route exists for the diarizer -- unlike install-whisper on
+    // macOS above, this must never claim to run brew.
+    expect(macLines.some((line) => line.includes('brew'))).toBe(false);
+  });
+
+  it('reports an unsupported diarizer platform/CPU as a plan line, not by throwing', () => {
+    const lines = describePlan([{ kind: 'install-diarizer' }], { ...apt, arch: 'ia32' });
+    expect(lines.some((line) => line.includes('ia32'))).toBe(true);
+  });
+
+  it('shows no commands under a diarization model download, matching download-model', () => {
+    expect(
+      describePlan(
+        [{ kind: 'download-diarization-model', slot: 'embedding', model: EMBEDDING_MODEL }],
+        apt,
+      ),
+    ).toEqual([
+      `Download the ${EMBEDDING_MODEL.name} embedding model (${formatBytes(EMBEDDING_MODEL.bytes)})`,
+      `Total download: ${formatBytes(EMBEDDING_MODEL.bytes)}`,
+    ]);
+  });
 });
 
 describe('planNeedsPackageManager', () => {
@@ -286,6 +329,11 @@ describe('planNeedsPackageManager', () => {
     expect(
       planNeedsPackageManager([{ kind: 'download-model', slot: 'transcription', model }], 'linux'),
     ).toBe(false);
+  });
+
+  it('is false for install-diarizer on every platform -- sherpa-onnx has no package-manager route', () => {
+    expect(planNeedsPackageManager([{ kind: 'install-diarizer' }], 'linux')).toBe(false);
+    expect(planNeedsPackageManager([{ kind: 'install-diarizer' }], 'darwin')).toBe(false);
   });
 });
 
@@ -324,6 +372,7 @@ describe('collectRemedies / unfixableChecks', () => {
 const providers = vi.hoisted(() => ({
   detectPackageManager: vi.fn(),
   installWhisper: vi.fn(),
+  installSherpa: vi.fn(),
   downloadFile: vi.fn(),
   runInteractive: vi.fn(),
   run: vi.fn(),
@@ -549,6 +598,42 @@ describe('executePlan', () => {
     expect(result.updates).toEqual({});
   });
 
+  it('collects the sherpa-onnx binary path into config updates', async () => {
+    providers.installSherpa.mockResolvedValue(
+      '/data/sherpa/v1.13.6/bin/sherpa-onnx-offline-speaker-diarization',
+    );
+    const result = await executePlan([{ kind: 'install-diarizer' }], deps(true));
+    expect(result.outcomes[0]!.ok).toBe(true);
+    expect(result.updates).toEqual({
+      diarizerBinary: '/data/sherpa/v1.13.6/bin/sherpa-onnx-offline-speaker-diarization',
+    });
+  });
+
+  it('installs the diarizer with no terminal, unlike install-ffmpeg and install-whisper', async () => {
+    // installSherpa never calls runInteractive (see sherpaInstall.ts: only a
+    // download and a non-interactive `tar`), so unlike the two branches
+    // above, there is nothing here for `interactive: false` to block.
+    providers.installSherpa.mockResolvedValue(
+      '/data/sherpa/bin/sherpa-onnx-offline-speaker-diarization',
+    );
+    const result = await executePlan([{ kind: 'install-diarizer' }], deps(false));
+    expect(result.outcomes[0]!.ok).toBe(true);
+    expect(providers.installSherpa).toHaveBeenCalledOnce();
+    expect(providers.runInteractive).not.toHaveBeenCalled();
+  });
+
+  it('catches a thrown error from installSherpa as a failed outcome, not a rejection', async () => {
+    providers.installSherpa.mockRejectedValue(
+      new Error('no prebuilt sherpa-onnx diarizer is published for macOS x64'),
+    );
+    const result = await executePlan([{ kind: 'install-diarizer' }], deps(true));
+    expect(result.outcomes[0]).toEqual({
+      action: { kind: 'install-diarizer' },
+      ok: false,
+      detail: 'no prebuilt sherpa-onnx diarizer is published for macOS x64',
+    });
+  });
+
   it('records the downloaded model path under the right config key per slot', async () => {
     providers.downloadFile.mockResolvedValue(undefined);
     const model = findModel('small')!;
@@ -564,6 +649,78 @@ describe('executePlan', () => {
       model: join(dataDir, 'models', model.file),
       vadModel: join(dataDir, 'models', VAD_MODEL.file),
     });
+  });
+
+  it('records both diarization model paths under their own config keys, not collapsed together', async () => {
+    providers.downloadFile.mockResolvedValue(undefined);
+    const result = await executePlan(
+      [{ kind: 'download-diarization-model', slot: 'embedding', model: EMBEDDING_MODEL }],
+      deps(true),
+    );
+    expect(result.outcomes[0]!.ok).toBe(true);
+    expect(result.updates).toEqual({
+      embeddingModel: join(dataDir, 'models', EMBEDDING_MODEL.file),
+    });
+    // A bare file, like every model above it in this file -- downloadFile is
+    // called with the final target directly, not with some intermediate
+    // archive path.
+    expect(providers.downloadFile).toHaveBeenCalledWith(
+      EMBEDDING_MODEL.url,
+      join(dataDir, 'models', EMBEDDING_MODEL.file),
+      expect.anything(),
+    );
+  });
+
+  it('extracts the segmentation model out of its archive, discarding the rest of the tarball', async () => {
+    // SEGMENTATION_MODEL.url points at a .tar.bz2 (see catalogue.ts); the
+    // executor must download the ARCHIVE, run `tar`, then move just the
+    // wanted member into place -- never call downloadFile with the final
+    // target path directly, which is the bare-file branch's job.
+    providers.downloadFile.mockResolvedValue(undefined);
+    providers.run.mockImplementation(async (_command: string, args: readonly string[]) => {
+      const extractDir = args[3] as string;
+      await mkdir(extractDir, { recursive: true });
+      await writeFile(join(extractDir, 'model.onnx'), 'fake pyannote segmentation model', 'utf8');
+      return { code: 0, stdout: '', stderr: '' };
+    });
+
+    const result = await executePlan(
+      [{ kind: 'download-diarization-model', slot: 'segmentation', model: SEGMENTATION_MODEL }],
+      deps(true),
+    );
+
+    expect(result.outcomes[0]!.ok).toBe(true);
+    const target = join(dataDir, 'models', SEGMENTATION_MODEL.file);
+    expect(result.updates).toEqual({ segmentationModel: target });
+    expect(await readFile(target, 'utf8')).toBe('fake pyannote segmentation model');
+    // downloadFile's target was the archive, not the final model path.
+    expect(providers.downloadFile).toHaveBeenCalledWith(
+      SEGMENTATION_MODEL.url,
+      `${target}.tar.bz2`,
+      expect.anything(),
+    );
+    expect(providers.run).toHaveBeenCalledWith('tar', [
+      '-xjf',
+      `${target}.tar.bz2`,
+      '-C',
+      `${target}.extracted`,
+      '--strip-components=1',
+    ]);
+    // The archive and the scratch extraction directory are both cleaned up
+    // -- laud has no use for model.int8.onnx or anything else in there.
+    await expect(stat(`${target}.tar.bz2`)).rejects.toThrow();
+    await expect(stat(`${target}.extracted`)).rejects.toThrow();
+  });
+
+  it('reports a failed tar extraction as a failed outcome, not a rejection', async () => {
+    providers.downloadFile.mockResolvedValue(undefined);
+    providers.run.mockResolvedValue({ code: 2, stdout: '', stderr: 'bzip2: data error' });
+    const result = await executePlan(
+      [{ kind: 'download-diarization-model', slot: 'segmentation', model: SEGMENTATION_MODEL }],
+      deps(true),
+    );
+    expect(result.outcomes[0]!.ok).toBe(false);
+    expect(result.outcomes[0]!.detail).toMatch(/bzip2: data error/);
   });
 
   it('does not let one failing action abandon the rest of the plan', async () => {
@@ -604,6 +761,16 @@ describe('runProvisioning', () => {
   let tmp: string;
   let paths: LaudPaths;
 
+  // Diarization is pre-configured and healthy here, deliberately: the final
+  // re-check inside runProvisioning runs the REAL runChecks (see the
+  // describe-level comment above), which now includes the diarizer binary
+  // and its two models unconditionally. This suite's `checks` fixtures only
+  // ever carry whisper/vad remedies, so if the diarizer checks were left
+  // failing, the "everything succeeded" tests below would start failing
+  // their own final check for a reason that has nothing to do with what
+  // they exist to test. `process.execPath` stands in for both model paths
+  // the same way it stands in for a binary elsewhere in this file: a real
+  // file guaranteed to exist, whose content nothing here reads.
   const badConfig: LaudConfig = {
     stt: {
       provider: 'whisper-cpp',
@@ -612,6 +779,12 @@ describe('runProvisioning', () => {
         model: null,
         vadBinary: 'whisper-vad-speech-segments',
         vadModel: null,
+      },
+      diarization: {
+        binary: 'sherpa-onnx-offline-speaker-diarization',
+        segmentationModel: process.execPath,
+        embeddingModel: process.execPath,
+        threshold: 0.6,
       },
     },
   };
@@ -628,6 +801,24 @@ describe('runProvisioning', () => {
     // checkMediaRoot all call node:fs directly, so they need real files to
     // see real state changes.
     return { ...context(), paths, config };
+  }
+
+  /**
+   * Writes real diarization paths into the config FILE, not just `badConfig`
+   * (the in-memory object). runProvisioning's final re-check re-reads the
+   * config from disk (readCurrentConfig), not from the context it was
+   * handed, so `badConfig.stt.diarization` alone is invisible to it -- on an
+   * empty file, parseConfig's own schema defaults (null paths) would apply
+   * instead, and the tests below that call this only care about the
+   * whisper/vad stale-config bug, not about provisioning the diarizer too.
+   */
+  async function seedDiarizationConfig(): Promise<void> {
+    await mkdir(dirname(paths.configFile), { recursive: true });
+    await writeFile(
+      paths.configFile,
+      `stt:\n  diarization:\n    segmentationModel: ${process.execPath}\n    embeddingModel: ${process.execPath}\n`,
+      'utf8',
+    );
   }
 
   beforeEach(async () => {
@@ -658,6 +849,7 @@ describe('runProvisioning', () => {
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, 'dummy-model-bytes');
     });
+    await seedDiarizationConfig();
     const ctx = provisioningContext(badConfig);
     const checks: readonly Check[] = [
       failing('whisper model', { kind: 'download-model', slot: 'transcription' }),
@@ -820,6 +1012,7 @@ describe('runProvisioning', () => {
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, 'dummy-model-bytes');
     });
+    await seedDiarizationConfig();
     const ctx = provisioningContext(badConfig);
     const checks: readonly Check[] = [
       failing('whisper model', { kind: 'download-model', slot: 'transcription' }),

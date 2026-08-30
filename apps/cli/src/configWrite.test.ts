@@ -115,6 +115,49 @@ describe('applyConfigUpdates', () => {
     const parsed = parseConfig(out);
     expect(parsed.stt.whisperCpp.binary).toBe('/opt/whisper-cli');
   });
+
+  it('writes diarization keys under stt.diarization, not stt.whisperCpp', () => {
+    // diarizerBinary exists as a distinct ConfigUpdates key precisely so it
+    // does not collide with whisperCpp's own `binary` -- both must be able
+    // to be set independently, in the same update, without one clobbering
+    // the other's section.
+    const out = applyConfigUpdates(null, {
+      binary: '/opt/whisper-cli',
+      diarizerBinary: '/opt/sherpa-onnx-offline-speaker-diarization',
+      segmentationModel: '/data/models/sherpa-pyannote-segmentation-3-0.onnx',
+      embeddingModel: '/data/models/campplus.onnx',
+    });
+    expect(out).toMatch(/stt:\s*\n\s+whisperCpp:\s*\n\s+binary: \/opt\/whisper-cli/);
+    expect(out).toMatch(/diarization:\s*\n(\s+\S+:.*\n)*\s+binary: \/opt\/sherpa/);
+    expect(out).toContain('segmentationModel: /data/models/sherpa-pyannote-segmentation-3-0.onnx');
+    expect(out).toContain('embeddingModel: /data/models/campplus.onnx');
+  });
+
+  it('round-trips diarization keys through the real parser', () => {
+    const out = applyConfigUpdates(null, {
+      diarizerBinary: '/opt/sherpa',
+      segmentationModel: '/seg.onnx',
+      embeddingModel: '/emb.onnx',
+    });
+    const parsed = parseConfig(out);
+    expect(parsed.stt.diarization.binary).toBe('/opt/sherpa');
+    expect(parsed.stt.diarization.segmentationModel).toBe('/seg.onnx');
+    expect(parsed.stt.diarization.embeddingModel).toBe('/emb.onnx');
+  });
+
+  it('names the diarization section when it exists as something other than a mapping', () => {
+    const source = 'stt:\n  diarization: not-a-mapping\n';
+    let thrown: unknown;
+    try {
+      applyConfigUpdates(source, { segmentationModel: '/seg.onnx' });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(UsageError);
+    const message = thrown instanceof Error ? thrown.message : String(thrown);
+    expect(message).toContain('stt.diarization.segmentationModel');
+    expect(message).toContain('stt.diarization');
+  });
 });
 
 describe('writeConfigUpdates', () => {

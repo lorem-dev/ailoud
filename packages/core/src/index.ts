@@ -62,6 +62,8 @@ export type { ModelChoice } from './provision/catalogue.js';
 export {
   TRANSCRIPTION_MODELS,
   VAD_MODEL,
+  SEGMENTATION_MODEL,
+  EMBEDDING_MODEL,
   DEFAULT_MODEL_NAME,
   findModel,
 } from './provision/catalogue.js';

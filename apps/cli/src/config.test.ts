@@ -38,6 +38,12 @@ describe('parseConfig', () => {
           vadBinary: 'whisper-vad-speech-segments',
           vadModel: null,
         },
+        diarization: {
+          binary: 'sherpa-onnx-offline-speaker-diarization',
+          segmentationModel: null,
+          embeddingModel: null,
+          threshold: 0.6,
+        },
       },
     });
   });
@@ -86,6 +92,31 @@ describe('parseConfig', () => {
       model: '/m/base.bin',
       vadBinary: 'whisper-vad-speech-segments',
       vadModel: null,
+    });
+  });
+
+  it('still defaults binary, embeddingModel, and threshold when only stt.diarization.segmentationModel is set', () => {
+    // Regression guard for the .prefault({}) requirement, mirroring the
+    // whisperCpp guard above: a config that mentions only one leaf of
+    // diarization must not lose the other leaves' own defaults.
+    const config = parseConfig('stt:\n  diarization:\n    segmentationModel: /m/seg.onnx\n');
+    expect(config.stt.diarization).toEqual({
+      binary: 'sherpa-onnx-offline-speaker-diarization',
+      segmentationModel: '/m/seg.onnx',
+      embeddingModel: null,
+      threshold: 0.6,
+    });
+  });
+
+  it('reads the diarization binary and threshold', () => {
+    const config = parseConfig(
+      'stt:\n  diarization:\n    binary: /opt/sherpa\n    threshold: 0.8\n',
+    );
+    expect(config.stt.diarization).toEqual({
+      binary: '/opt/sherpa',
+      segmentationModel: null,
+      embeddingModel: null,
+      threshold: 0.8,
     });
   });
 

@@ -8,7 +8,27 @@ export interface ConfigUpdates {
   readonly vadModel?: string;
   readonly binary?: string;
   readonly vadBinary?: string;
+  readonly diarizerBinary?: string;
+  readonly segmentationModel?: string;
+  readonly embeddingModel?: string;
 }
+
+/**
+ * Which config section each `ConfigUpdates` key belongs to, and what it is
+ * called there. Needed because `binary` means something different under
+ * `whisperCpp` (whisper-cli) than under `diarization` (sherpa-onnx) --
+ * `diarizerBinary` disambiguates the two on this side, and this map is what
+ * turns it back into `stt.diarization.binary` on the way out.
+ */
+const SECTION: Record<keyof ConfigUpdates, readonly [section: string, key: string]> = {
+  binary: ['whisperCpp', 'binary'],
+  model: ['whisperCpp', 'model'],
+  vadBinary: ['whisperCpp', 'vadBinary'],
+  vadModel: ['whisperCpp', 'vadModel'],
+  diarizerBinary: ['diarization', 'binary'],
+  segmentationModel: ['diarization', 'segmentationModel'],
+  embeddingModel: ['diarization', 'embeddingModel'],
+};
 
 /**
  * Sets the given keys in a config file's text, leaving everything else as it
@@ -22,9 +42,10 @@ export interface ConfigUpdates {
  *
  * Pure -- string in, string out -- so the merge rules are unit tested without
  * a filesystem. Throws (and writes nothing) if `source` is not valid YAML, or
- * if `stt` or `stt.whisperCpp` already exists as something other than a
- * mapping -- both are the safe direction, since guessing how to reshape a
- * hand-written file could destroy whatever was there.
+ * if `stt` or the target section (`stt.whisperCpp`, `stt.diarization`)
+ * already exists as something other than a mapping -- both are the safe
+ * direction, since guessing how to reshape a hand-written file could destroy
+ * whatever was there.
  */
 export function applyConfigUpdates(source: string | null, updates: ConfigUpdates): string {
   const entries = Object.entries(updates).filter(([, value]) => value !== undefined);
@@ -35,14 +56,15 @@ export function applyConfigUpdates(source: string | null, updates: ConfigUpdates
   // apps/cli/package.json), so no '{}' seed is needed here.
   const doc = parseDocument(source ?? '');
   for (const [key, value] of entries) {
+    const [section, configKey] = SECTION[key as keyof ConfigUpdates];
     try {
-      doc.setIn(['stt', 'whisperCpp', key], value);
+      doc.setIn(['stt', section, configKey], value);
     } catch {
       // yaml's own message here ("Expected YAML collection at stt") assumes
       // familiarity with the document API; name the config key instead so
       // someone editing the file by hand knows what to fix.
       throw new UsageError(
-        `Cannot set "stt.whisperCpp.${key}": "stt" or "stt.whisperCpp" in the existing ` +
+        `Cannot set "stt.${section}.${configKey}": "stt" or "stt.${section}" in the existing ` +
           `config is not a mapping. Fix that section by hand and try again.`,
       );
     }

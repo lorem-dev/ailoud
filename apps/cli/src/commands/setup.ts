@@ -13,10 +13,12 @@ import {
 } from '@laud/core';
 import type { Action, Remedy } from '@laud/core';
 import {
+  SHERPA_VERSION,
   WHISPER_TAG,
   detectPackageManager,
   ffmpegInstallCommands,
   formatInstallCommand,
+  sherpaTarballUrl,
   whisperInstallCommands,
   whisperTarballUrl,
 } from '@laud/providers';
@@ -177,7 +179,11 @@ export function describeAction(action: Action): string {
       return 'Install ffmpeg';
     case 'install-whisper':
       return 'Install whisper.cpp';
+    case 'install-diarizer':
+      return 'Install the sherpa-onnx diarizer';
     case 'download-model':
+      return `Download the ${action.model.name} ${action.slot} model (${formatBytes(action.model.bytes)})`;
+    case 'download-diarization-model':
       return `Download the ${action.model.name} ${action.slot} model (${formatBytes(action.model.bytes)})`;
   }
 }
@@ -235,6 +241,24 @@ function whisperPlanLines(env: PlanEnvironment): readonly string[] {
 }
 
 /**
+ * Mirrors whisperPlanLines, but sherpa-onnx has only the one route on every
+ * platform it supports (see installHint's comment in remedy.ts) -- there is
+ * no macOS/brew branch to mirror.
+ */
+function diarizerPlanLines(env: PlanEnvironment): readonly string[] {
+  try {
+    return [
+      `Downloads ${sherpaTarballUrl(env.platform, env.arch)}`,
+      `Extracts it into ${join(env.dataDir, 'sherpa', SHERPA_VERSION)}`,
+    ];
+  } catch (error) {
+    // An unsupported platform or CPU architecture. Reported as a plan line
+    // rather than rethrown, for the same reason whisperPlanLines does.
+    return [error instanceof Error ? error.message : String(error)];
+  }
+}
+
+/**
  * The exact commands an action will run, indented under its summary line.
  * Empty for actions that spawn nothing.
  */
@@ -245,8 +269,11 @@ export function describeCommands(action: Action, env: PlanEnvironment): readonly
       return ffmpegInstallCommands(env.manager).map((c) => `Runs: ${formatInstallCommand(c)}`);
     case 'install-whisper':
       return whisperPlanLines(env);
+    case 'install-diarizer':
+      return diarizerPlanLines(env);
     case 'create-directory':
     case 'download-model':
+    case 'download-diarization-model':
       return [];
   }
 }

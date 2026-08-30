@@ -116,6 +116,12 @@ describe('buildProgram', () => {
             vadBinary: 'whisper-vad-speech-segments',
             vadModel: null,
           },
+          diarization: {
+            binary: 'sherpa-onnx-offline-speaker-diarization',
+            segmentationModel: null,
+            embeddingModel: null,
+            threshold: 0.6,
+          },
         },
       },
       store,

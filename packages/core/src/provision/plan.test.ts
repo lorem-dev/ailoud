@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Remedy } from './remedy.js';
-import { planProvisioning } from './plan.js';
-import { DEFAULT_MODEL_NAME, VAD_MODEL } from './catalogue.js';
+import { planDownloadBytes, planProvisioning } from './plan.js';
+import { DEFAULT_MODEL_NAME, EMBEDDING_MODEL, SEGMENTATION_MODEL, VAD_MODEL } from './catalogue.js';
 
 const opts = { modelName: DEFAULT_MODEL_NAME };
 
@@ -67,5 +67,87 @@ describe('planProvisioning', () => {
 
   it('returns an empty plan for no remedies', () => {
     expect(planProvisioning([], opts)).toEqual([]);
+  });
+
+  it('orders the diarizer binary beside install-whisper, and its models beside download-model', () => {
+    const remedies: Remedy[] = [
+      { kind: 'download-diarization-model', slot: 'embedding' },
+      { kind: 'install-diarizer' },
+      { kind: 'download-model', slot: 'transcription' },
+      { kind: 'create-directory', path: '/data/media' },
+      { kind: 'install-ffmpeg' },
+    ];
+    expect(planProvisioning(remedies, opts).map((a) => a.kind)).toEqual([
+      'create-directory',
+      'install-ffmpeg',
+      'install-diarizer',
+      'download-model',
+      'download-diarization-model',
+    ]);
+  });
+
+  it('resolves each diarization slot to its own catalogue model', () => {
+    const [segmentation, embedding] = planProvisioning(
+      [
+        { kind: 'download-diarization-model', slot: 'segmentation' },
+        { kind: 'download-diarization-model', slot: 'embedding' },
+      ],
+      opts,
+    );
+    expect(segmentation).toEqual({
+      kind: 'download-diarization-model',
+      slot: 'segmentation',
+      model: SEGMENTATION_MODEL,
+    });
+    expect(embedding).toEqual({
+      kind: 'download-diarization-model',
+      slot: 'embedding',
+      model: EMBEDDING_MODEL,
+    });
+  });
+
+  it('does not collapse the segmentation and embedding remedies together, unlike two identical ones', () => {
+    // The slot must be part of the dedup key -- otherwise two genuinely
+    // different downloads would collapse into a single deduplicated action
+    // the way two identical install-ffmpeg remedies are supposed to.
+    const remedies: Remedy[] = [
+      { kind: 'download-diarization-model', slot: 'segmentation' },
+      { kind: 'download-diarization-model', slot: 'embedding' },
+      { kind: 'download-diarization-model', slot: 'segmentation' },
+    ];
+    const actions = planProvisioning(remedies, opts);
+    expect(actions).toHaveLength(2);
+    expect(actions.map((a) => (a.kind === 'download-diarization-model' ? a.slot : ''))).toEqual([
+      'segmentation',
+      'embedding',
+    ]);
+  });
+
+  it('collapses duplicate install-diarizer remedies into one install, like install-ffmpeg', () => {
+    const remedies: Remedy[] = [{ kind: 'install-diarizer' }, { kind: 'install-diarizer' }];
+    expect(planProvisioning(remedies, opts)).toEqual([{ kind: 'install-diarizer' }]);
+  });
+});
+
+describe('planDownloadBytes', () => {
+  it('counts diarization model downloads alongside transcription/VAD ones', () => {
+    const actions = planProvisioning(
+      [
+        { kind: 'download-model', slot: 'transcription' },
+        { kind: 'download-diarization-model', slot: 'segmentation' },
+        { kind: 'download-diarization-model', slot: 'embedding' },
+      ],
+      opts,
+    );
+    const model = planProvisioning([{ kind: 'download-model', slot: 'transcription' }], opts)[0];
+    const modelBytes =
+      model !== undefined && model.kind === 'download-model' ? model.model.bytes : 0;
+    expect(planDownloadBytes(actions)).toBe(
+      modelBytes + SEGMENTATION_MODEL.bytes + EMBEDDING_MODEL.bytes,
+    );
+  });
+
+  it('ignores non-download actions', () => {
+    expect(planDownloadBytes([{ kind: 'install-diarizer' }, { kind: 'install-ffmpeg' }])).toBe(0);
   });
 });

@@ -21,6 +21,14 @@ const ConfigSchema = z.object({
           vadModel: z.string().nullable().default(null),
         })
         .prefault({}),
+      diarization: z
+        .object({
+          binary: z.string().default('sherpa-onnx-offline-speaker-diarization'),
+          segmentationModel: z.string().nullable().default(null),
+          embeddingModel: z.string().nullable().default(null),
+          threshold: z.number().default(0.6),
+        })
+        .prefault({}),
     })
     .prefault({}),
 });

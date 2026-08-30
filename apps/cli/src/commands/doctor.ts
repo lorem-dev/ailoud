@@ -139,6 +139,100 @@ export async function checkVadBinary(
   return checkBinary(name, vadBinary, ['--help'], fix, vadBinary, remedy);
 }
 
+/**
+ * Checks the sherpa-onnx diarizer binary. Mirrors checkVadBinary exactly: a
+ * bare command name not found on PATH is a different problem, with a
+ * different fix, from a configured path that plain does not exist on disk,
+ * and checkBinary alone cannot tell those apart (spawn() reports ENOENT for
+ * both).
+ *
+ * The fix text diverges from checkVadBinary's in one place: it does not
+ * claim installing gets the binary "on PATH". installSherpa never puts it
+ * there -- unlike whisper.cpp on macOS (brew), sherpa-onnx has no
+ * package-manager route on any platform, so laud always records an absolute
+ * path into config instead (see provisionRunner.ts's install-diarizer
+ * branch). Saying "on PATH" here would describe an outcome that never
+ * happens.
+ *
+ * NOT VERIFIED AGAINST A REAL BUILD: like the whisper-cli check above, this
+ * assumes sherpa-onnx-offline-speaker-diarization exits 0 on "--help". No
+ * such binary is available in this environment to confirm that.
+ */
+export async function checkDiarizerBinary(
+  configFile: string,
+  diarizerBinary: string,
+  platform: NodeJS.Platform = process.platform,
+  remedy?: Remedy,
+): Promise<Check> {
+  const name = 'diarizer binary';
+  const fix =
+    `Set "stt.diarization.binary" in ${configFile} to the path of the ` +
+    `sherpa-onnx-offline-speaker-diarization binary, or run "laud setup" ` +
+    `(${installHint('diarizer', platform)}) to install it.`;
+  if (diarizerBinary.includes('/')) {
+    try {
+      await access(diarizerBinary, constants.F_OK);
+    } catch {
+      return {
+        name,
+        ok: false,
+        detail: `configured path does not exist: ${diarizerBinary}`,
+        fix,
+        remedy,
+      };
+    }
+  }
+  return checkBinary(name, diarizerBinary, ['--help'], fix, diarizerBinary, remedy);
+}
+
+/**
+ * Mirrors checkVadModel, but for the pyannote segmentation model diarization
+ * needs. Kept separate rather than folded into one parameterized function,
+ * for the same reason checkModel and checkVadModel are kept separate: the
+ * config key and fix text differ per model, and blurring them together
+ * blurs the message a user actually needs to act on.
+ */
+export async function checkSegmentationModel(
+  configFile: string,
+  segmentationModelPath: string | null,
+  remedy?: Remedy,
+): Promise<Check> {
+  const name = 'diarization segmentation model';
+  const fix =
+    `Set "stt.diarization.segmentationModel" in ${configFile} to the path of the sherpa-onnx ` +
+    'pyannote segmentation model file (model.onnx from the sherpa-onnx-pyannote-segmentation-3-0 release).';
+  if (segmentationModelPath === null) {
+    return { name, ok: false, detail: 'not configured', fix, remedy };
+  }
+  try {
+    await access(segmentationModelPath, constants.F_OK);
+    return { name, ok: true, detail: segmentationModelPath };
+  } catch {
+    return { name, ok: false, detail: `missing: ${segmentationModelPath}`, fix, remedy };
+  }
+}
+
+/** Mirrors checkSegmentationModel, for the speaker-embedding model. */
+export async function checkEmbeddingModel(
+  configFile: string,
+  embeddingModelPath: string | null,
+  remedy?: Remedy,
+): Promise<Check> {
+  const name = 'diarization embedding model';
+  const fix =
+    `Set "stt.diarization.embeddingModel" in ${configFile} to the path of the sherpa-onnx ` +
+    'speaker embedding model file (3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx).';
+  if (embeddingModelPath === null) {
+    return { name, ok: false, detail: 'not configured', fix, remedy };
+  }
+  try {
+    await access(embeddingModelPath, constants.F_OK);
+    return { name, ok: true, detail: embeddingModelPath };
+  } catch {
+    return { name, ok: false, detail: `missing: ${embeddingModelPath}`, fix, remedy };
+  }
+}
+
 /** Absent is `ok`: with no config file, defaults apply and that is normal on a first run. */
 async function checkConfigFile(configFile: string): Promise<Check> {
   const name = 'config file';
@@ -245,6 +339,22 @@ export async function runChecks(
     await checkVadModel(paths.configFile, config.stt.whisperCpp.vadModel, {
       kind: 'download-model',
       slot: 'vad',
+    }),
+    // Same binary-before-model shape as the whisper/VAD pair above, and
+    // unconditional for the same reason: `setup` provisions the full
+    // toolkit up front, not just whichever features happen to be used on
+    // this particular run, so `doctor` reports "ready" only once the
+    // diarizer is in place too, even before anyone has passed --diarize.
+    await checkDiarizerBinary(paths.configFile, config.stt.diarization.binary, platform, {
+      kind: 'install-diarizer',
+    }),
+    await checkSegmentationModel(paths.configFile, config.stt.diarization.segmentationModel, {
+      kind: 'download-diarization-model',
+      slot: 'segmentation',
+    }),
+    await checkEmbeddingModel(paths.configFile, config.stt.diarization.embeddingModel, {
+      kind: 'download-diarization-model',
+      slot: 'embedding',
     }),
     await checkConfigFile(paths.configFile),
     checkDatabase(context),

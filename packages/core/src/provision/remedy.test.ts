@@ -17,7 +17,7 @@ describe('installHint', () => {
   it('sends Windows users to the manual steps, never in a circle back to laud setup', () => {
     // `laud setup` refuses to provision Windows, so recommending it here
     // would loop the user: doctor says run setup, setup says it cannot help.
-    for (const target of ['ffmpeg', 'whisper'] as const) {
+    for (const target of ['ffmpeg', 'whisper', 'diarizer'] as const) {
       expect(installHint(target, 'win32')).toBe(WINDOWS_MANUAL_HINT);
       expect(installHint(target, 'win32')).not.toContain('laud setup');
     }
@@ -25,5 +25,14 @@ describe('installHint', () => {
 
   it('still falls back to laud setup for whisper on an unrecognized unix', () => {
     expect(installHint('whisper', 'freebsd')).toBe('laud setup');
+  });
+
+  it('sends the diarizer to "laud setup" on both macOS and Linux -- sherpa-onnx has no brew formula', () => {
+    // Unlike whisper, which uses brew on macOS, sherpa-onnx is fetched by
+    // laud itself on every supported platform (see sherpaInstall.ts), so
+    // macOS must not get the brew hint whisper gets.
+    expect(installHint('diarizer', 'darwin')).toBe('laud setup');
+    expect(installHint('diarizer', 'linux')).toBe('laud setup');
+    expect(installHint('diarizer', 'darwin')).not.toContain('brew');
   });
 });

@@ -5,9 +5,22 @@ export interface ModelChoice {
   readonly url: string;
   readonly bytes: number;
   readonly summary: string;
+  /**
+   * Present when `url` points at a `.tar.bz2` archive rather than a bare
+   * file: the path of the wanted member inside it, once the archive is
+   * extracted with `--strip-components=1` (the same convention
+   * sherpaInstall.ts and whisperInstall.ts use for their release tarballs).
+   * Absent for every entry that downloads straight to `file`.
+   *
+   * A distinguishing field, not an `endsWith('.tar.bz2')` check on `url`, on
+   * purpose: the executor branch that consumes this must not special-case on
+   * a string it happens to recognize today.
+   */
+  readonly archiveMember?: string;
 }
 
 const HF_WHISPER = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
+const SHERPA_RELEASES = 'https://github.com/k2-fsa/sherpa-onnx/releases/download';
 
 /**
  * Sizes were measured against the real endpoints on 2026-08-28. They drive
@@ -64,6 +77,38 @@ export const VAD_MODEL: ModelChoice = {
   url: 'https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin',
   bytes: 885_098,
   summary: 'voice activity detection, needed by --multilingual',
+};
+
+/**
+ * The pyannote speaker-segmentation model diarization needs. Ships inside a
+ * tarball -- every other entry above is a bare file -- alongside an
+ * int8-quantized sibling (`model.int8.onnx`) that is deliberately not used
+ * here; the design spike settled on the full-precision `model.onnx` (5.7 MB).
+ * `file` is the name laud gives it on disk, distinct from `archiveMember`
+ * (the name inside the archive) so it does not collide with some other
+ * model also called `model.onnx` in a shared `models/` directory.
+ */
+export const SEGMENTATION_MODEL: ModelChoice = {
+  name: 'pyannote-segmentation-3.0',
+  file: 'sherpa-pyannote-segmentation-3-0.onnx',
+  url: `${SHERPA_RELEASES}/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2`,
+  bytes: 5_700_000,
+  summary: 'speaker segmentation, needed by --diarize',
+  archiveMember: 'model.onnx',
+};
+
+/**
+ * The speaker-embedding model diarization clusters turns against. A bare
+ * `.onnx` file, not a tarball. The upstream release path really does say
+ * "recongition" (not "recognition") -- that typo is copied verbatim from the
+ * real endpoint, not a mistake introduced here.
+ */
+export const EMBEDDING_MODEL: ModelChoice = {
+  name: 'campplus-sv-zh-en',
+  file: '3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx',
+  url: `${SHERPA_RELEASES}/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx`,
+  bytes: 27_000_000,
+  summary: 'speaker embedding, needed by --diarize',
 };
 
 export const DEFAULT_MODEL_NAME = 'small';

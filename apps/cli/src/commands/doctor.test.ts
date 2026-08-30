@@ -9,7 +9,10 @@ import type { CliContext } from '../wiring.js';
 import { context } from './testContext.js';
 import {
   checkBinary,
+  checkDiarizerBinary,
+  checkEmbeddingModel,
   checkModel,
+  checkSegmentationModel,
   checkVadBinary,
   checkVadModel,
   registerDoctor,
@@ -65,6 +68,73 @@ describe('checkVadBinary', () => {
     const linux = await checkVadBinary('/c', missing, 'linux');
     expect(darwin.fix).not.toBe(linux.fix);
     expect(linux.fix).not.toContain('brew');
+  });
+});
+
+describe('checkSegmentationModel', () => {
+  it('reports "not configured" when the config key is null', async () => {
+    const check = await checkSegmentationModel('/c', null);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toBe('not configured');
+    expect(check.fix).toContain('stt.diarization.segmentationModel');
+  });
+
+  it('reports the missing-file message when the configured path does not exist', async () => {
+    const missing = join(dir, 'no-such-segmentation-model.onnx');
+    const check = await checkSegmentationModel('/c', missing);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toBe(`missing: ${missing}`);
+  });
+
+  it('passes when the configured path exists', async () => {
+    const check = await checkSegmentationModel('/c', process.execPath);
+    expect(check.ok).toBe(true);
+    expect(check.detail).toBe(process.execPath);
+  });
+});
+
+describe('checkEmbeddingModel', () => {
+  it('reports "not configured" when the config key is null', async () => {
+    const check = await checkEmbeddingModel('/c', null);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toBe('not configured');
+    expect(check.fix).toContain('stt.diarization.embeddingModel');
+  });
+
+  it('reports the missing-file message when the configured path does not exist', async () => {
+    const missing = join(dir, 'no-such-embedding-model.onnx');
+    const check = await checkEmbeddingModel('/c', missing);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toBe(`missing: ${missing}`);
+  });
+});
+
+describe('checkDiarizerBinary', () => {
+  it('reports "not found on PATH" for a bare binary name that is not installed', async () => {
+    const check = await checkDiarizerBinary('/c', 'laud-doctor-test-no-such-binary');
+    expect(check.ok).toBe(false);
+    expect(check.detail).toBe('not found on PATH');
+  });
+
+  it('reports the configured path does not exist when it contains a separator', async () => {
+    const missing = join(dir, 'no-such-diarizer-binary');
+    const check = await checkDiarizerBinary('/c', missing);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toBe(`configured path does not exist: ${missing}`);
+  });
+
+  it('passes for a real, executable binary', async () => {
+    const check = await checkDiarizerBinary('/c', process.execPath);
+    expect(check.ok).toBe(true);
+  });
+
+  it('sends every platform to "laud setup", never to brew -- sherpa-onnx has no brew route', async () => {
+    const missing = join(dir, 'no-such-diarizer-binary');
+    const darwin = await checkDiarizerBinary('/c', missing, 'darwin');
+    const linux = await checkDiarizerBinary('/c', missing, 'linux');
+    expect(darwin.fix).not.toContain('brew');
+    expect(darwin.fix).toContain('laud setup');
+    expect(linux.fix).toContain('laud setup');
   });
 });
 
@@ -133,6 +203,31 @@ describe('runChecks', () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it('checks the diarizer binary and both its models, unconditionally, with the right remedies', async () => {
+    // testContext.ts's default context() leaves diarization unconfigured
+    // (schema defaults), so all three checks fail here and each must carry
+    // the remedy that would actually fix it -- the same unconditional shape
+    // as the whisper/VAD pair, since setup provisions the full toolkit
+    // whether or not --diarize has ever been used.
+    vi.stubEnv('PATH', '');
+    try {
+      const checks = await runChecks(context(), 'linux');
+      expect(checks.find((c) => c.name === 'diarizer binary')?.remedy).toEqual({
+        kind: 'install-diarizer',
+      });
+      expect(checks.find((c) => c.name === 'diarization segmentation model')?.remedy).toEqual({
+        kind: 'download-diarization-model',
+        slot: 'segmentation',
+      });
+      expect(checks.find((c) => c.name === 'diarization embedding model')?.remedy).toEqual({
+        kind: 'download-diarization-model',
+        slot: 'embedding',
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 /**
@@ -160,6 +255,11 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
     await mkdir(join(scopedDir, 'media'), { recursive: true });
     await writeFile(join(scopedDir, 'model.bin'), 'fake model', 'utf8');
     await writeFile(join(scopedDir, 'vad-model.bin'), 'fake vad model', 'utf8');
+    // The diarizer binary and its two models are checked unconditionally now
+    // (runChecks), so "every check passes" needs these present too, exactly
+    // like the whisper/vad pair above.
+    await writeFile(join(scopedDir, 'seg-model.bin'), 'fake segmentation model', 'utf8');
+    await writeFile(join(scopedDir, 'emb-model.bin'), 'fake embedding model', 'utf8');
   });
 
   afterEach(async () => {
@@ -190,6 +290,12 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
             model: join(scopedDir, 'model.bin'),
             vadBinary: process.execPath,
             vadModel: join(scopedDir, 'vad-model.bin'),
+          },
+          diarization: {
+            binary: process.execPath,
+            segmentationModel: join(scopedDir, 'seg-model.bin'),
+            embeddingModel: join(scopedDir, 'emb-model.bin'),
+            threshold: 0.6,
           },
         },
       },
@@ -281,6 +387,11 @@ describe('a corrupt database: every entry point must refuse', () => {
     await mkdir(join(corruptDir, 'media'), { recursive: true });
     await writeFile(join(corruptDir, 'model.bin'), 'fake model', 'utf8');
     await writeFile(join(corruptDir, 'vad-model.bin'), 'fake vad model', 'utf8');
+    // Diarizer models, present for the same reason as their whisper/vad
+    // counterparts: "everything healthy except the database" now needs the
+    // diarizer healthy too, since runChecks checks it unconditionally.
+    await writeFile(join(corruptDir, 'seg-model.bin'), 'fake segmentation model', 'utf8');
+    await writeFile(join(corruptDir, 'emb-model.bin'), 'fake embedding model', 'utf8');
     for (const name of ['ffmpeg', 'ffprobe']) {
       const scriptPath = join(binDir, name);
       await writeFile(scriptPath, '#!/bin/sh\nexit 0\n', 'utf8');
@@ -317,6 +428,12 @@ describe('a corrupt database: every entry point must refuse', () => {
             model: join(corruptDir, 'model.bin'),
             vadBinary: process.execPath,
             vadModel: join(corruptDir, 'vad-model.bin'),
+          },
+          diarization: {
+            binary: process.execPath,
+            segmentationModel: join(corruptDir, 'seg-model.bin'),
+            embeddingModel: join(corruptDir, 'emb-model.bin'),
+            threshold: 0.6,
           },
         },
       },

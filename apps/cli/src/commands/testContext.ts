@@ -41,6 +41,15 @@ export function context(): CliContext & {
       stt: {
         provider: 'whisper-cpp',
         whisperCpp: { binary: 'w', model: '/m.bin', vadBinary: 'wv', vadModel: '/vad.bin' },
+        // Left unconfigured (schema defaults): most tests in this package
+        // never touch diarization, and the few that do (doctor/setup specs)
+        // override this block with their own fixture paths.
+        diarization: {
+          binary: 'sherpa-onnx-offline-speaker-diarization',
+          segmentationModel: null,
+          embeddingModel: null,
+          threshold: 0.6,
+        },
       },
     },
     store: new InMemoryStore(),
