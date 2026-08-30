@@ -11,6 +11,7 @@ import {
   findModel,
 } from '@laud/core';
 import {
+  blocksReadiness,
   chooseModel,
   collectRemedies,
   describeAction,
@@ -356,6 +357,48 @@ describe('collectRemedies / unfixableChecks', () => {
     const passing: readonly Check[] = [{ name: 'config file', ok: true, detail: 'present' }];
     expect(collectRemedies(passing)).toEqual([]);
     expect(unfixableChecks(passing)).toEqual([]);
+  });
+
+  describe('with an optional check failing', () => {
+    const withOptional: readonly Check[] = [
+      { name: 'ffmpeg', ok: true, detail: 'fine' },
+      {
+        name: 'diarizer binary',
+        ok: false,
+        detail: 'not found on PATH',
+        remedy: { kind: 'install-diarizer' },
+        optional: true,
+      },
+    ];
+
+    it('blocksReadiness is false for it, even though it failed', () => {
+      expect(withOptional.map(blocksReadiness)).toEqual([false, false]);
+    });
+
+    it('still contributes its remedy to collectRemedies -- setup provisioning it is the point', () => {
+      expect(collectRemedies(withOptional)).toEqual([{ kind: 'install-diarizer' }]);
+    });
+
+    it('is never counted as unfixable, remedy or not', () => {
+      const noRemedy: readonly Check[] = [
+        { name: 'diarizer binary', ok: false, detail: 'gone', optional: true },
+      ];
+      expect(unfixableChecks(withOptional)).toEqual([]);
+      expect(unfixableChecks(noRemedy)).toEqual([]);
+    });
+  });
+
+  describe('blocksReadiness', () => {
+    it('is true for a failing, non-optional check', () => {
+      expect(blocksReadiness({ name: 'ffmpeg', ok: false, detail: 'gone' })).toBe(true);
+    });
+
+    it('is false for a passing check, optional or not', () => {
+      expect(blocksReadiness({ name: 'ffmpeg', ok: true, detail: 'fine' })).toBe(false);
+      expect(blocksReadiness({ name: 'diarizer', ok: true, detail: 'fine', optional: true })).toBe(
+        false,
+      );
+    });
   });
 });
 
@@ -1062,6 +1105,58 @@ describe('runProvisioning', () => {
       if (originalCi === undefined) delete process.env['CI'];
       else process.env['CI'] = originalCi;
     }
+  });
+
+  it('does not throw when only optional (diarizer) checks are red, even though provisioning them fails too', async () => {
+    // Whisper/vad are genuinely healthy -- real files, written to the real
+    // config FILE (not just badConfig's in-memory object) so the final
+    // re-check sees them as configured. Diarization is left unmentioned, so
+    // it defaults to unconfigured. The diarizer install/downloads are then
+    // made to fail for real (network down): the point of this test is that
+    // an optional check staying red, even after provisioning tried and
+    // failed to fix it, must not make setup throw.
+    const modelPath = join(tmp, 'model.bin');
+    const vadModelPath = join(tmp, 'vad-model.bin');
+    await writeFile(modelPath, 'fake model', 'utf8');
+    await writeFile(vadModelPath, 'fake vad model', 'utf8');
+    await mkdir(dirname(paths.configFile), { recursive: true });
+    await writeFile(
+      paths.configFile,
+      `stt:\n  whisperCpp:\n    model: ${modelPath}\n    vadModel: ${vadModelPath}\n`,
+      'utf8',
+    );
+    providers.installSherpa.mockRejectedValue(new Error('network down'));
+    providers.downloadFile.mockRejectedValue(new Error('network down'));
+
+    const ctx = provisioningContext(badConfig);
+    const checks: readonly Check[] = [
+      {
+        name: 'diarizer binary',
+        ok: false,
+        detail: 'not found on PATH',
+        fix: 'run laud setup',
+        remedy: { kind: 'install-diarizer' },
+        optional: true,
+      },
+      {
+        name: 'diarization segmentation model',
+        ok: false,
+        detail: 'not configured',
+        fix: 'run laud setup',
+        remedy: { kind: 'download-diarization-model', slot: 'segmentation' },
+        optional: true,
+      },
+      {
+        name: 'diarization embedding model',
+        ok: false,
+        detail: 'not configured',
+        fix: 'run laud setup',
+        remedy: { kind: 'download-diarization-model', slot: 'embedding' },
+        optional: true,
+      },
+    ];
+
+    await expect(runProvisioning(ctx, { yes: true }, checks, 'linux')).resolves.toBeUndefined();
   });
 });
 

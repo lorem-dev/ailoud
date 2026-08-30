@@ -10,7 +10,7 @@ import type { Check } from '../ui/index.js';
 // doctor.ts and setup.ts mutually import each other (setup.ts imports
 // `runChecks` from here) -- safe because both sides only reach the other
 // module's export from inside a function body, never at module-init time.
-import { runProvisioning } from './setup.js';
+import { blocksReadiness, runProvisioning } from './setup.js';
 import type { SetupOptions } from './setup.js';
 
 export type { Check };
@@ -82,6 +82,14 @@ export async function checkModel(
  * is null) and "missing" (the key names a path with nothing there) are
  * different problems with different fixes, and folding this into checkModel
  * would blur the config key and fix text the message names.
+ *
+ * NOT marked `optional` (see Check.optional and the diarization checks
+ * below), even though --multilingual is opt-in the same way --diarize is,
+ * and there is a real argument this check should get the same treatment.
+ * Left as mandatory deliberately: it is what plain `doctor` has always
+ * reported, and changing behaviour people already live with is out of
+ * scope for the change that introduced `optional`. Recorded here as a
+ * follow-up, not silently done in passing.
  */
 export async function checkVadModel(
   configFile: string,
@@ -157,6 +165,14 @@ export async function checkVadBinary(
  * NOT VERIFIED AGAINST A REAL BUILD: like the whisper-cli check above, this
  * assumes sherpa-onnx-offline-speaker-diarization exits 0 on "--help". No
  * such binary is available in this environment to confirm that.
+ *
+ * `optional: true` on every branch: diarization is opt-in (`--diarize`), so
+ * this binary being missing means one feature is unavailable, not that laud
+ * cannot run -- see `Check.optional`'s doc comment. checkBinary itself does
+ * not know about `optional` (ffmpeg/whisper/vad share it and are all
+ * mandatory), so its result is merged with the flag rather than threaded
+ * through as a parameter every other caller would have to pass `undefined`
+ * for.
  */
 export async function checkDiarizerBinary(
   configFile: string,
@@ -179,10 +195,12 @@ export async function checkDiarizerBinary(
         detail: `configured path does not exist: ${diarizerBinary}`,
         fix,
         remedy,
+        optional: true,
       };
     }
   }
-  return checkBinary(name, diarizerBinary, ['--help'], fix, diarizerBinary, remedy);
+  const result = await checkBinary(name, diarizerBinary, ['--help'], fix, diarizerBinary, remedy);
+  return { ...result, optional: true };
 }
 
 /**
@@ -191,6 +209,11 @@ export async function checkDiarizerBinary(
  * for the same reason checkModel and checkVadModel are kept separate: the
  * config key and fix text differ per model, and blurring them together
  * blurs the message a user actually needs to act on.
+ *
+ * `optional: true` throughout: see checkDiarizerBinary's comment on the
+ * same flag. Unlike checkVadModel -- which stays mandatory on purpose, per
+ * the follow-up recorded in Check.optional's doc comment -- this one is
+ * for a feature nobody has to opt into using at all.
  */
 export async function checkSegmentationModel(
   configFile: string,
@@ -202,13 +225,20 @@ export async function checkSegmentationModel(
     `Set "stt.diarization.segmentationModel" in ${configFile} to the path of the sherpa-onnx ` +
     'pyannote segmentation model file (model.onnx from the sherpa-onnx-pyannote-segmentation-3-0 release).';
   if (segmentationModelPath === null) {
-    return { name, ok: false, detail: 'not configured', fix, remedy };
+    return { name, ok: false, detail: 'not configured', fix, remedy, optional: true };
   }
   try {
     await access(segmentationModelPath, constants.F_OK);
-    return { name, ok: true, detail: segmentationModelPath };
+    return { name, ok: true, detail: segmentationModelPath, optional: true };
   } catch {
-    return { name, ok: false, detail: `missing: ${segmentationModelPath}`, fix, remedy };
+    return {
+      name,
+      ok: false,
+      detail: `missing: ${segmentationModelPath}`,
+      fix,
+      remedy,
+      optional: true,
+    };
   }
 }
 
@@ -223,13 +253,20 @@ export async function checkEmbeddingModel(
     `Set "stt.diarization.embeddingModel" in ${configFile} to the path of the sherpa-onnx ` +
     'speaker embedding model file (3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx).';
   if (embeddingModelPath === null) {
-    return { name, ok: false, detail: 'not configured', fix, remedy };
+    return { name, ok: false, detail: 'not configured', fix, remedy, optional: true };
   }
   try {
     await access(embeddingModelPath, constants.F_OK);
-    return { name, ok: true, detail: embeddingModelPath };
+    return { name, ok: true, detail: embeddingModelPath, optional: true };
   } catch {
-    return { name, ok: false, detail: `missing: ${embeddingModelPath}`, fix, remedy };
+    return {
+      name,
+      ok: false,
+      detail: `missing: ${embeddingModelPath}`,
+      fix,
+      remedy,
+      optional: true,
+    };
   }
 }
 
@@ -340,11 +377,12 @@ export async function runChecks(
       kind: 'download-model',
       slot: 'vad',
     }),
-    // Same binary-before-model shape as the whisper/VAD pair above, and
-    // unconditional for the same reason: `setup` provisions the full
-    // toolkit up front, not just whichever features happen to be used on
-    // this particular run, so `doctor` reports "ready" only once the
-    // diarizer is in place too, even before anyone has passed --diarize.
+    // Same binary-before-model shape as the whisper/VAD pair above, and run
+    // unconditionally too, so `setup`/`doctor --fix` can offer to provision
+    // the diarizer before anyone has passed --diarize -- but each of the
+    // three below is `optional: true` (see Check.optional): --diarize is
+    // opt-in, so not having set it up yet is not the same problem as a
+    // missing ffmpeg, and must not make plain `doctor` report "not ready".
     await checkDiarizerBinary(paths.configFile, config.stt.diarization.binary, platform, {
       kind: 'install-diarizer',
     }),
@@ -387,7 +425,7 @@ export function registerDoctor(
         const checks = await runChecks(context, platform);
         context.ui.checks(checks);
         if (options.fix !== true) {
-          if (checks.some((check) => !check.ok)) {
+          if (checks.some(blocksReadiness)) {
             throw new EnvironmentError(NOT_READY_MESSAGE);
           }
           return;

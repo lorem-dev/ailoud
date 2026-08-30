@@ -29,6 +29,22 @@ export interface Check {
    * `Remedy`'s doc comment.
    */
   readonly remedy?: Remedy;
+  /**
+   * True when this check reports the state of an opt-in feature rather than
+   * something laud needs to run at all -- the diarizer today, since
+   * `--diarize` is opt-in per recording. Absent (the default) means the
+   * check is load-bearing: `laud` cannot do its job without it, the way it
+   * cannot without ffmpeg or a transcription model.
+   *
+   * The distinction is `remedy`'s counterpart, one level up: `remedy` says
+   * whether a failure can be repaired without a human; `optional` says
+   * whether the failure means laud cannot run at all, or only that one
+   * opt-in feature is unavailable until someone asks for it. A failing
+   * optional check is still reported like any other -- it just does not
+   * make `doctor` exit non-zero or `setup`/`doctor --fix` treat the
+   * environment as not ready.
+   */
+  readonly optional?: true;
 }
 
 /**

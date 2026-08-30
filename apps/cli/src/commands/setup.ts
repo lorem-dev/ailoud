@@ -295,12 +295,31 @@ export function describePlan(actions: readonly Action[], env: PlanEnvironment): 
 }
 
 /**
+ * Whether a failing check means laud cannot run at all. `Check.optional`
+ * (see its doc comment) marks checks for opt-in features -- the diarizer
+ * today -- whose failure means only that feature is unavailable, not that
+ * laud is broken. This is the one place that distinction is applied to the
+ * ready/not-ready decision, so `doctor`, `unfixableChecks`, and the final
+ * re-check in `runProvisioning` cannot drift onto different answers for the
+ * same check.
+ */
+export function blocksReadiness(check: Check): boolean {
+  return !check.ok && check.optional !== true;
+}
+
+/**
  * The remedies of the checks that failed -- the single definition of "what
  * provisioning should act on", shared by `setup` and `doctor --fix`.
  *
  * Both entry points used to keep a verbatim copy of this filter. That is the
  * exact drift the one-engine design exists to prevent, so it lives here and
  * `runProvisioning` is the only caller.
+ *
+ * Deliberately NOT filtered by `blocksReadiness`: an optional check's
+ * remedy belongs in the plan just as much as a mandatory one's -- `setup`
+ * provisioning the diarizer alongside everything else is exactly what an
+ * optional check being fixable is for. Only the ready/not-ready decision
+ * itself treats the two differently.
  */
 export function collectRemedies(checks: readonly Check[]): readonly Remedy[] {
   return checks
@@ -313,9 +332,14 @@ export function collectRemedies(checks: readonly Check[]): readonly Remedy[] {
  * provisioning will repair. The corrupt-database check is the case this
  * exists for: its repair is "back up, then delete", which is destructive and
  * belongs to a human, so it deliberately has no remedy.
+ *
+ * Filtered by `blocksReadiness` too: a failing optional check with no
+ * remedy (hypothetical today -- all three diarization checks carry one)
+ * still must not be reported as something standing between the user and a
+ * "ready" environment.
  */
 export function unfixableChecks(checks: readonly Check[]): readonly Check[] {
-  return checks.filter((check) => !check.ok && check.remedy === undefined);
+  return checks.filter((check) => blocksReadiness(check) && check.remedy === undefined);
 }
 
 /** Names the checks provisioning will not touch, with the human fix each carries. */
@@ -466,7 +490,7 @@ export async function runProvisioning(
   const freshConfig = await readCurrentConfig(context.paths.configFile);
   const finalChecks = await runChecks({ ...context, config: freshConfig }, platform);
   context.ui.checks(finalChecks);
-  if (finalChecks.some((check) => !check.ok)) {
+  if (finalChecks.some(blocksReadiness)) {
     throw new EnvironmentError('laud is still not ready: see the failing checks above.');
   }
 }

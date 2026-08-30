@@ -87,6 +87,12 @@ export const VAD_MODEL: ModelChoice = {
  * `file` is the name laud gives it on disk, distinct from `archiveMember`
  * (the name inside the archive) so it does not collide with some other
  * model also called `model.onnx` in a shared `models/` directory.
+ *
+ * `archiveMember: 'model.onnx'` was verified against the live archive during
+ * the design spike: it is a single wrapper directory containing `model.onnx`
+ * and `model.int8.onnx` side by side, so extracting with
+ * `--strip-components=1` (see provisionRunner.ts) lands `model.onnx`
+ * directly -- no nested path to account for.
  */
 export const SEGMENTATION_MODEL: ModelChoice = {
   name: 'pyannote-segmentation-3.0',

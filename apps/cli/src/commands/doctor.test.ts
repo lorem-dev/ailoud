@@ -335,6 +335,131 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it('still plans a failing OPTIONAL check -- setup provisioning the diarizer is the point of collectRemedies not filtering on optional', async () => {
+    await writeFakeBinary('ffmpeg');
+    await writeFakeBinary('ffprobe');
+    vi.stubEnv('PATH', binDir);
+    try {
+      const unconfiguredDiarizer: CliContext = {
+        ...healthyContext(),
+        config: {
+          ...healthyContext().config,
+          stt: {
+            ...healthyContext().config.stt,
+            diarization: {
+              binary: 'sherpa-onnx-offline-speaker-diarization',
+              segmentationModel: null,
+              embeddingModel: null,
+              threshold: 0.6,
+            },
+          },
+        },
+      };
+      const checks = await runChecks(unconfiguredDiarizer, 'linux');
+      const diarizerChecks = checks.filter((c) => c.name.includes('diariz'));
+      expect(diarizerChecks.every((c) => c.ok === false && c.optional === true)).toBe(true);
+      expect(
+        planProvisioning(collectRemedies(checks), { modelName: 'small' }).map((a) => a.kind),
+      ).toEqual(expect.arrayContaining(['install-diarizer', 'download-diarization-model']));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+/**
+ * A machine where absolutely everything is healthy except the diarizer,
+ * which was never set up -- the exact "opt-in feature not configured yet"
+ * shape `Check.optional` exists for. Drives the real CLI (buildProgram),
+ * not runChecks directly, because the defect this guards against is in
+ * registerDoctor's own exit-code decision, not in runChecks' output.
+ */
+describe('doctor: an unconfigured optional feature does not mean "not ready"', () => {
+  let dataDir: string;
+  let binDir: string;
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), 'laud-optional-check-test-'));
+    binDir = join(dataDir, 'bin');
+    await mkdir(binDir, { recursive: true });
+    await mkdir(join(dataDir, 'media'), { recursive: true });
+    await writeFile(join(dataDir, 'model.bin'), 'fake model', 'utf8');
+    await writeFile(join(dataDir, 'vad-model.bin'), 'fake vad model', 'utf8');
+    for (const name of ['ffmpeg', 'ffprobe']) {
+      const scriptPath = join(binDir, name);
+      await writeFile(scriptPath, '#!/bin/sh\nexit 0\n', 'utf8');
+      await chmod(scriptPath, 0o755);
+    }
+  });
+
+  afterEach(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  /** Healthy everywhere except diarization, which is left at its schema defaults (unconfigured). */
+  function almostHealthyContext(): CliContext & { lines: string[] } {
+    return {
+      ...context(),
+      paths: {
+        configFile: join(dataDir, 'config.yaml'),
+        dataDir,
+        dbFile: join(dataDir, 'laud.db'),
+        mediaRoot: join(dataDir, 'media'),
+      },
+      config: {
+        stt: {
+          provider: 'whisper-cpp',
+          whisperCpp: {
+            binary: process.execPath,
+            model: join(dataDir, 'model.bin'),
+            vadBinary: process.execPath,
+            vadModel: join(dataDir, 'vad-model.bin'),
+          },
+          diarization: {
+            binary: 'sherpa-onnx-offline-speaker-diarization',
+            segmentationModel: null,
+            embeddingModel: null,
+            threshold: 0.6,
+          },
+        },
+      },
+    };
+  }
+
+  it('doctor exits 0 when only the diarizer (optional) is unconfigured', async () => {
+    vi.stubEnv('PATH', binDir);
+    try {
+      const ctx = almostHealthyContext();
+      // No .catch/.rejects wrapper: if registerDoctor threw here (the
+      // defect being fixed), this await would reject and fail the test on
+      // its own -- the same "resolves cleanly" idiom the rest of this
+      // suite uses for a genuinely healthy machine.
+      await buildProgram(ctx).parseAsync(['node', 'laud', 'doctor']);
+      // The failing checks are still reported -- optional means "not
+      // fatal", not "hidden".
+      expect(ctx.lines.some((line) => line.includes('diarizer binary'))).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('doctor still exits 3 when a non-optional check fails, even with the diarizer unconfigured too', async () => {
+    // No PATH stub here -- binDir is never added, so ffmpeg/ffprobe (both
+    // mandatory) fail alongside the still-unconfigured (optional) diarizer.
+    // A single failing mandatory check must still be fatal.
+    vi.stubEnv('PATH', '');
+    try {
+      const ctx = almostHealthyContext();
+      const error: unknown = await buildProgram(ctx)
+        .parseAsync(['node', 'laud', 'doctor'])
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(EnvironmentError);
+      expect(exitCodeFor(error)).toBe(3);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 /**
