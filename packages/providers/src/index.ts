@@ -21,6 +21,9 @@ export type {
   WhisperPaths,
 } from './provision/whisperInstall.js';
 
+export { SHERPA_VERSION, sherpaTarballUrl, installSherpa } from './provision/sherpaInstall.js';
+export type { InstallSherpaOptions } from './provision/sherpaInstall.js';
+
 export { NodeFs } from './system/nodeFs.js';
 export { SystemClock, UlidIds } from './system/systemClock.js';
 
