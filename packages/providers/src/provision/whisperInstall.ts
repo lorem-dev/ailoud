@@ -2,6 +2,7 @@ import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { FailureError } from '@laud/core';
 import { run, runInteractive } from '../process/run.js';
+import { formatInstallCommand, whisperInstallCommands } from './packageManager.js';
 import { downloadFile } from './download.js';
 
 /**
@@ -43,6 +44,15 @@ export interface InstallWhisperOptions {
   readonly platform: NodeJS.Platform;
   readonly arch: string;
   readonly dataDir: string;
+  /**
+   * Whether a real terminal is attached. The macOS route shells out to brew
+   * through `runInteractive`, which has no timeout by design (a password or
+   * a "install the Xcode command line tools?" prompt must be allowed to
+   * wait), so with nothing on stdin it would wait forever. False means
+   * report the command instead of running it -- refusing beats hanging a CI
+   * job until it times out.
+   */
+  readonly interactive: boolean;
   readonly onProgress?: (received: number, total: number | null) => void;
 }
 
@@ -52,9 +62,19 @@ export interface WhisperPaths {
 }
 
 /**
+ * `paths` is null when whisper.cpp landed on PATH and laud therefore records
+ * nothing (the macOS/brew route). `skipped` carries the exact commands a
+ * human has to run, for the non-interactive case where laud refuses to spawn
+ * something that could block on a prompt.
+ */
+export type InstallWhisperResult =
+  | { readonly kind: 'installed'; readonly paths: WhisperPaths | null }
+  | { readonly kind: 'skipped'; readonly commands: readonly string[] };
+
+/**
  * Installs whisper.cpp and reports where its binaries ended up.
  *
- * Returns `null` on macOS: brew puts `whisper-cli` on PATH, and laud's
+ * Reports `paths: null` on macOS: brew puts `whisper-cli` on PATH, and laud's
  * existing config defaults already resolve it. Writing an absolute Cellar
  * path into the config there would break on the next `brew upgrade`.
  *
@@ -64,13 +84,23 @@ export interface WhisperPaths {
  * directory, so moving or symlinking a single binary out of it would break
  * the loader.
  */
-export async function installWhisper(options: InstallWhisperOptions): Promise<WhisperPaths | null> {
+export async function installWhisper(
+  options: InstallWhisperOptions,
+): Promise<InstallWhisperResult> {
   const { platform, arch, dataDir } = options;
 
   if (platform === 'darwin') {
-    const code = await runInteractive('brew', ['install', 'whisper-cpp']);
-    if (code !== 0) throw new FailureError(`"brew install whisper-cpp" exited with code ${code}`);
-    return null;
+    const commands = whisperInstallCommands('brew');
+    if (!options.interactive) {
+      return { kind: 'skipped', commands: commands.map(formatInstallCommand) };
+    }
+    for (const command of commands) {
+      const code = await runInteractive(command.command, command.args);
+      if (code !== 0) {
+        throw new FailureError(`"${formatInstallCommand(command)}" exited with code ${code}`);
+      }
+    }
+    return { kind: 'installed', paths: null };
   }
 
   if (platform !== 'linux') {
@@ -96,7 +126,10 @@ export async function installWhisper(options: InstallWhisperOptions): Promise<Wh
   await rm(archive, { force: true });
 
   return {
-    binary: join(root, 'whisper-cli'),
-    vadBinary: join(root, 'whisper-vad-speech-segments'),
+    kind: 'installed',
+    paths: {
+      binary: join(root, 'whisper-cli'),
+      vadBinary: join(root, 'whisper-vad-speech-segments'),
+    },
   };
 }
