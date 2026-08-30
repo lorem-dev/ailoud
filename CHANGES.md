@@ -21,3 +21,8 @@
   environment -- a scriptable, stable contract.
 - `laud transcribe --multilingual` detects and preserves each language in a
   code-switched recording instead of tagging the whole thing with one.
+- `laud setup` provisions a fresh machine -- ffmpeg, whisper.cpp, and a
+  transcription model -- asking once for consent (`--yes` to skip it, e.g.
+  in CI) and letting `--model` pick which model to download.
+- `laud doctor --fix` runs the same provisioning engine as `setup`, scoped
+  to only the checks that are currently failing, then re-checks.

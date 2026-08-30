@@ -5,6 +5,13 @@ import type { Remedy } from '@laud/core';
 import { run } from '@laud/providers';
 import type { CliContext } from '../wiring.js';
 import type { Check } from '../ui/index.js';
+// Imported, not reimplemented: the whole point of this design is that
+// `setup` and `doctor --fix` share one provisioning path. Yes, this makes
+// doctor.ts and setup.ts mutually import each other (setup.ts imports
+// `runChecks` from here) -- safe because both sides only reach the other
+// module's export from inside a function body, never at module-init time.
+import { runProvisioning } from './setup.js';
+import type { SetupOptions } from './setup.js';
 
 export type { Check };
 
@@ -238,17 +245,33 @@ export async function runChecks(
   ];
 }
 
+export interface DoctorOptions extends SetupOptions {
+  readonly fix?: boolean;
+}
+
 export function registerDoctor(program: Command, context: CliContext): void {
   program
     .command('doctor')
+    .option('--fix', 'provision anything that failed a check, using the same engine as setup')
+    .option('--yes', 'confirm the fix plan without prompting')
+    .option('--model <name>', 'transcription model to download if one is needed (default: small)')
     .description('Check that the binaries, model, database, and storage laud needs are ready')
-    .action(async () => {
+    .action(async (options: DoctorOptions) => {
       await context.ui.frame('Environment check', async () => {
         const checks = await runChecks(context);
         context.ui.checks(checks);
-        if (checks.some((check) => !check.ok)) {
-          throw new EnvironmentError('laud is not ready to run: see the failing checks above.');
+        if (options.fix !== true) {
+          if (checks.some((check) => !check.ok)) {
+            throw new EnvironmentError('laud is not ready to run: see the failing checks above.');
+          }
+          return;
         }
+        // Only the failing checks' remedies -- --fix acts on what is
+        // actually broken, never on checks that already passed.
+        const remedies = checks
+          .filter((check) => !check.ok)
+          .flatMap((check) => (check.remedy !== undefined ? [check.remedy] : []));
+        await runProvisioning(context, options, remedies);
       });
     });
 }

@@ -11,7 +11,7 @@
 // what to turn green.
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
+import { stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Sandbox } from '../src/cli';
@@ -172,6 +172,21 @@ describe('laud end-to-end', () => {
 
     const result = await sandbox.run(['doctor']);
     expect(result.code).toBe(0);
+  });
+
+  it('setup refuses to install anything with no terminal to confirm on', async () => {
+    // This sandbox's $HOME is empty: nothing is provisioned. A real,
+    // non-guarded `setup --yes` here would install ffmpeg and download a
+    // ~465 MB model on every CI run, so this only ever asserts the guard
+    // -- Jest gives the child process no TTY, and setup must refuse rather
+    // than prompt, install, or download anything unattended. Idempotency
+    // ("a second run reports nothing to do") is checked by hand instead;
+    // see the task report for exactly what that manual check covers.
+    const result = await sandbox.run(['setup']);
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toMatch(/--yes/);
+    // Nothing was installed or downloaded: the model directory must not exist.
+    await expect(stat(join(sandbox.dataDir, 'models'))).rejects.toThrow();
   });
 
   it('ls on an empty library reports that the library is empty', async () => {

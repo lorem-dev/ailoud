@@ -91,6 +91,10 @@ terminal, and plain otherwise. Pipe any command (`laud ls | cat`, or into a
 file or another program) and it drops the decoration automatically, so
 scripts and `laud ls --json | jq` see the same stable text either way.
 
+On a fresh machine, run `laud setup` first -- see "First run: `laud setup`"
+under "External tools" below for what it installs and how to run it
+unattended.
+
 Import a file or a directory of audio/video, then transcribe what has no
 transcript yet:
 
@@ -182,7 +186,9 @@ whisper model file, the VAD binary, the VAD model file, the config file, the
 database path and its integrity, and the media root -- with a fix for each
 failing check. The VAD checks only matter for `--multilingual`, but `doctor`
 reports them either way. See section 12 of the design doc for the exit code
-convention `doctor` failures use.
+convention `doctor` failures use. Add `--fix` to have it install or download
+whatever failed, using the same engine `laud setup` uses -- see "First run:
+`laud setup`" under "External tools" below.
 
 ## External tools
 
@@ -198,6 +204,85 @@ convention `doctor` failures use.
 - **`whisper-cli`** (whisper.cpp) and a **model file** -- local speech to
   text. The binary and model path are set in the config file, described
   below, and checked by `laud doctor`.
+
+### First run: `laud setup`
+
+The fastest way to get all of the above is to let laud install it:
+
+```shell
+laud setup
+```
+
+`setup` runs the same checks `doctor` does, prints what is missing and how
+much it will download, asks once for confirmation, then installs ffmpeg,
+installs whisper.cpp, and downloads a transcription model -- writing
+whatever it installed into `config.yaml`. Checks that already pass are left
+alone, so running `setup` again on an already-provisioned machine reports
+nothing to do.
+
+- `--yes` skips the confirmation prompt. It is required (not just
+  convenient) when there is no terminal to ask on -- CI, a script, anything
+  with stdin that is not a TTY -- because `setup` refuses to install
+  software or download a model unattended without it, and names `--yes` in
+  the error rather than hanging.
+- `--model <name>` picks which transcription model to download: `tiny`,
+  `base`, `small` (the default), `medium`, or `large-v3-turbo`, trading
+  download size and speed for accuracy. Without it, an interactive run
+  prompts for a choice; a non-interactive run defaults to `small`, the model
+  `--multilingual` was tuned against.
+
+If the environment drifts after that -- an OS update removes a binary, a
+model file gets deleted -- `laud doctor --fix` runs the exact same
+provisioning engine as `setup`, but scoped to only the checks that are
+currently failing:
+
+```shell
+laud doctor --fix
+laud doctor --fix --yes --model tiny
+```
+
+It takes the same `--yes` and `--model` flags, for the same reasons, and
+only prompts for a model choice when a transcription-model download is
+actually part of the plan -- `doctor --fix` on a machine that is only
+missing ffmpeg asks nothing.
+
+`setup` and `doctor --fix` provision macOS (via Homebrew) and Linux x64/arm64
+(via whisper.cpp's own prebuilt release tarball -- there is no apt package
+for it) automatically. **Windows is not provisioned automatically.** On
+Windows, or on a Linux CPU architecture other than x64/arm64, install the
+pieces by hand as described next.
+
+### Manual install (fallback)
+
+- **ffmpeg and ffprobe**
+  - macOS: `brew install ffmpeg`
+  - Linux (Debian/Ubuntu): `sudo apt-get install ffmpeg`
+  - Windows: install a build from https://ffmpeg.org/download.html and put
+    `ffmpeg` and `ffprobe` on `PATH`.
+- **whisper.cpp** (`whisper-cli`, and, for `--multilingual`,
+  `whisper-vad-speech-segments`)
+  - macOS: `brew install whisper-cpp` puts both on `PATH`.
+  - Linux (x64/arm64): there is no apt package for whisper.cpp. Download the
+    prebuilt tarball matching your CPU from the whisper.cpp releases page,
+    tag `b4938`: `whisper-bin-ubuntu-x64.tar.gz` or
+    `whisper-bin-ubuntu-arm64.tar.gz`. Extract it somewhere permanent and
+    keep the whole tree together -- the binaries load their shared
+    libraries (`libwhisper.so`, `libggml*.so`) from their own directory, so
+    moving or symlinking a single binary out of it breaks the loader. Point
+    `stt.whisperCpp.binary` and `stt.whisperCpp.vadBinary` (see
+    "Configuration and storage" below) at the extracted `whisper-cli` and
+    `whisper-vad-speech-segments`.
+  - Windows, or a Linux CPU architecture other than x64/arm64: no prebuilt
+    asset is published; build whisper.cpp from source and point
+    `stt.whisperCpp.binary` / `stt.whisperCpp.vadBinary` at the result.
+- **Model files** -- download a ggml transcription model (e.g.
+  `ggml-small.bin`) from
+  https://huggingface.co/ggerganov/whisper.cpp, and, for `--multilingual`,
+  the VAD model `ggml-silero-v5.1.2.bin` from
+  https://huggingface.co/ggml-org/whisper-vad. Set `stt.whisperCpp.model`
+  and `stt.whisperCpp.vadModel` to their paths.
+
+Either way, `laud doctor` confirms what is still missing.
 
 ## Configuration and storage
 

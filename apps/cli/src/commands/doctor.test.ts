@@ -1,7 +1,9 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { planProvisioning } from '@laud/core';
+import type { CliContext } from '../wiring.js';
 import { context } from './testContext.js';
 import { checkBinary, checkModel, checkVadBinary, checkVadModel, runChecks } from './doctor.js';
 
@@ -117,6 +119,104 @@ describe('runChecks', () => {
       const checks = await runChecks(context(), 'linux');
       expect(checks.find((c) => c.name === 'ffmpeg')?.fix).toBe('sudo apt-get install ffmpeg');
       expect(checks.find((c) => c.name === 'database')?.remedy).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+/**
+ * `doctor --fix` (registerDoctor, apps/cli/src/commands/doctor.ts) builds
+ * its remedy list the same way registerSetup does: filter runChecks' output
+ * down to the checks that failed, then flatMap their `remedy`. These tests
+ * exercise that filter end to end against real checks -- a fake whisper
+ * and vad binary (process.execPath, which always exists and exits 0 on
+ * --help, so PATH does not matter for those two) plus real files for the
+ * model, vad model, and media root -- so that the only check left free to
+ * vary is ffmpeg/ffprobe, which runChecks looks up on PATH by literal name
+ * rather than through config. planProvisioning is exercised directly
+ * (rather than the private remedy-filtering line in doctor.ts) because it
+ * is the part both callers share and the part a "--fix installs everything,
+ * not just what failed" regression would actually break.
+ */
+describe('doctor --fix scope: remedies come only from failing checks', () => {
+  let scopedDir: string;
+  let binDir: string;
+
+  beforeEach(async () => {
+    scopedDir = await mkdtemp(join(tmpdir(), 'laud-doctor-fix-test-'));
+    binDir = join(scopedDir, 'bin');
+    await mkdir(binDir, { recursive: true });
+    await mkdir(join(scopedDir, 'media'), { recursive: true });
+    await writeFile(join(scopedDir, 'model.bin'), 'fake model', 'utf8');
+    await writeFile(join(scopedDir, 'vad-model.bin'), 'fake vad model', 'utf8');
+  });
+
+  afterEach(async () => {
+    await rm(scopedDir, { recursive: true, force: true });
+  });
+
+  /** Writes an executable stand-in for `name` (ffmpeg or ffprobe) that always exits 0. */
+  async function writeFakeBinary(name: string): Promise<void> {
+    const scriptPath = join(binDir, name);
+    await writeFile(scriptPath, '#!/bin/sh\nexit 0\n', 'utf8');
+    await chmod(scriptPath, 0o755);
+  }
+
+  function healthyContext(): CliContext {
+    return {
+      ...context(),
+      paths: {
+        configFile: join(scopedDir, 'config.yaml'),
+        dataDir: scopedDir,
+        dbFile: join(scopedDir, 'laud.db'),
+        mediaRoot: join(scopedDir, 'media'),
+      },
+      config: {
+        stt: {
+          provider: 'whisper-cpp',
+          whisperCpp: {
+            binary: process.execPath,
+            model: join(scopedDir, 'model.bin'),
+            vadBinary: process.execPath,
+            vadModel: join(scopedDir, 'vad-model.bin'),
+          },
+        },
+      },
+    };
+  }
+
+  it('plans nothing when every check passes', async () => {
+    await writeFakeBinary('ffmpeg');
+    await writeFakeBinary('ffprobe');
+    // PATH is set to exactly binDir, not binDir-plus-the-real-PATH: appending
+    // the real PATH would let a genuinely installed ffmpeg on this machine
+    // paper over a missing fake and make the "missing" half of this pair
+    // (below) pass for the wrong reason.
+    vi.stubEnv('PATH', binDir);
+    try {
+      const checks = await runChecks(healthyContext(), 'linux');
+      const remedies = checks.filter((c) => !c.ok).flatMap((c) => (c.remedy ? [c.remedy] : []));
+      expect(planProvisioning(remedies, { modelName: 'small' })).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('plans only the failing checks, not everything', async () => {
+    // ffprobe is present (so its check passes) but ffmpeg is not: only
+    // ffmpeg is genuinely missing, the way it would be on a machine where
+    // some other tool already pulled in ffprobe as a transitive dependency.
+    await writeFakeBinary('ffprobe');
+    vi.stubEnv('PATH', binDir);
+    try {
+      const checks = await runChecks(healthyContext(), 'linux');
+      expect(checks.find((c) => c.name === 'ffmpeg')?.ok).toBe(false);
+      expect(checks.find((c) => c.name === 'ffprobe')?.ok).toBe(true);
+      const remedies = checks.filter((c) => !c.ok).flatMap((c) => (c.remedy ? [c.remedy] : []));
+      expect(planProvisioning(remedies, { modelName: 'small' })).toEqual([
+        { kind: 'install-ffmpeg' },
+      ]);
     } finally {
       vi.unstubAllEnvs();
     }
