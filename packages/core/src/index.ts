@@ -88,3 +88,7 @@ export {
 export type { Action, PlanOptions } from './provision/plan.js';
 
 export { planProvisioning, planDownloadBytes } from './provision/plan.js';
+
+export { chunkTranscript, estimateTokens, transcriptLine } from './summarize/chunk.js';
+export { buildSummaryRequest, sourceHeading } from './summarize/prompt.js';
+export type { SummaryRequest, SummarySource } from './summarize/prompt.js';
