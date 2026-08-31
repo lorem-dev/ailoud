@@ -415,13 +415,32 @@ describe('laud end-to-end', () => {
   });
 
   it('show on an unknown id exits 1; show --format pdf exits 2', async () => {
-    const unknown = await sandbox.run(['show', 'no-such-id']);
+    // A well-formed id that happens not to exist. This used to read
+    // "no-such-id", which contains hyphens and so cannot be an id at all --
+    // that is now a usage error rather than a lookup failure, which is a
+    // different case and is covered by the spec below. The intent here is
+    // unchanged: an id laud could have had, and does not, exits 1.
+    const unknown = await sandbox.run(['show', 'ZZZZZZZZ']);
     expect(unknown.code).toBe(1);
-    expect(unknown.stderr).toMatch(/No recording with id/);
+    expect(unknown.stderr).toMatch(/No recording matches/);
 
-    const badFormat = await sandbox.run(['show', 'no-such-id', '--format', 'pdf']);
+    const badFormat = await sandbox.run(['show', 'ZZZZZZZZ', '--format', 'pdf']);
     expect(badFormat.code).toBe(2);
     expect(badFormat.stderr).toMatch(/Unknown format "pdf"/);
+  });
+
+  it('rejects something that cannot be an id as a usage error, not a lookup failure', async () => {
+    // `laud show my-recording` is someone reaching for a filename. Saying
+    // "ids are letters and digits only" and exiting 2 is more use to them
+    // than "no recording matches" and exiting 1, which invites them to go
+    // looking for a recording that was never the problem.
+    const malformed = await sandbox.run(['show', 'no-such-id']);
+    expect(malformed.code).toBe(2);
+    expect(malformed.stderr).toMatch(/not a recording id/);
+
+    const tooShort = await sandbox.run(['show', 'A']);
+    expect(tooShort.code).toBe(2);
+    expect(tooShort.stderr).toMatch(/at least 2/);
   });
 
   it('leaves the repository working tree clean', async () => {
