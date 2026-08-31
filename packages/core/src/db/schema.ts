@@ -94,6 +94,35 @@ export const MIGRATIONS: readonly Migration[] = [
       `CREATE INDEX tag_by_name ON tag(tag)`,
     ],
   },
+  {
+    version: 5,
+    statements: [
+      // A summary is not a property of a recording: one can cover several, and
+      // the same recording can be summarised again in another language or by
+      // another model without the earlier one becoming wrong. So it is its own
+      // row, with the recordings it covers in a join table.
+      //
+      // The model and language are stored because they explain the text. A
+      // summary reused later as context is worth less if nobody can tell
+      // whether haiku or opus wrote it, or which language it came out in.
+      `CREATE TABLE summary (
+         id TEXT PRIMARY KEY,
+         created_at TEXT NOT NULL,
+         language TEXT NOT NULL,
+         provider TEXT NOT NULL,
+         model TEXT NOT NULL,
+         body TEXT NOT NULL
+       )`,
+      `CREATE TABLE summary_recording (
+         summary_id TEXT NOT NULL REFERENCES summary(id) ON DELETE CASCADE,
+         recording_id TEXT NOT NULL REFERENCES recording(id) ON DELETE CASCADE,
+         PRIMARY KEY (summary_id, recording_id)
+       )`,
+      // The lookup this exists for: "the newest summary of this recording",
+      // asked once per recording when a group summary reuses them.
+      `CREATE INDEX summary_by_recording ON summary_recording(recording_id)`,
+    ],
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

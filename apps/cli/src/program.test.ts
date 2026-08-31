@@ -138,7 +138,12 @@ describe('buildProgram', () => {
       createStt: () => new FakeStt({ language: 'en', model: 'fake', segments: [] }),
       createSegmenter: () => new FakeSegmenter([{ startMs: 0, endMs: 1000 }]),
       createDiarizer: () => new FakeDiarizer([]),
-      createSummarizer: () => ({ name: 'fake', contextTokens: 8192, complete: async () => 'x' }),
+      createSummarizer: () => ({
+        name: 'fake',
+        model: 'fake-model',
+        contextTokens: 8192,
+        complete: async () => 'x',
+      }),
     };
   }
 

@@ -279,3 +279,60 @@
   does not adjust `contextTokens`. Picking a small-context model needs that key
   set by hand; the symptom is a context error from the API on the first
   oversized request, not a silently truncated summary.
+- `laud summarize --lang <code>` writes the summary in a chosen language. The
+  default stays the recording's own language. A code is turned into a name
+  before the model sees it: "Write in Russian" holds far better than
+  "Write in ru".
+- Every summary is saved -- schema version 5, a `summary` table with a join to
+  the recordings it covers. A summary is not a property of a recording: one can
+  cover several, and the same recording can be summarised again in another
+  language or by another model without the earlier one becoming wrong. The
+  provider and model are stored with it, because they explain the text.
+- `laud reports` lists saved summaries and `laud reports <id>` prints one, with
+  `--recording` to filter, `--json`, and id prefixes as everywhere else.
+- A group summary reuses each recording's stored summary instead of re-reading
+  its transcript, which is where the saving is. Asking again about a single
+  recording always re-reads the transcript: a summary of a summary is a game of
+  telephone, each pass further from what anybody actually said. `--fresh`
+  forces transcripts, `--no-save` keeps nothing.
+- Each recording is written to `record-yyyymmddhhmmss.txt`, from its own date,
+  with `-001` appended when two recordings share a second -- one overwriting
+  the other would drop a whole meeting out of the summary. The files live in a
+  directory that exists only for the length of the run.
+- Each file opens with a header the prompt is told to read: title, recording
+  date, tags and participants. That is how tags, the audio's own date and the
+  names set through `annotate` reach the model. An unnamed diarizer label is
+  listed but marked "(unnamed)": it has to appear, or the model cannot
+  attribute the lines carrying it, and it has to be marked, or it is attributed
+  as though it were a person's name.
+- The prompt reaches a spawned model through a file (llama.cpp `-f`) or stdin
+  (the Claude CLI), never as an argument. A transcript of any length passes
+  ARG_MAX -- about a megabyte on macOS -- and the spawn then fails with E2BIG.
+- A spinner while the summary runs, and a percentage where the work is
+  countable: `Summarising portion 3/8 (37%)`. The combining pass is counted
+  with the portions, because a bar that reaches 100% and keeps spinning is
+  worse than one that reaches 90%. The undecorated path prints one line per
+  stage and nothing at all for a single request, so a redirected report is
+  still just the report.
+- A report over 30 lines opens in the user's pager, as `show` already did.
+- The prompt was rewritten against measurement rather than taste:
+  `scripts/eval-summary-prompt.mjs` runs variants three times each over seven
+  transcripts -- English, Russian, code-switched, long, multi-recording,
+  undiarized, and a language override -- on haiku, sonnet and opus, and scores
+  each run for stated facts, invented ones, language and length. The shipped
+  prompt scores 60/63, evenly across the three models; the previous one scored
+  30/36 on a smaller set, failing length on every larger-model run.
+- Named headings beat prose: prose lost a stated fact on a code-switched
+  transcript on repeated sonnet runs, where the headings gave that fact
+  somewhere to live.
+- The word cap is load-bearing, not tidiness. Uncapped, sonnet and opus ran
+  270-330 words on a long transcript on every run.
+- "Name the speaker for every point" made both larger models invent "Speaker A"
+  and "Speaker B" on every run of an undiarized recording. Telling them to omit
+  the speaker instead traded that for "(speaker not identified)" after every
+  bullet; the shipped wording forbids both, and all three models are clean.
+- Two measurement bugs found and fixed in the harness itself, both of which had
+  reported failures that were not real: a Cyrillic ratio that counted Russian
+  participant names and so called a clean English summary Russian, and a
+  speaker-label pattern that matched the model honestly saying "speaker not
+  identified". Both were caught by reading the outputs rather than the scores.

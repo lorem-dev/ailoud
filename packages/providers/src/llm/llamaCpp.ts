@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import type { Summarizer } from '@laud/core';
 import { FailureError } from '@laud/core';
 import { run as defaultRunner } from '../process/run.js';
@@ -45,6 +48,10 @@ export function cleanCompletion(stdout: string, prompt: string): string {
  */
 export class LlamaCppSummarizer implements Summarizer {
   public readonly name = 'llama.cpp';
+
+  public get model(): string {
+    return basename(this.options.modelPath);
+  }
   private readonly runner: typeof defaultRunner;
 
   public constructor(private readonly options: LlamaCppOptions) {
@@ -56,6 +63,17 @@ export class LlamaCppSummarizer implements Summarizer {
   }
 
   public async complete(prompt: string): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'laud-llm-'));
+    const promptPath = join(dir, 'prompt.txt');
+    try {
+      return await this.completeFrom(prompt, promptPath);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  private async completeFrom(prompt: string, promptPath: string): Promise<string> {
+    await writeFile(promptPath, prompt, 'utf8');
     const result = await this.runner(
       this.options.binary,
       [
@@ -70,8 +88,12 @@ export class LlamaCppSummarizer implements Summarizer {
         '-no-cnv',
         '--single-turn',
         ...(this.options.threads === undefined ? [] : ['-t', String(this.options.threads)]),
-        '-p',
-        prompt,
+        // -f rather than -p: a prompt carrying a transcript does not fit in an
+        // argument. ARG_MAX is about a megabyte on macOS, less once the
+        // environment is counted, and the spawn then fails with E2BIG -- a
+        // failure the user can do nothing about.
+        '-f',
+        promptPath,
       ],
       { timeoutMs: COMPLETE_TIMEOUT_MS },
     );

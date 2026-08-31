@@ -155,6 +155,29 @@ export class PrettyUi implements Ui {
     }
   }
 
+  public async summarising<T>(
+    task: (report: (stage: string, done: number, total: number) => void) => Promise<T>,
+  ): Promise<T> {
+    const s = spinner();
+    s.start('Summarising');
+    let last = 'Summarising';
+    try {
+      const result = await task((stage, done, total) => {
+        // The percentage counts finished work, so it reads 0% while the first
+        // portion is in flight rather than jumping straight to a number that
+        // overstates what is done.
+        last =
+          total > 1 ? `${stage} ${done}/${total} (${Math.floor((done / total) * 100)}%)` : stage;
+        s.message(this.fitSpinnerLine(last, ''));
+      });
+      s.stop('Summarised');
+      return result;
+    } catch (error) {
+      s.error(`Failed while summarising: ${last}`);
+      throw error;
+    }
+  }
+
   public transcribed(
     recording: Recording,
     transcript: Transcript,

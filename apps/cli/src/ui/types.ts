@@ -84,6 +84,21 @@ export interface Ui {
    */
   transcribing<T>(recording: Recording, task: () => Promise<T>): Promise<T>;
 
+  /**
+   * Runs the summary work behind a spinner, with a way to say how far along it
+   * is.
+   *
+   * `report(done, total)` updates the spinner: a percentage when `total` is
+   * more than one, and just the stage name otherwise. A summary can take
+   * minutes -- a local model on a long recording, or several hosted requests
+   * one after another -- and a still cursor for minutes is indistinguishable
+   * from a hang. Where the work is countable it is counted, because "portion 3
+   * of 7" answers "how much longer" and a spinner alone does not.
+   */
+  summarising<T>(
+    task: (report: (stage: string, done: number, total: number) => void) => Promise<T>,
+  ): Promise<T>;
+
   /** A recording finished transcribing into `transcript`, with `segmentCount` segments. */
   /**
    * `languages` is every language the segments were spoken in, most-spoken

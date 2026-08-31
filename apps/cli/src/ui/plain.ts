@@ -51,6 +51,20 @@ export class PlainUi implements Ui {
     return task();
   }
 
+  public async summarising<T>(
+    task: (report: (stage: string, done: number, total: number) => void) => Promise<T>,
+  ): Promise<T> {
+    // One line per stage rather than a redrawn spinner: this path is what runs
+    // when stdout is a pipe or a file, where a spinner would write control
+    // bytes into someone's redirected output. Silence would be wrong too --
+    // a portioned summary of a long recording can take minutes.
+    return task((stage, done, total) => {
+      if (total > 1) {
+        this.write(`${stage} ${done}/${total} (${Math.floor((done / total) * 100)}%)`);
+      }
+    });
+  }
+
   public transcribed(
     recording: Recording,
     transcript: Transcript,

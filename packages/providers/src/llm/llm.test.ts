@@ -294,8 +294,21 @@ describe('ClaudeCliSummarizer', () => {
     // An empty allow-list, or the model can read files and run commands in
     // whatever directory laud happened to be started from.
     expect(args[args.indexOf('--allowed-tools') + 1]).toBe('');
-    // After --, so a transcript beginning with a dash is not read as a flag.
-    expect(args.slice(-2)).toEqual(['--', 'summarise this']);
+  });
+
+  it('sends the prompt on stdin, never as an argument', async () => {
+    // A transcript of any length passes ARG_MAX -- about a megabyte on macOS,
+    // less once the environment is counted -- and the spawn then fails with
+    // E2BIG, which the user can do nothing about.
+    let args: string[] = [];
+    let options: { stdin?: string } = {};
+    await make(async (_binary: string, a: string[], o: { stdin?: string }) => {
+      args = a;
+      options = o;
+      return { code: 0, stdout: 'x', stderr: '' };
+    }).complete('a very long transcript');
+    expect(options.stdin).toBe('a very long transcript');
+    expect(args).not.toContain('a very long transcript');
   });
 
   it('points at signing in when the CLI fails', async () => {

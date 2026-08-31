@@ -5,6 +5,7 @@ import type {
   RecordingListFilter,
   Segment,
   SpeakerName,
+  Summary,
   Transcript,
 } from '@laud/core';
 import { orderLanguages, pendingMigrations } from '@laud/core';
@@ -30,6 +31,15 @@ interface TranscriptRow {
   language: string;
   text: string;
   created_at: string;
+}
+
+interface SummaryRow {
+  id: string;
+  created_at: string;
+  language: string;
+  provider: string;
+  model: string;
+  body: string;
 }
 
 interface LanguageTotalRow {
@@ -305,6 +315,102 @@ export class SqliteStore implements ManagedRecordingStore {
          ON CONFLICT (recording_id, label) DO UPDATE SET name = excluded.name`,
       )
       .run(recordingId, label, name);
+  }
+
+  async insertSummary(summary: Summary): Promise<void> {
+    this.db.exec('BEGIN');
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO summary (id, created_at, language, provider, model, body)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          summary.id,
+          summary.createdAt,
+          summary.language,
+          summary.provider,
+          summary.model,
+          summary.body,
+        );
+      const link = this.db.prepare(
+        'INSERT INTO summary_recording (summary_id, recording_id) VALUES (?, ?)',
+      );
+      for (const recordingId of summary.recordingIds) link.run(summary.id, recordingId);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  /**
+   * The newest summary covering this recording ALONE.
+   *
+   * The `NOT EXISTS` is the whole point: a group summary of ten meetings also
+   * has a row here for each of them, and handing it back as "the summary of
+   * the third meeting" would answer a question about one recording with nine
+   * others mixed in.
+   */
+  async latestSummaryOf(recordingId: string): Promise<Summary | null> {
+    const row = this.db
+      .prepare(
+        `SELECT s.* FROM summary s
+           JOIN summary_recording sr ON sr.summary_id = s.id
+          WHERE sr.recording_id = ?
+            AND NOT EXISTS (
+              SELECT 1 FROM summary_recording other
+               WHERE other.summary_id = s.id AND other.recording_id <> ?
+            )
+          ORDER BY s.created_at DESC, s.id DESC LIMIT 1`,
+      )
+      .get(recordingId, recordingId) as SummaryRow | undefined;
+    return row ? this.toSummary(row) : null;
+  }
+
+  async listSummaries(recordingId: string): Promise<Summary[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT s.* FROM summary s
+           JOIN summary_recording sr ON sr.summary_id = s.id
+          WHERE sr.recording_id = ?
+          ORDER BY s.created_at DESC, s.id DESC`,
+      )
+      .all(recordingId) as unknown as SummaryRow[];
+    return rows.map((row) => this.toSummary(row));
+  }
+
+  async listAllSummaries(): Promise<Summary[]> {
+    const rows = this.db
+      .prepare('SELECT * FROM summary ORDER BY created_at DESC, id DESC')
+      .all() as unknown as SummaryRow[];
+    return rows.map((row) => this.toSummary(row));
+  }
+
+  async findSummariesByIdPrefix(prefix: string): Promise<Summary[]> {
+    // ESCAPE is not needed: the caller has already rejected anything that is
+    // not a letter or a digit, so neither % nor _ can reach here.
+    const rows = this.db
+      .prepare('SELECT * FROM summary WHERE id LIKE ? ORDER BY id')
+      .all(`${prefix}%`) as unknown as SummaryRow[];
+    return rows.map((row) => this.toSummary(row));
+  }
+
+  private toSummary(row: SummaryRow): Summary {
+    const ids = this.db
+      .prepare(
+        'SELECT recording_id FROM summary_recording WHERE summary_id = ? ORDER BY recording_id',
+      )
+      .all(row.id) as unknown as { recording_id: string }[];
+    return {
+      id: row.id,
+      createdAt: row.created_at,
+      language: row.language,
+      provider: row.provider,
+      model: row.model,
+      body: row.body,
+      recordingIds: ids.map((entry) => entry.recording_id),
+    };
   }
 
   async listSpeakerNames(recordingId: string): Promise<SpeakerName[]> {

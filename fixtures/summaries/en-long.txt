@@ -1,0 +1,64 @@
+[00:00] Ann: Next item is the billing migration. Ben, where are we?
+[00:09] Ben: Not great. The problem is that the invoice numbering is off by one for refunds.
+[00:18] Carla: I looked at it too. It has been like that for a while and nobody owned it.
+[00:27] Ann: What are the options?
+[00:36] Ben: Realistically one: we freeze refunds for a day and backfill.
+[00:45] Carla: There is a cheaper option but it only hides the symptom.
+[00:54] Ann: Then we do the real one. Ben owns the billing migration, back to me on Friday with a date.
+[01:03] Ben: Understood.
+[01:12] Ann: Next item is the search index. Ben, where are we?
+[01:21] Ben: Not great. The problem is that reindexing takes eleven hours and blocks writes.
+[01:30] Carla: I looked at it too. It has been like that for a while and nobody owned it.
+[01:39] Ann: What are the options?
+[01:48] Ben: Realistically one: we build into a shadow index and swap.
+[01:57] Carla: There is a cheaper option but it only hides the symptom.
+[02:06] Ann: Then we do the real one. Ben owns the search index, back to me on Friday with a date.
+[02:15] Ben: Understood.
+[02:24] Ann: Next item is the mobile release. Ben, where are we?
+[02:33] Ben: Not great. The problem is that Apple rejected the build over the microphone permission string.
+[02:42] Carla: I looked at it too. It has been like that for a while and nobody owned it.
+[02:51] Ann: What are the options?
+[03:00] Ben: Realistically one: we reword the string and resubmit.
+[03:09] Carla: There is a cheaper option but it only hides the symptom.
+[03:18] Ann: Then we do the real one. Ben owns the mobile release, back to me on Friday with a date.
+[03:27] Ben: Understood.
+[03:36] Ann: Next item is the on-call rota. Ben, where are we?
+[03:45] Ben: Not great. The problem is that two people are carrying eighty percent of the pages.
+[03:54] Carla: I looked at it too. It has been like that for a while and nobody owned it.
+[04:03] Ann: What are the options?
+[04:12] Ben: Realistically one: we add a third tier and cap consecutive weeks.
+[04:21] Carla: There is a cheaper option but it only hides the symptom.
+[04:30] Ann: Then we do the real one. Ben owns the on-call rota, back to me on Friday with a date.
+[04:39] Ben: Understood.
+[04:48] Ann: Next item is the staging database. Ben, where are we?
+[04:57] Ben: Not great. The problem is that it drifted from production three months ago.
+[05:06] Carla: I looked at it too. It has been like that for a while and nobody owned it.
+[05:15] Ann: What are the options?
+[05:24] Ben: Realistically one: we restore weekly from a sanitised dump.
+[05:33] Carla: There is a cheaper option but it only hides the symptom.
+[05:42] Ann: Then we do the real one. Ben owns the staging database, back to me on Friday with a date.
+[05:51] Ben: Understood.
+[06:00] Ann: Next item is the API rate limits. Ben, where are we?
+[06:09] Ben: Not great. The problem is that one client is using sixty percent of the quota.
+[06:18] Carla: I looked at it too. It has been like that for a while and nobody owned it.
+[06:27] Ann: What are the options?
+[06:36] Ben: Realistically one: we give them a dedicated tier.
+[06:45] Carla: There is a cheaper option but it only hides the symptom.
+[06:54] Ann: Then we do the real one. Ben owns the API rate limits, back to me on Friday with a date.
+[07:03] Ben: Understood.
+[07:12] Ann: Next item is the log retention. Ben, where are we?
+[07:21] Ben: Not great. The problem is that we keep everything for a year and it costs more than the servers.
+[07:30] Carla: I looked at it too. It has been like that for a while and nobody owned it.
+[07:39] Ann: What are the options?
+[07:48] Ben: Realistically one: we drop debug logs after fourteen days.
+[07:57] Carla: There is a cheaper option but it only hides the symptom.
+[08:06] Ann: Then we do the real one. Ben owns the log retention, back to me on Friday with a date.
+[08:15] Ben: Understood.
+[08:24] Ann: Next item is the flaky end-to-end suite. Ben, where are we?
+[08:33] Ben: Not great. The problem is that it fails one run in four with no pattern.
+[08:42] Carla: I looked at it too. It has been like that for a while and nobody owned it.
+[08:51] Ann: What are the options?
+[09:00] Ben: Realistically one: we quarantine the worst six tests and fix them separately.
+[09:09] Carla: There is a cheaper option but it only hides the symptom.
+[09:18] Ann: Then we do the real one. Ben owns the flaky end-to-end suite, back to me on Friday with a date.
+[09:27] Ben: Understood.

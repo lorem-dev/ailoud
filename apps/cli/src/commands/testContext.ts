@@ -97,6 +97,7 @@ export function context(): CliContext & {
       // summary itself override this.
       const summarizer: Summarizer = {
         name: 'fake',
+        model: 'fake-model',
         contextTokens: 8192,
         complete: async (prompt: string) => {
           summarizerPrompts.push(prompt);

@@ -10,6 +10,15 @@ export interface RunResult {
 
 export interface RunOptions {
   readonly timeoutMs?: number;
+  /**
+   * Written to the child's stdin, which is then closed.
+   *
+   * The reason this exists: a prompt carrying a transcript does not fit in an
+   * argument. ARG_MAX is about a megabyte on macOS, less once the environment
+   * is counted, and a few hours of speech passes it -- the spawn then fails
+   * with E2BIG, which is a failure the user can do nothing about.
+   */
+  readonly stdin?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 30 * 60_000;
@@ -40,6 +49,13 @@ export function run(
     // shell: false is the default and must stay that way: paths reaching this
     // function come from user input, and a shell would interpret them.
     const child = spawn(command, [...args], { shell: false });
+
+    if (options.stdin !== undefined) {
+      // EPIPE if the child exits before reading it all -- which is a normal
+      // way for a child to behave, not an error worth failing the run over.
+      child.stdin.on('error', () => {});
+      child.stdin.end(options.stdin, 'utf8');
+    }
     let stdout = '';
     let stderr = '';
     let timedOut = false;

@@ -1,4 +1,11 @@
-export type { RawSegment, Recording, Segment, SpeakerName, Transcript } from './domain/model.js';
+export type {
+  RawSegment,
+  Recording,
+  Segment,
+  SpeakerName,
+  Summary,
+  Transcript,
+} from './domain/model.js';
 
 export type {
   AudioTool,
@@ -13,6 +20,7 @@ export type {
   SpeechSegmenter,
   SpeechSpan,
   Summarizer,
+  TempDir,
   TempFile,
   TranscriptionProvider,
 } from './domain/ports.js';
@@ -91,5 +99,10 @@ export type { Action, PlanOptions } from './provision/plan.js';
 export { planProvisioning, planDownloadBytes } from './provision/plan.js';
 
 export { chunkTranscript, estimateTokens, transcriptLine } from './summarize/chunk.js';
-export { buildSummaryRequest, sourceHeading } from './summarize/prompt.js';
+export {
+  transcriptFileStem,
+  transcriptFileName,
+  transcriptFileHeader,
+} from './summarize/transcriptFile.js';
+export { buildSummaryRequest, instruction, languageName, wordCap } from './summarize/prompt.js';
 export type { SummaryRequest, SummarySource } from './summarize/prompt.js';

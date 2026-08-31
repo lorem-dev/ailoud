@@ -240,10 +240,60 @@ laud summarize --tag standup
 
 `summarize` has no default selection, unlike `transcribe`: summarising the
 whole library by accident costs minutes of local inference, or real money on
-a hosted model. A transcript too long for the model is summarised in parts
-and the parts combined, split on segment boundaries. The prompt carries the
-speaker names set through `annotate`, so points are attributed to a person
-rather than to `speaker_00`.
+a hosted model.
+
+`--lang <code>` chooses the language of the summary; without it the summary is
+written in the language of the recording, because laud exists for recordings
+that are not in English and a translation nobody asked for is not a summary.
+Codes are turned into names before the model sees them -- "Write in Russian"
+holds far better than "Write in ru".
+
+Every summary is saved. `laud reports` lists them and `laud reports <id>`
+prints one:
+
+```shell
+laud reports
+laud reports SUM0
+laud reports --recording ID001
+laud reports --json
+```
+
+A summary of several recordings reuses each one's stored summary instead of
+re-reading its transcript, which is where the saving is: ten meetings from ten
+stored summaries costs a fraction of ten transcripts. Asking again about a
+_single_ recording always re-reads its transcript -- a summary of a summary is
+a game of telephone, each pass further from what anybody said. `--fresh`
+forces the transcripts either way, and `--no-save` keeps nothing.
+
+While the work runs there is a spinner, and where progress is countable it is
+counted: `Summarising portion 3/8 (37%)`. A report longer than 30 lines opens
+in your pager, where up, down and `q` behave as they do in `git` and `man`.
+
+For each recording, laud writes a transcript file into a directory that exists
+only for the length of the run -- `record-yyyymmddhhmmss.txt`, from the
+recording's own date, with `-001` appended if two recordings share a second.
+Each file opens with a header the prompt is told to read:
+
+```
+Title: Backend standup
+Recorded: 2026.08.24 09:30
+Tags: standup, backend
+Participants: Ann, Ben, speaker_01 (unnamed)
+
+[00:00] Ann: Right, let's keep this short.
+```
+
+That is where tags, the recording's date and the speaker names set through
+`annotate` reach the model, so points are attributed to a person rather than
+to `speaker_00` and a group summary can say which meeting each point came
+from. An unnamed diarizer label is listed but marked: it has to appear, or the
+model cannot attribute the lines that carry it, and it has to be marked, or it
+gets attributed as though it were somebody's name.
+
+The prompt reaches a spawned model through a file or stdin, never as an
+argument. A transcript of any length passes `ARG_MAX` -- about a megabyte on
+macOS, less once the environment is counted -- and the spawn then fails with
+`E2BIG`, which is not something a user can fix.
 
 `laud setup` asks which engine to use and writes the answer to
 `llm.provider`; `--llm local|claude-cli|claude-api|openai|skip` answers it

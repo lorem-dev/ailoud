@@ -56,6 +56,10 @@ export function extractAnthropicText(body: unknown): string {
  */
 export class AnthropicSummarizer implements Summarizer {
   public readonly name = 'anthropic';
+
+  public get model(): string {
+    return this.options.model;
+  }
   private readonly fetchImpl: typeof fetch;
 
   public constructor(private readonly options: AnthropicOptions) {

@@ -1,0 +1,14 @@
+[00:00] Ann: Right, let's keep this short. Where are we on the export job?
+[00:07] Ben: It's passing locally but it times out in CI. I think the fixture is too big.
+[00:15] Ann: How big?
+[00:17] Ben: Two hundred megabytes. It was forty last month.
+[00:23] Carla: That's my fault, I added the full customer table to it.
+[00:29] Ann: Can we sample it instead of shipping the whole thing?
+[00:34] Carla: We can, but then the pagination test stops being meaningful. It needs more rows than one page.
+[00:43] Ben: Ten thousand rows would do it and that's about four megabytes.
+[00:50] Ann: Let's do that. Carla, cut the fixture to ten thousand rows today.
+[00:57] Carla: Fine. I'll have it up this afternoon.
+[01:02] Ben: I still think CI is too slow in general. Twenty minutes is not a fast feedback loop.
+[01:10] Ann: Agreed, but that's a separate problem. Put it on next week's agenda.
+[01:17] Ben: Will do.
+[01:19] Ann: Anything else? No? Done.

@@ -32,6 +32,26 @@ export interface Transcript {
   readonly createdAt: string;
 }
 
+/**
+ * A summary someone asked for and kept.
+ *
+ * Not a field on the recording: one summary can cover several recordings, and
+ * the same recording can be summarised again in another language or by another
+ * model without the earlier one becoming wrong. `provider` and `model` are
+ * kept because they explain the text -- a summary later reused as context is
+ * worth less if nobody can tell what wrote it.
+ */
+export interface Summary {
+  readonly id: string;
+  readonly createdAt: string;
+  readonly language: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly body: string;
+  /** The recordings it covers, in id order. */
+  readonly recordingIds: readonly string[];
+}
+
 export interface Segment {
   readonly id: string;
   readonly transcriptId: string;

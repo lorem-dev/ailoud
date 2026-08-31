@@ -1,5 +1,5 @@
-import { FailureError, UsageError } from '@laud/core';
-import type { Recording, RecordingStore, Transcript } from '@laud/core';
+import { FailureError, UsageError, formatRecordedAt } from '@laud/core';
+import type { Recording, RecordingStore, Summary, Transcript } from '@laud/core';
 
 /**
  * The shortest prefix laud will resolve.
@@ -133,6 +133,32 @@ export async function resolveTranscript(
  * silently deduplicating would report deleting one when the user asked for
  * two.
  */
+/**
+ * The same, for a stored summary.
+ *
+ * Candidates are described by when they were made, by what, and over how many
+ * recordings: two summaries of one recording differ in model or language, and
+ * nothing else would tell them apart.
+ */
+export async function resolveSummary(store: RecordingStore, prefix: string): Promise<Summary> {
+  const normalized = normalizePrefix(prefix, 'report');
+  const matches = await store.findSummariesByIdPrefix(normalized);
+
+  const only = matches[0];
+  if (only !== undefined && matches.length === 1) return only;
+  if (matches.length === 0) throw new FailureError(`No report matches "${prefix}".`);
+  ambiguous(
+    prefix,
+    'report',
+    matches.map(
+      (summary) =>
+        `  ${summary.id}  ${formatRecordedAt(summary.createdAt)}  ${summary.model}  ` +
+        `${summary.recordingIds.length} recording${summary.recordingIds.length === 1 ? '' : 's'}`,
+    ),
+    matches.length,
+  );
+}
+
 export async function resolveRecordings(
   store: RecordingStore,
   prefixes: readonly string[],

@@ -33,6 +33,10 @@ export interface ClaudeCliOptions {
  */
 export class ClaudeCliSummarizer implements Summarizer {
   public readonly name = 'claude-cli';
+
+  public get model(): string {
+    return this.options.model;
+  }
   private readonly runner: typeof defaultRunner;
 
   public constructor(private readonly options: ClaudeCliOptions) {
@@ -55,10 +59,12 @@ export class ClaudeCliSummarizer implements Summarizer {
         // for it to act on.
         '--allowed-tools',
         '',
-        '--',
-        prompt,
       ],
-      { timeoutMs: COMPLETE_TIMEOUT_MS },
+      // On stdin rather than as an argument. A transcript of any length passes
+      // ARG_MAX -- about a megabyte on macOS, less once the environment is
+      // counted -- and the spawn then fails with E2BIG, which is not something
+      // the user can fix.
+      { timeoutMs: COMPLETE_TIMEOUT_MS, stdin: prompt },
     );
 
     if (result.code !== 0) {

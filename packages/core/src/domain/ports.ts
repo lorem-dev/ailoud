@@ -1,4 +1,4 @@
-import type { RawSegment, Recording, Segment, SpeakerName, Transcript } from './model.js';
+import type { RawSegment, Recording, Segment, SpeakerName, Summary, Transcript } from './model.js';
 
 export interface Clock {
   nowIso(): string;
@@ -20,6 +20,18 @@ export interface TempFile {
   remove(): Promise<void>;
 }
 
+/**
+ * A directory that exists for the length of one operation.
+ *
+ * Separate from TempFile because a summary run needs several files at once --
+ * one transcript per recording -- and needs them to have meaningful names
+ * rather than whatever a per-file temp helper chose.
+ */
+export interface TempDir {
+  readonly path: string;
+  remove(): Promise<void>;
+}
+
 export interface Fs {
   exists(path: string): Promise<boolean>;
   ensureDir(path: string): Promise<void>;
@@ -35,6 +47,10 @@ export interface Fs {
   removeFile(path: string): Promise<void>;
   isDirectory(path: string): Promise<boolean>;
   tempFile(extension: string): Promise<TempFile>;
+  /** A fresh empty directory the caller names the contents of, and removes when done. */
+  tempDir(): Promise<TempDir>;
+  /** Writes text, creating the file or replacing it. */
+  writeTextFile(path: string, content: string): Promise<void>;
 }
 
 export interface AudioTool {
@@ -131,6 +147,13 @@ export interface Diarizer {
 export interface Summarizer {
   /** For error messages and `doctor`, e.g. "llama.cpp" or "openai". */
   readonly name: string;
+  /**
+   * Which model this is, as the provider names it.
+   *
+   * Stored with every summary: a summary reused later as context is worth
+   * less if nobody can tell whether haiku or opus wrote it.
+   */
+  readonly model: string;
   /** How much the model can be shown at once, in tokens. */
   readonly contextTokens: number;
   complete(prompt: string): Promise<string>;
@@ -163,6 +186,22 @@ export interface RecordingStore {
    * there" instead of guessing.
    */
   deleteRecording(id: string): Promise<boolean>;
+  /** Stores a summary and the recordings it covers, in one transaction. */
+  insertSummary(summary: Summary): Promise<void>;
+  /**
+   * The newest summary covering exactly this one recording, or null.
+   *
+   * "Exactly this one" rather than "any that includes it": a group summary of
+   * ten meetings is not a summary of the third one, and reusing it as though
+   * it were would put nine other meetings into an answer about one.
+   */
+  latestSummaryOf(recordingId: string): Promise<Summary | null>;
+  /** Every summary touching this recording, newest first. */
+  listSummaries(recordingId: string): Promise<Summary[]>;
+  /** Every stored summary, newest first. */
+  listAllSummaries(): Promise<Summary[]>;
+  /** Every summary whose id starts with `prefix`, in id order. See findRecordingsByIdPrefix. */
+  findSummariesByIdPrefix(prefix: string): Promise<Summary[]>;
   /** Sets or replaces the human name for one diarizer label of one recording. */
   setSpeakerName(recordingId: string, label: string, name: string): Promise<void>;
   /** Every named speaker of a recording, in label order. */

@@ -46,6 +46,10 @@ export function extractCompletion(body: unknown): string {
  */
 export class OpenAiCompatibleSummarizer implements Summarizer {
   public readonly name = 'openai-compatible';
+
+  public get model(): string {
+    return this.options.model;
+  }
   private readonly fetchImpl: typeof fetch;
 
   public constructor(private readonly options: OpenAiCompatibleOptions) {

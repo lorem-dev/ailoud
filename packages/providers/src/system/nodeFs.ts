@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Fs, TempFile } from '@laud/core';
+import type { Fs, TempDir, TempFile } from '@laud/core';
 
 /** True for the one stat failure that legitimately means "does not exist". */
 function isNotFound(error: unknown): boolean {
@@ -65,5 +65,12 @@ export class NodeFs implements Fs {
       // must not outlive the temp file it was derived from.
       remove: () => rm(dir, { force: true, recursive: true }),
     };
+  }
+  async tempDir(): Promise<TempDir> {
+    const dir = await mkdtemp(join(tmpdir(), 'laud-'));
+    return { path: dir, remove: () => rm(dir, { force: true, recursive: true }) };
+  }
+  async writeTextFile(path: string, content: string): Promise<void> {
+    await writeFile(path, content, 'utf8');
   }
 }

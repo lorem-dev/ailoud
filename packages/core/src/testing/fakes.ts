@@ -9,10 +9,18 @@ import type {
   SpeakerTurn,
   SpeechSegmenter,
   SpeechSpan,
+  TempDir,
   TempFile,
   TranscriptionProvider,
 } from '../domain/ports.js';
-import type { RawSegment, Recording, Segment, SpeakerName, Transcript } from '../domain/model.js';
+import type {
+  RawSegment,
+  Recording,
+  Segment,
+  SpeakerName,
+  Summary,
+  Transcript,
+} from '../domain/model.js';
 import { SCHEMA_VERSION } from '../db/schema.js';
 import { summarizeLanguages } from '../transcribe/languages.js';
 
@@ -83,6 +91,23 @@ export class MemFs implements Fs {
         this.files.delete(path);
       },
     };
+  }
+  async tempDir(): Promise<TempDir> {
+    this.tempCounter += 1;
+    const path = `/tmp/fake-dir-${this.tempCounter}`;
+    this.dirs.add(path);
+    return {
+      path,
+      remove: async () => {
+        this.dirs.delete(path);
+        for (const key of [...this.files.keys()]) {
+          if (key.startsWith(`${path}/`)) this.files.delete(key);
+        }
+      },
+    };
+  }
+  async writeTextFile(path: string, content: string): Promise<void> {
+    this.files.set(path, content);
   }
 }
 
@@ -278,6 +303,7 @@ export class InMemoryStore implements ManagedRecordingStore {
   }
 
   readonly speakerNames = new Map<string, Map<string, string>>();
+  readonly summaries: Summary[] = [];
 
   readonly tags = new Map<string, Set<string>>();
 
@@ -299,6 +325,33 @@ export class InMemoryStore implements ManagedRecordingStore {
     return [...counts.entries()]
       .map(([tag, count]) => ({ tag, count }))
       .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  }
+
+  async insertSummary(summary: Summary): Promise<void> {
+    this.summaries.push(summary);
+  }
+
+  async latestSummaryOf(recordingId: string): Promise<Summary | null> {
+    // Covering this recording and nothing else: a group summary of ten
+    // meetings is not the summary of the third one.
+    const own = this.summaries.filter(
+      (summary) => summary.recordingIds.length === 1 && summary.recordingIds[0] === recordingId,
+    );
+    return own.length === 0 ? null : own[own.length - 1]!;
+  }
+
+  async listSummaries(recordingId: string): Promise<Summary[]> {
+    return this.summaries.filter((s) => s.recordingIds.includes(recordingId)).reverse();
+  }
+
+  async listAllSummaries(): Promise<Summary[]> {
+    return [...this.summaries].reverse();
+  }
+
+  async findSummariesByIdPrefix(prefix: string): Promise<Summary[]> {
+    return this.summaries
+      .filter((summary) => summary.id.startsWith(prefix))
+      .sort((a, b) => a.id.localeCompare(b.id));
   }
 
   async setSpeakerName(recordingId: string, label: string, name: string): Promise<void> {

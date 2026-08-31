@@ -1,0 +1,10 @@
+[00:00] Daniel: So the deploy pipeline is green now, but I want to talk about rollback.
+[00:08] Милена: Да, я как раз про это. У нас rollback занимает сорок минут, это неприемлемо.
+[00:17] Daniel: Forty minutes? Why so long?
+[00:21] Милена: Потому что мы пересобираем образ заново вместо того, чтобы взять предыдущий из registry.
+[00:31] Daniel: That's just wrong. We should keep the last three images tagged and switch the tag.
+[00:39] Милена: Согласна. Это займёт день работы, максимум два.
+[00:45] Daniel: Then let's do it. Can you take it this sprint?
+[00:50] Милена: Возьму. Но тогда мониторинг очередей переедет на следующий спринт.
+[00:58] Daniel: That's fine, queues can wait. Rollback cannot.
+[01:04] Милена: Договорились.

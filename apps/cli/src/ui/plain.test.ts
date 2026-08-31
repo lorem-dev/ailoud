@@ -224,3 +224,43 @@ describe('PlainUi', () => {
     expect(lines.at(-1)).toContain('2 optional checks');
   });
 });
+
+describe('PlainUi.summarising', () => {
+  it('reports countable progress as a percentage', async () => {
+    const lines: string[] = [];
+    const sink = new PlainUi((line) => lines.push(line));
+    await sink.summarising(async (report) => {
+      report('Summarising portion', 0, 4);
+      report('Summarising portion', 2, 4);
+      report('Combining portions', 3, 4);
+      return 'x';
+    });
+    expect(lines).toEqual([
+      'Summarising portion 0/4 (0%)',
+      'Summarising portion 2/4 (50%)',
+      'Combining portions 3/4 (75%)',
+    ]);
+  });
+
+  it('says nothing when there is one step, rather than writing "1/1 (0%)"', async () => {
+    // This path runs when stdout is a pipe: "laud summarize ID > out.md" must
+    // not get progress chatter in the file.
+    const lines: string[] = [];
+    const sink = new PlainUi((line) => lines.push(line));
+    await sink.summarising(async (report) => {
+      report('Summarising', 0, 1);
+      return 'x';
+    });
+    expect(lines).toEqual([]);
+  });
+
+  it('returns what the task returned and rethrows what it threw', async () => {
+    const sink = new PlainUi(() => {});
+    expect(await sink.summarising(async () => 42)).toBe(42);
+    await expect(
+      sink.summarising(async () => {
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+  });
+});
