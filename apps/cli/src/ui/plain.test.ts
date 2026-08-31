@@ -148,6 +148,21 @@ describe('PlainUi', () => {
     expect(lines).toEqual(['ID001  00:00:03']);
   });
 
+  it('keeps the detail column clear of a name longer than the default width', () => {
+    // "diarization segmentation model" is 30 characters; against a fixed
+    // 22-wide column it ran straight into its own detail:
+    // "diarization segmentation modelnot configured".
+    const lines: string[] = [];
+    const sink = new PlainUi((line) => lines.push(line));
+    sink.checks([
+      { name: 'ffmpeg', ok: true, detail: 'version 9.0.1' },
+      { name: 'diarization segmentation model', ok: true, detail: 'not configured' },
+    ]);
+    expect(lines[1]).toContain('diarization segmentation model not configured');
+    // Still one column: the short name pads out to meet the long one.
+    expect(lines[0]!.indexOf('version 9.0.1')).toBe(lines[1]!.indexOf('not configured'));
+  });
+
   it('renders passing and failing checks exactly like the old renderReport output', () => {
     const { ui: sink, lines } = ui();
     sink.checks([

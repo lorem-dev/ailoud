@@ -378,21 +378,33 @@ export async function checkLanguageModel(
       optional: true,
     };
   }
-  const binary = await checkBinary(
-    name,
-    settings.binary,
+  return { name, ok: true, detail: settings.model, optional: true };
+}
+
+/**
+ * The local runner, when a local runner is what is configured.
+ *
+ * Separate from the model check rather than folded into it, the same way the
+ * whisper binary and the whisper model are separate: a check carries one
+ * remedy, and one check for both meant `setup` downloaded two gigabytes of
+ * GGUF and left no `llama-cli` to run it -- without ever naming the install
+ * on the consent screen.
+ */
+export async function checkLanguageRunner(
+  configFile: string,
+  binary: string,
+  platform: NodeJS.Platform = process.platform,
+): Promise<Check> {
+  const result = await checkBinary(
+    'language runner',
+    binary,
     ['--version'],
-    installHint('llm', platform),
+    `${installHint('llm', platform)}, or set "llm.llamaCpp.binary" in ${configFile} to a ` +
+      'llama-cli built from source.',
     undefined,
-    {
-      kind: 'install-llm',
-    },
+    { kind: 'install-llm' },
   );
-  return {
-    ...binary,
-    ...(binary.ok ? { detail: `${settings.binary} with ${settings.model}` } : {}),
-    optional: true,
-  };
+  return { ...result, optional: true };
 }
 
 /** Absent is `ok`: with no config file, defaults apply and that is normal on a first run. */
@@ -522,6 +534,11 @@ export async function runChecks(
       kind: 'download-diarization-model',
       slot: 'embedding',
     }),
+    // Only for the local provider: a "language runner" line reading "not used
+    // by this provider" is noise on a machine that talks to a hosted API.
+    ...(config.llm.provider === 'llama-cpp'
+      ? [await checkLanguageRunner(paths.configFile, config.llm.llamaCpp.binary, platform)]
+      : []),
     await checkLanguageModel(paths.configFile, config.llm, env, platform),
     await checkConfigFile(paths.configFile),
     checkDatabase(context),

@@ -270,7 +270,9 @@ thirteen checks -- `ffmpeg` presence, `ffprobe` presence, the whisper binary,
 the whisper model file, the VAD binary, the VAD model file, the diarizer
 binary, the two diarization model files, the language model, the config file,
 the database path and its integrity, and the media root -- with a fix for
-each failing check. The VAD checks, the three diarization checks, and the
+each failing check. A fourteenth, the local language-model runner, is added
+only when `llm.provider` is `llama-cpp`, since the hosted providers have no
+runner to check. The VAD checks, the three diarization checks, and the
 language-model check are all optional the same way: because `--multilingual`,
 `--diarize` and `summarize` are opt-in, a failing check for one of them still
 reports its state, but never makes `doctor` exit non-zero by itself -- only

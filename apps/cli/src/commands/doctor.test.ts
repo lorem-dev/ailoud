@@ -400,6 +400,34 @@ describe('runChecks', () => {
     }
   });
 
+  it('asks for the local runner AND the model, so one setup provisions both', async () => {
+    // A single check carries a single remedy, so folding the runner into the
+    // model check made setup download two gigabytes and leave no llama-cli to
+    // run it -- and never mention the install on the consent screen.
+    vi.stubEnv('PATH', '');
+    try {
+      const checks = await runChecks(context(), 'linux');
+      expect(checks.find((c) => c.name === 'language runner')?.remedy).toEqual({
+        kind: 'install-llm',
+      });
+      expect(checks.find((c) => c.name === 'language model')?.remedy).toEqual({
+        kind: 'download-llm-model',
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('does not check a local runner a hosted provider will never use', async () => {
+    const ctx = context();
+    const hosted = {
+      ...ctx,
+      config: { ...ctx.config, llm: { ...ctx.config.llm, provider: 'anthropic' as const } },
+    };
+    const checks = await runChecks(hosted, 'linux');
+    expect(checks.map((c) => c.name)).not.toContain('language runner');
+  });
+
   it('checks the diarizer binary and both its models, unconditionally, with the right remedies', async () => {
     // testContext.ts's default context() leaves diarization unconfigured
     // (schema defaults), so all three checks fail here and each must carry

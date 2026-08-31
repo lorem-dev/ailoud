@@ -237,7 +237,8 @@ export function planNeedsPackageManager(
   return actions.some(
     (action) =>
       action.kind === 'install-ffmpeg' ||
-      (action.kind === 'install-whisper' && platform === 'darwin'),
+      ((action.kind === 'install-whisper' || action.kind === 'install-llm') &&
+        platform === 'darwin'),
   );
 }
 

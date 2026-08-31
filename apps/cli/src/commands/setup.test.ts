@@ -333,6 +333,17 @@ describe('planNeedsPackageManager', () => {
     ).toBe(false);
   });
 
+  it('is true for install-llm on macOS, where brew does the work', () => {
+    // Without this, the manager is never probed, so the plan prints the
+    // tarball route while the runner actually shells out to brew -- consent
+    // given for something other than what runs.
+    expect(planNeedsPackageManager([{ kind: 'install-llm' }], 'darwin')).toBe(true);
+  });
+
+  it('is false for install-llm on Linux, which uses the release tarball', () => {
+    expect(planNeedsPackageManager([{ kind: 'install-llm' }], 'linux')).toBe(false);
+  });
+
   it('is false for install-diarizer on every platform -- sherpa-onnx has no package-manager route', () => {
     expect(planNeedsPackageManager([{ kind: 'install-diarizer' }], 'linux')).toBe(false);
     expect(planNeedsPackageManager([{ kind: 'install-diarizer' }], 'darwin')).toBe(false);

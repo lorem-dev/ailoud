@@ -121,7 +121,9 @@ export function planProvisioning(
 export function planDownloadBytes(actions: readonly Action[]): number {
   return actions.reduce(
     (total, action) =>
-      action.kind === 'download-model' || action.kind === 'download-diarization-model'
+      action.kind === 'download-model' ||
+      action.kind === 'download-diarization-model' ||
+      action.kind === 'download-llm-model'
         ? total + action.model.bytes
         : total,
     0,

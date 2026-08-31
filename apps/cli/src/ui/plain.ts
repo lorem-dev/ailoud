@@ -93,12 +93,16 @@ export class PlainUi implements Ui {
   }
 
   public checks(checks: readonly Check[]): void {
+    // Widened to fit the longest name rather than fixed, or a name past the
+    // default runs straight into its own detail with nothing between them.
+    // NAME_WIDTH stays the floor, so a short list keeps its usual shape.
+    const nameWidth = Math.max(NAME_WIDTH, ...checks.map((check) => check.name.length + 1));
     for (const check of checks) {
       // Three states, not two -- see checkStatus. An optional failure still
       // gets its fix line: it is the one thing that tells the reader how to
       // turn the feature on if they want it.
       const status = checkStatus(check).padEnd(STATUS_WIDTH);
-      this.write(`${status}${check.name.padEnd(NAME_WIDTH)}${check.detail}`);
+      this.write(`${status}${check.name.padEnd(nameWidth)}${check.detail}`);
       if (!check.ok && check.fix !== undefined) {
         this.write(`${' '.repeat(STATUS_WIDTH)}fix: ${check.fix}`);
       }

@@ -217,3 +217,15 @@
 - `laud setup` installs llama.cpp -- `brew` on macOS, a pinned release tarball
   on Linux, where every target laud supports is published -- and downloads
   Qwen2.5-3B-Instruct (Q4_K_M, about 2 GB) as the local summarisation model.
+- The local runner and the local model are two `doctor` checks, not one. A
+  check carries one remedy, so folding them together made `setup` download two
+  gigabytes of GGUF and leave no `llama-cli` to run it -- without naming the
+  install on the consent screen. The runner check appears only when
+  `llm.provider` is `llama-cpp`.
+- The consent screen counts the language model in its download total, and
+  names `brew install llama.cpp` on macOS instead of the tarball it does not
+  use there. Both made it ask for consent to something other than what would
+  run, which is the one thing the plan exists to prevent.
+- `doctor`'s undecorated output widens its name column to the longest check
+  name. At a fixed width, `diarization segmentation model` ran into its own
+  detail: `diarization segmentation modelnot configured`.

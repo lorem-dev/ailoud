@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Remedy } from './remedy.js';
 import { planDownloadBytes, planProvisioning } from './plan.js';
-import { DEFAULT_MODEL_NAME, EMBEDDING_MODEL, SEGMENTATION_MODEL, VAD_MODEL } from './catalogue.js';
+import {
+  DEFAULT_MODEL_NAME,
+  EMBEDDING_MODEL,
+  LANGUAGE_MODEL,
+  SEGMENTATION_MODEL,
+  VAD_MODEL,
+} from './catalogue.js';
 
 const opts = { modelName: DEFAULT_MODEL_NAME };
 
@@ -130,6 +136,14 @@ describe('planProvisioning', () => {
 });
 
 describe('planDownloadBytes', () => {
+  it('counts the language model, the largest download of the lot', () => {
+    // Left out, the consent screen understates a two-gigabyte download by two
+    // gigabytes -- and consent given on a wrong number is the one thing the
+    // plan promises never to ask for.
+    const actions = planProvisioning([{ kind: 'download-llm-model' }], opts);
+    expect(planDownloadBytes(actions)).toBe(LANGUAGE_MODEL.bytes);
+  });
+
   it('counts diarization model downloads alongside transcription/VAD ones', () => {
     const actions = planProvisioning(
       [
