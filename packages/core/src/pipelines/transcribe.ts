@@ -7,6 +7,7 @@ import type {
   RecordingStore,
   SpeakerTurn,
   SpeechSegmenter,
+  SpeechSpan,
   TranscriptionProvider,
 } from '../domain/ports.js';
 import type { RawSegment, Recording, Segment, Transcript } from '../domain/model.js';
@@ -20,6 +21,7 @@ import {
   type DetectedSpan,
   type LanguageRun,
 } from '../transcribe/merge.js';
+import { resolveBySpeaker } from '../transcribe/bySpeaker.js';
 
 export interface TranscribeDeps {
   readonly fs: Fs;
@@ -89,13 +91,64 @@ export interface TranscribeOptions {
  * not. Section 5.7 of the diarization design names the "emits nothing
  * parseable" case explicitly.
  */
+/**
+ * Speaker turns for use as detection units, or nothing.
+ *
+ * Never throws, for the same reason withSpeakers does not: the diarizer is an
+ * enrichment here too. If it is missing or fails, the run falls back to the
+ * segmenter's spans and still produces a transcript -- losing the better
+ * segmentation, not the words.
+ *
+ * The turns are fetched once and used twice: here to decide what to detect
+ * language on, and later by withSpeakers to label the segments. Running the
+ * diarizer twice over the same audio would double the cost for one answer.
+ */
+async function diarizeQuietly(
+  deps: TranscribeDeps,
+  options: TranscribeOptions,
+  wavPath: string,
+): Promise<readonly SpeakerTurn[]> {
+  if (deps.diarizer === undefined) return [];
+  try {
+    return await deps.diarizer.turns(wavPath, {
+      ...(options.speakers === undefined ? {} : { speakers: options.speakers }),
+    });
+  } catch (error) {
+    deps.onWarning?.(
+      `speaker diarization failed, so language detection fell back to speech segmentation: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return [];
+  }
+}
+
 async function withSpeakers(
   deps: TranscribeDeps,
   options: TranscribeOptions,
   wavPath: string,
   segments: readonly RawSegment[],
+  /**
+   * Turns already fetched by the caller, reused rather than asked for again.
+   * The multilingual path needs them earlier, to decide what to detect
+   * language on, and diarizing the same audio twice would double the cost
+   * for one answer. Empty means "not fetched yet, go and get them".
+   */
+  alreadyFetched: readonly SpeakerTurn[] = [],
 ): Promise<RawSegment[]> {
   if (options.diarize !== true) return [...segments];
+  if (alreadyFetched.length > 0) {
+    try {
+      return assignSpeakers(segments, alreadyFetched);
+    } catch (error) {
+      deps.onWarning?.(
+        `assigning speakers failed, so this transcript has no speakers: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return [...segments];
+    }
+  }
   if (deps.diarizer === undefined) {
     // Unreachable from the CLI: `CliContext.createDiarizer()` is
     // non-nullable, so `--diarize` either yields a diarizer or throws an
@@ -275,28 +328,56 @@ async function transcribeMultilingual(
   try {
     await deps.audio.toWav16kMono(`${deps.mediaRoot}/${recording.mediaPath}`, tempWav.path);
 
-    const spans = await segmenter.segments(tempWav.path);
     const declared = options.declaredLanguages ?? [];
-    const windows = subdivideSpans(spans, detectionWindowMs(declared.length));
 
-    const detected: DetectedSpan[] = [];
-    for (const window of windows) {
+    // Speaker turns are better detection units than windows cut from speech
+    // spans, when they are available: they are the boundaries language
+    // actually changes on in a bilingual exchange, and pooling a speaker's
+    // turns gives detection far more audio to judge by than any one turn
+    // does. See resolveBySpeaker. Falls back to the segmenter when no
+    // diarizer was wired up, which is every run without --diarize.
+    const speakerTurns =
+      options.diarize === true && deps.diarizer !== undefined
+        ? await diarizeQuietly(deps, options, tempWav.path)
+        : [];
+
+    const units: readonly (SpeechSpan & { readonly speaker?: string })[] =
+      speakerTurns.length > 0
+        ? speakerTurns
+        : subdivideSpans(
+            await segmenter.segments(tempWav.path),
+            detectionWindowMs(declared.length),
+          );
+
+    const detected: (DetectedSpan & { speaker?: string })[] = [];
+    for (const unit of units) {
       const slice = await deps.fs.tempFile('.wav');
       try {
-        await deps.audio.slice(tempWav.path, slice.path, window.startMs, window.endMs);
+        await deps.audio.slice(tempWav.path, slice.path, unit.startMs, unit.endMs);
         const language = await detectLanguage(slice.path, {
           ...(options.model === undefined ? {} : { model: options.model }),
         });
-        detected.push({ ...window, language });
+        detected.push({ ...unit, language });
       } finally {
         await slice.remove();
       }
     }
 
-    // Applied before merging, not after: mergeRuns groups by language, so a
-    // window still carrying a mis-detected language would split a run that
-    // should have been continuous.
-    const runs = mergeRuns(resolveDeclaredLanguages(detected, declared));
+    // Resolved before merging, not after: mergeRuns groups by language, so a
+    // unit still carrying a mis-detected language would split a run that
+    // should have been continuous -- which is how the first half of a phrase
+    // ends up transcribed in the wrong language and lost.
+    //
+    // With speaker labels the resolution is per speaker (their own turns
+    // outvote a bad one); without them it can only be per declared set.
+    const resolved =
+      speakerTurns.length > 0
+        ? resolveBySpeaker(
+            detected.map((unit) => ({ ...unit, speaker: unit.speaker ?? '' })),
+            declared,
+          )
+        : resolveDeclaredLanguages(detected, declared);
+    const runs = mergeRuns(resolved);
     if (runs.length === 0) {
       throw new FailureError(`${deps.stt.name} found no speech in ${recording.sourcePath}`);
     }
@@ -338,7 +419,13 @@ async function transcribeMultilingual(
     // Every run's segments are already shifted onto the recording's absolute
     // timeline (see the comment above), so one diarizer pass over the whole
     // wav -- not one per run -- lines up with all of them at once.
-    const withSpeakerLabels = await withSpeakers(deps, options, tempWav.path, allSegments);
+    const withSpeakerLabels = await withSpeakers(
+      deps,
+      options,
+      tempWav.path,
+      allSegments,
+      speakerTurns,
+    );
 
     // The file has no single language; the longest run by duration is the
     // least wrong answer for a column that must hold one value. Strictly

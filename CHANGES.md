@@ -64,6 +64,19 @@
   machine that never transcribes code-switched audio no longer carries a
   permanently failing `doctor` over it. `transcribe --multilingual` still
   exits 3 with an actionable message when the VAD model is not configured.
+- Multilingual mode detects language per SPEAKER TURN when `--diarize` is on,
+  instead of per fixed-size window, and decides each speaker's language from
+  all of their turns pooled. Turns are the boundaries language actually
+  changes on in a bilingual exchange, and pooling gives detection far more
+  audio than any single two-second turn does -- which dissolves the trade
+  between detecting reliably and localising a switch, rather than splitting
+  it. The diarizer runs once and its turns are reused for both jobs.
+- The audio fixtures now carry 400ms of silence between turns. Without it they
+  were not conversations: voice-activity detection found one span in a
+  36-second twelve-turn file, so it could not locate a single turn boundary
+  and the multilingual code had to guess at them with windows. With the gaps
+  it returns one span per turn, and transcription of the bilingual fixture
+  went from five of six English turns lost to all twelve turns present.
 - `transcribe --stt-lang <code>` is now `--lang <codes>` and takes a set:
   `--lang ru,en`. Naming two or more languages turns multilingual mode on by
   itself, since naming them IS the statement that the recording switches

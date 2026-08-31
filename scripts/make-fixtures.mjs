@@ -112,15 +112,40 @@ function synthesizeClause(scratch, id, voice, text) {
   return wav;
 }
 
-/** Concatenates two or more same-format WAVs into one, in order. */
+/**
+ * Silence inserted between turns, in seconds.
+ *
+ * Without it these files are not conversations. Concatenated `say` output
+ * runs one turn straight into the next with no gap at all, and a real
+ * exchange never does -- people pause when they hand over. It also matters
+ * mechanically: voice-activity detection separates speech from silence, so
+ * with no silence to find it returned ONE span for a 36-second twelve-turn
+ * file, which made it useless for locating turn boundaries and sent the
+ * multilingual code looking for them with fixed-size windows instead.
+ *
+ * 400ms is a short handover -- long enough for a detector to see, short
+ * enough that the exchange still sounds brisk rather than staged.
+ */
+const TURN_GAP_SECONDS = 0.4;
+
+/** Concatenates two or more same-format WAVs into one, with a gap between turns. */
 function concatenate(clauseWavs, outputWav) {
   if (clauseWavs.length === 1) {
     run('ffmpeg', ['-v', 'error', '-y', '-i', clauseWavs[0], '-c', 'copy', outputWav]);
     return;
   }
   const inputArgs = clauseWavs.flatMap((wav) => ['-i', wav]);
-  const labels = clauseWavs.map((_, i) => `[${i}:a]`).join('');
-  const filter = `${labels}concat=n=${clauseWavs.length}:v=0:a=1[out]`;
+  // Each turn is followed by silence except the last: apad adds it, atrim
+  // bounds it, so every input contributes its speech plus one gap.
+  const padded = clauseWavs
+    .map((_, i) =>
+      i === clauseWavs.length - 1
+        ? `[${i}:a]anull[p${i}]`
+        : `[${i}:a]apad=pad_dur=${TURN_GAP_SECONDS}[p${i}]`,
+    )
+    .join(';');
+  const labels = clauseWavs.map((_, i) => `[p${i}]`).join('');
+  const filter = `${padded};${labels}concat=n=${clauseWavs.length}:v=0:a=1[out]`;
   run('ffmpeg', [
     '-v',
     'error',

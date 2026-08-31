@@ -23,6 +23,8 @@ export { orderLanguages, summarizeLanguages } from './transcribe/languages.js';
 export type { LanguageTotal } from './transcribe/languages.js';
 
 export { assignSpeakers } from './diarize/assign.js';
+export { resolveBySpeaker } from './transcribe/bySpeaker.js';
+export type { DetectedTurn } from './transcribe/bySpeaker.js';
 
 export {
   MIN_RUN_DURATION_MS,
