@@ -25,6 +25,11 @@ describe('importRecording', () => {
       mime: 'audio/mpeg',
       title: null,
       notes: null,
+      // The fake reports no creation time, which is the common real case:
+      // wav carries no such tag. recordedOrImportedAt resolves the fallback
+      // at the point of use, so this staying null is correct rather than a
+      // gap.
+      recordedAt: null,
       importedAt: '2026-01-01T00:00:00.000Z',
     });
     expect(d.fs.files.has('/data/media/sh/sha-AUDIO.mp3')).toBe(true);
@@ -93,5 +98,26 @@ describe('importPath', () => {
     d.fs.dirs.add('/nested/sub');
     d.fs.files.set('/nested/sub/talk.mp3', 'AUDIO');
     await expect(importPath(d, { path: '/nested' })).rejects.toThrow(/No media files found/);
+  });
+});
+
+describe('importRecording and the recording date', () => {
+  it('takes the date from the container when it has one', async () => {
+    const d = deps();
+    // A file that knows when it was recorded, as mp4 and mov usually do.
+    const withDate = {
+      ...d,
+      audio: new FakeAudioTool(90_000, d.fs, '2024-03-15T10:23:45.000Z'),
+    };
+    const { recording } = await importRecording(withDate, { path: '/in/talk.mp3' });
+    expect(recording.recordedAt).toBe('2024-03-15T10:23:45.000Z');
+    // Kept apart from when laud saw it, so the two remain distinguishable.
+    expect(recording.importedAt).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it('leaves the date null when the container carries none', async () => {
+    const d = deps();
+    const { recording } = await importRecording(d, { path: '/in/talk.mp3' });
+    expect(recording.recordedAt).toBeNull();
   });
 });

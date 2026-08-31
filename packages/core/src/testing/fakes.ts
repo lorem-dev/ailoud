@@ -94,10 +94,16 @@ export class FakeAudioTool implements AudioTool {
   constructor(
     private readonly durationMs = 60_000,
     private readonly fs?: MemFs,
+    /**
+     * What probe() reports as the container's creation time. Null by default
+     * because that is the common real case -- wav carries no such tag -- so a
+     * test that does not care about dates exercises the fallback path.
+     */
+    private readonly recordedAt: string | null = null,
   ) {}
 
-  async probe(): Promise<{ durationMs: number }> {
-    return { durationMs: this.durationMs };
+  async probe(): Promise<{ durationMs: number; recordedAt: string | null }> {
+    return { durationMs: this.durationMs, recordedAt: this.recordedAt };
   }
   async toWav16kMono(input: string, output: string): Promise<void> {
     this.converted.push([input, output]);

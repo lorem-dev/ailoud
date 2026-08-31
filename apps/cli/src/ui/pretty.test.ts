@@ -48,6 +48,7 @@ const A_RECORDING: Recording = {
   mime: 'audio/mpeg',
   title: null,
   notes: null,
+  recordedAt: null,
   importedAt: '2026-01-01T00:00:00.000Z',
 };
 

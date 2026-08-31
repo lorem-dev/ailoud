@@ -51,6 +51,17 @@ export const MIGRATIONS: readonly Migration[] = [
        END`,
     ],
   },
+  {
+    version: 2,
+    statements: [
+      // When the audio was recorded, as opposed to when laud was told about
+      // it. Nullable on purpose: most containers carry no such tag, and a
+      // column that always held a value would make "we know" and "we
+      // guessed" indistinguishable. Callers resolve the fallback with
+      // recordedOrImportedAt.
+      `ALTER TABLE recording ADD COLUMN recorded_at TEXT`,
+    ],
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

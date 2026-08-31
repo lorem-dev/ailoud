@@ -17,6 +17,7 @@ interface RecordingRow {
   mime: string;
   title: string | null;
   notes: string | null;
+  recorded_at: string | null;
   imported_at: string;
 }
 
@@ -57,6 +58,7 @@ const toRecording = (row: RecordingRow): Recording => ({
   mime: row.mime,
   title: row.title,
   notes: row.notes,
+  recordedAt: row.recorded_at,
   importedAt: row.imported_at,
 });
 
@@ -129,8 +131,9 @@ export class SqliteStore implements ManagedRecordingStore {
     this.db
       .prepare(
         `INSERT INTO recording
-         (id, sha256, source_path, media_path, duration_ms, mime, title, notes, imported_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, sha256, source_path, media_path, duration_ms, mime, title, notes, recorded_at,
+          imported_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         r.id,
@@ -141,6 +144,7 @@ export class SqliteStore implements ManagedRecordingStore {
         r.mime,
         r.title,
         r.notes,
+        r.recordedAt,
         r.importedAt,
       );
   }

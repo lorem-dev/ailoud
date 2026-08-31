@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { UsageError } from '@laud/core';
 import { buildProgram } from '../program.js';
 import { context } from './testContext.js';
+import type { MemFs } from '@laud/core/testing';
 import { describeDeletion } from './rm.js';
 
 vi.mock('@clack/prompts', async () => {
@@ -13,7 +14,9 @@ async function withOneRecording() {
   const ctx = context();
   await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
   ctx.lines.length = 0;
-  return ctx;
+  // The context's `fs` is typed as the port; these tests need to look inside
+  // the in-memory implementation to see which files actually exist.
+  return { ...ctx, memFs: ctx.fs as MemFs };
 }
 
 describe('describeDeletion', () => {
@@ -47,7 +50,7 @@ describe('describeDeletion', () => {
 describe('laud rm', () => {
   it('deletes the recording and laud copy of its audio', async () => {
     const ctx = await withOneRecording();
-    const mediaFiles = () => [...ctx.fs.files.keys()].filter((p) => p.includes('/media/'));
+    const mediaFiles = () => [...ctx.memFs.files.keys()].filter((p) => p.includes('/media/'));
     expect(mediaFiles()).toHaveLength(1);
 
     await buildProgram(ctx).parseAsync(['node', 'laud', 'rm', 'ID001', '--force']);
@@ -60,7 +63,7 @@ describe('laud rm', () => {
     const ctx = await withOneRecording();
     await buildProgram(ctx).parseAsync(['node', 'laud', 'rm', 'ID001', '--force']);
     // The whole point of the wording in describeDeletion.
-    expect(ctx.fs.files.has('/in/a.mp3')).toBe(true);
+    expect(ctx.memFs.files.has('/in/a.mp3')).toBe(true);
   });
 
   it('deletes nothing at all when any id is unknown', async () => {
@@ -75,8 +78,8 @@ describe('laud rm', () => {
 
   it('says so, rather than failing, when the audio was already gone', async () => {
     const ctx = await withOneRecording();
-    for (const path of [...ctx.fs.files.keys()]) {
-      if (path.includes('/media/')) ctx.fs.files.delete(path);
+    for (const path of [...ctx.memFs.files.keys()]) {
+      if (path.includes('/media/')) ctx.memFs.files.delete(path);
     }
     await buildProgram(ctx).parseAsync(['node', 'laud', 'rm', 'ID001', '--force']);
     expect(ctx.lines.join('\n')).toMatch(/already gone/);

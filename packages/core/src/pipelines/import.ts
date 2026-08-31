@@ -39,7 +39,7 @@ export async function importRecording(
   const existing = await deps.store.findRecordingBySha(sha256);
   if (existing !== null) return { recording: existing, alreadyPresent: true };
 
-  const { durationMs } = await deps.audio.probe(request.path);
+  const { durationMs, recordedAt } = await deps.audio.probe(request.path);
   const mediaPath = `${sha256.slice(0, 2)}/${sha256}${extensionOf(request.path)}`;
   const absolute = `${deps.mediaRoot}/${mediaPath}`;
   await deps.fs.ensureDir(`${deps.mediaRoot}/${sha256.slice(0, 2)}`);
@@ -54,6 +54,10 @@ export async function importRecording(
     mime,
     title: request.title ?? null,
     notes: request.notes ?? null,
+    // What the file says about itself, kept apart from when laud first saw
+    // it. Null is the common case; recordedOrImportedAt resolves the fallback
+    // at the point of use, so the distinction survives in storage.
+    recordedAt,
     importedAt: deps.clock.nowIso(),
   };
   await deps.store.insertRecording(recording);

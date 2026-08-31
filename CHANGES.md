@@ -64,6 +64,17 @@
   machine that never transcribes code-switched audio no longer carries a
   permanently failing `doctor` over it. `transcribe --multilingual` still
   exits 3 with an actionable message when the VAD model is not configured.
+- Recordings carry the date the audio was recorded, read from the container's
+  own metadata (`creation_time`, which mp4 and mov usually have and wav
+  usually does not). It is stored separately from the import timestamp rather
+  than folded into it, so "when was this recorded" and "when did laud first
+  see it" stay distinguishable; `recordedOrImportedAt` resolves the fallback
+  at the point of use. A placeholder date -- the Unix epoch, or an unparseable
+  tag -- is refused rather than stored, because 1970 would be silently wrong
+  where null is merely unknown.
+- Schema version 2 adds the column. Existing databases migrate in place, with
+  their recordings kept and no date of their own, which is the truth: nothing
+  knows retroactively when they were recorded.
 - `laud rm <ids...>` deletes recordings from the library, with their
   transcripts and segments, and with laud's own copy of the audio. The file
   you imported from is never touched -- `import` copies into laud's storage

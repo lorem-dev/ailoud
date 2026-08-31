@@ -1,5 +1,5 @@
 import type { AudioTool } from '@laud/core';
-import { FailureError } from '@laud/core';
+import { FailureError, normalizeRecordedAt } from '@laud/core';
 import { run } from '../process/run.js';
 
 // Re-encoding audio re-reads the input and writes a new output. The time
@@ -14,24 +14,42 @@ export class FfmpegAudioTool implements AudioTool {
     private readonly ffprobe = 'ffprobe',
   ) {}
 
-  async probe(path: string): Promise<{ durationMs: number }> {
+  async probe(path: string): Promise<{ durationMs: number; recordedAt: string | null }> {
     // Reading container metadata should be fast. A tight timeout here signals
     // a real problem like a corrupt file or network issue, which is exactly
     // what a timeout is for.
     const result = await run(
       this.ffprobe,
-      ['-v', 'error', '-show_entries', 'format=duration', '-of', 'json', path],
+      [
+        '-v',
+        'error',
+        // creation_time comes along for free in the same read. mp4 and mov
+        // usually carry it; wav usually does not, which is why the field is
+        // nullable rather than required.
+        '-show_entries',
+        'format=duration:format_tags=creation_time',
+        '-of',
+        'json',
+        path,
+      ],
       { timeoutMs: 60_000 },
     );
     if (result.code !== 0) {
       throw new FailureError(`ffprobe could not read ${path}: ${result.stderr.trim()}`);
     }
-    const parsed = JSON.parse(result.stdout) as { format?: { duration?: string } };
+    const parsed = JSON.parse(result.stdout) as {
+      format?: { duration?: string; tags?: { creation_time?: string } };
+    };
     const seconds = Number(parsed.format?.duration);
     if (!Number.isFinite(seconds)) {
       throw new FailureError(`ffprobe reported no duration for ${path}`);
     }
-    return { durationMs: Math.round(seconds * 1000) };
+    return {
+      durationMs: Math.round(seconds * 1000),
+      // A missing or nonsense tag is not an import failure: the recording is
+      // still perfectly usable, it just has no date of its own.
+      recordedAt: normalizeRecordedAt(parsed.format?.tags?.creation_time),
+    };
   }
 
   async toWav16kMono(input: string, output: string): Promise<void> {

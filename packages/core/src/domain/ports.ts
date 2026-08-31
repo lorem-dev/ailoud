@@ -38,7 +38,14 @@ export interface Fs {
 }
 
 export interface AudioTool {
-  probe(path: string): Promise<{ durationMs: number }>;
+  /**
+   * Container facts. `recordedAt` is the creation-time tag normalised to an
+   * ISO instant, or null when the file carries none or carries a
+   * placeholder -- see normalizeRecordedAt. Returned from the same call as
+   * the duration rather than a second one: it is the same ffprobe read, and
+   * splitting it would double the cost of importing every file.
+   */
+  probe(path: string): Promise<{ durationMs: number; recordedAt: string | null }>;
   toWav16kMono(input: string, output: string): Promise<void>;
   /**
    * Writes the audio between `startMs` and `endMs` to `output`. This is the

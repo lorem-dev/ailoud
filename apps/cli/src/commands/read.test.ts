@@ -19,6 +19,7 @@ async function seedCodeSwitched(ctx: CliContext): Promise<void> {
     mime: 'audio/wav',
     title: null,
     notes: null,
+    recordedAt: null,
     importedAt: '2026-01-01T00:00:00.000Z',
   };
   const transcript: Transcript = {
@@ -133,6 +134,7 @@ describe('laud ls', () => {
       mime: 'audio/mpeg',
       title: null,
       notes: null,
+      recordedAt: null,
       importedAt: '2026-01-01T00:00:00.000Z',
     };
     await ctx.store.insertRecording(recording);
@@ -261,6 +263,7 @@ describe('laud show', () => {
       mime: 'audio/mpeg',
       title: null,
       notes: null,
+      recordedAt: null,
       importedAt: '2026-01-01T00:00:05.000Z',
     };
     await ctx.store.insertRecording(other);

@@ -7,6 +7,18 @@ export interface Recording {
   readonly mime: string;
   readonly title: string | null;
   readonly notes: string | null;
+  /**
+   * When the audio was recorded, from the container's own metadata, or null
+   * when it carries none -- which is most of the time for wav, and usual for
+   * anything re-encoded.
+   *
+   * Kept separate from `importedAt` rather than folded into it: a date read
+   * from the file is a fact about the recording, and the import timestamp is
+   * a fact about laud. Storing only the resolved value would answer "when
+   * was this recorded" with a number that might mean "when did I first see
+   * it", with no way to tell which. Use `recordedOrImportedAt` to resolve.
+   */
+  readonly recordedAt: string | null;
   readonly importedAt: string;
 }
 

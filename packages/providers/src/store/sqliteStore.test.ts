@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Recording, Segment, Transcript } from '@laud/core';
-import { SCHEMA_VERSION } from '@laud/core';
+import { MIGRATIONS, SCHEMA_VERSION } from '@laud/core';
 import { openStore } from './sqliteStore.js';
 
 const recording: Recording = {
@@ -16,6 +16,7 @@ const recording: Recording = {
   mime: 'audio/mpeg',
   title: null,
   notes: null,
+  recordedAt: null,
   importedAt: '2026-01-01T00:00:00.000Z',
 };
 
@@ -284,6 +285,61 @@ describe('SqliteStore.deleteRecording', () => {
     expect(Number(after.n)).toBe(0);
 
     inspector.close();
+    store.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe('SqliteStore and the recording date', () => {
+  it('round-trips a date read from the container', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording({ ...recording, recordedAt: '2024-03-15T10:23:45.000Z' });
+    expect((await store.getRecording('R1'))?.recordedAt).toBe('2024-03-15T10:23:45.000Z');
+    store.close();
+  });
+
+  it('round-trips the absence of one', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording({ ...recording, recordedAt: null });
+    expect((await store.getRecording('R1'))?.recordedAt).toBeNull();
+    store.close();
+  });
+
+  it('migrates a version 1 database without losing its rows', async () => {
+    // The upgrade path real users take, rather than a fresh database. A
+    // migration that dropped or rewrote existing recordings would be far
+    // worse than one that failed outright, so this asserts the rows survive
+    // and simply have no date of their own -- which is the truth: nothing
+    // knows retroactively when they were recorded.
+    const dir = await mkdtemp(join(tmpdir(), 'laud-migrate-'));
+    const dbFile = join(dir, 'laud.db');
+
+    const v1 = new DatabaseSync(dbFile);
+    for (const statement of MIGRATIONS[0]!.statements) v1.exec(statement);
+    v1.exec('PRAGMA user_version = 1');
+    v1.prepare(
+      `INSERT INTO recording
+         (id, sha256, source_path, media_path, duration_ms, mime, title, notes, imported_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'OLD1',
+      'oldsha',
+      '/in/old.mp3',
+      'ol/oldsha.mp3',
+      4242,
+      'audio/mpeg',
+      null,
+      null,
+      '2025-01-01T00:00:00.000Z',
+    );
+    v1.close();
+
+    const store = openStore(dbFile);
+    expect(store.schemaVersion()).toBe(SCHEMA_VERSION);
+    const migrated = await store.getRecording('OLD1');
+    expect(migrated?.durationMs).toBe(4242);
+    expect(migrated?.importedAt).toBe('2025-01-01T00:00:00.000Z');
+    expect(migrated?.recordedAt).toBeNull();
     store.close();
     await rm(dir, { recursive: true, force: true });
   });
