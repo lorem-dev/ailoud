@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FailureError, UsageError } from '@laud/core';
 import type { Recording } from '@laud/core';
 import { InMemoryStore } from '@laud/core/testing';
-import { resolveRecording, resolveRecordings } from './resolveId.js';
+import { resolveRecording, resolveRecordings, resolveTranscript } from './resolveId.js';
 
 function recording(id: string, sourcePath = `/in/${id}.mp3`): Recording {
   return {
@@ -130,5 +130,57 @@ describe('resolveRecordings', () => {
   it('returns nothing for no prefixes', async () => {
     const store = await storeWith('01AA');
     expect(await resolveRecordings(store, [])).toEqual([]);
+  });
+});
+
+describe('resolveTranscript', () => {
+  function transcript(id: string, recordingId = 'REC1', language = 'en') {
+    return {
+      id,
+      recordingId,
+      provider: 'whisper-cpp',
+      model: 'small',
+      language,
+      text: 'hello',
+      createdAt: `2026-01-0${id.slice(-1)}T00:00:00.000Z`,
+    };
+  }
+
+  async function storeWithTranscripts(...ids: string[]): Promise<InMemoryStore> {
+    const store = new InMemoryStore();
+    await store.insertRecording(recording('REC1'));
+    for (const id of ids) await store.insertTranscript(transcript(id), []);
+    return store;
+  }
+
+  it('resolves a prefix that picks out exactly one transcript', async () => {
+    const store = await storeWithTranscripts('01AA1', '01BB2');
+    expect((await resolveTranscript(store, '01A')).id).toBe('01AA1');
+  });
+
+  it('says nothing matched, naming transcripts rather than recordings', async () => {
+    const store = await storeWithTranscripts('01AA1');
+    await expect(resolveTranscript(store, 'ZZ')).rejects.toThrow(/No transcript matches "ZZ"/);
+  });
+
+  it('identifies ambiguous candidates by date and language, not by source path', async () => {
+    // Two transcripts of one recording share a source path entirely, so
+    // showing it would tell the user nothing about which is which.
+    const store = new InMemoryStore();
+    await store.insertRecording(recording('REC1'));
+    await store.insertTranscript(transcript('01AA1', 'REC1', 'en'), []);
+    await store.insertTranscript(transcript('01AA2', 'REC1', 'ru'), []);
+    const error: unknown = await resolveTranscript(store, '01A').catch((e: unknown) => e);
+    const message = error instanceof Error ? error.message : String(error);
+    expect(message).toMatch(/matches 2 transcripts/);
+    expect(message).toContain('en');
+    expect(message).toContain('ru');
+    expect(message).toContain('2026-01-0');
+  });
+
+  it('shares the prefix rules with recordings, wording them for transcripts', async () => {
+    const store = await storeWithTranscripts('01AA1');
+    await expect(resolveTranscript(store, 'A')).rejects.toThrow(/at least 2/);
+    await expect(resolveTranscript(store, '01%')).rejects.toThrow(/not a transcript id/);
   });
 });

@@ -256,6 +256,14 @@ export class SqliteStore implements ManagedRecordingStore {
     return rows.map(toRecording);
   }
 
+  async findTranscriptsByIdPrefix(prefix: string): Promise<Transcript[]> {
+    if (prefix === '') return [];
+    const rows = this.db
+      .prepare(`SELECT * FROM transcript WHERE id LIKE ? || '%' ORDER BY id`)
+      .all(prefix) as unknown as TranscriptRow[];
+    return rows.map(toTranscript);
+  }
+
   async deleteRecording(id: string): Promise<boolean> {
     // One statement: transcript and segment rows go through ON DELETE
     // CASCADE, which works because open() sets PRAGMA foreign_keys = ON.

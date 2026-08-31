@@ -1,5 +1,5 @@
 import { FailureError, UsageError } from '@laud/core';
-import type { Recording, RecordingStore } from '@laud/core';
+import type { Recording, RecordingStore, Transcript } from '@laud/core';
 
 /**
  * The shortest prefix laud will resolve.
@@ -48,39 +48,76 @@ function describe(recording: Recording): string {
  * Uppercased before matching: ULIDs are uppercase, and someone typing one by
  * hand should not have to be.
  */
-export async function resolveRecording(store: RecordingStore, prefix: string): Promise<Recording> {
+/**
+ * Validates and normalises a prefix, whatever kind of id it is for.
+ *
+ * Shared so recordings and transcripts cannot end up disagreeing about what a
+ * usable prefix is -- two copies of a rule like this drift, and the drift
+ * shows up as one command accepting what another rejects.
+ */
+function normalizePrefix(prefix: string, kind: string): string {
   const normalized = prefix.trim().toUpperCase();
-
   if (normalized.length < MIN_PREFIX_LENGTH) {
     throw new UsageError(
-      `"${prefix}" is too short to identify a recording; use at least ${MIN_PREFIX_LENGTH} characters.`,
+      `"${prefix}" is too short to identify a ${kind}; use at least ${MIN_PREFIX_LENGTH} characters.`,
     );
   }
   if (!ID_CHARS.test(normalized)) {
     // Rejected rather than passed through to the query: punctuation cannot
     // appear in an id, and two of the characters it might be -- % and _ --
     // are wildcards in the LIKE this prefix ends up in.
-    throw new UsageError(`"${prefix}" is not a recording id: ids are letters and digits only.`);
+    throw new UsageError(`"${prefix}" is not a ${kind} id: ids are letters and digits only.`);
   }
+  return normalized;
+}
 
-  const matches = await store.findRecordingsByIdPrefix(normalized);
-
-  const only = matches[0];
-  if (only !== undefined && matches.length === 1) return only;
-
-  if (matches.length === 0) {
-    throw new FailureError(`No recording matches "${prefix}".`);
-  }
-
-  const shown = matches.slice(0, SHOWN_ON_AMBIGUITY).map(describe);
-  const remainder = matches.length - shown.length;
+/** The ambiguity error, shared for the same reason normalizePrefix is. */
+function ambiguous(prefix: string, kind: string, lines: readonly string[], total: number): never {
+  const shown = lines.slice(0, SHOWN_ON_AMBIGUITY);
+  const remainder = total - shown.length;
   throw new FailureError(
     [
-      `"${prefix}" matches ${matches.length} recordings:`,
+      `"${prefix}" matches ${total} ${kind}s:`,
       ...shown,
       ...(remainder > 0 ? [`  ...and ${remainder} more`] : []),
       'Use more characters to pick one.',
     ].join('\n'),
+  );
+}
+
+export async function resolveRecording(store: RecordingStore, prefix: string): Promise<Recording> {
+  const normalized = normalizePrefix(prefix, 'recording');
+  const matches = await store.findRecordingsByIdPrefix(normalized);
+
+  const only = matches[0];
+  if (only !== undefined && matches.length === 1) return only;
+  if (matches.length === 0) throw new FailureError(`No recording matches "${prefix}".`);
+  ambiguous(prefix, 'recording', matches.map(describe), matches.length);
+}
+
+/**
+ * The same, for a transcript id.
+ *
+ * Candidates are described by when they were made and in what language,
+ * because that is what distinguishes two transcripts of one recording -- the
+ * source path would be identical for all of them and so tell the user
+ * nothing.
+ */
+export async function resolveTranscript(
+  store: RecordingStore,
+  prefix: string,
+): Promise<Transcript> {
+  const normalized = normalizePrefix(prefix, 'transcript');
+  const matches = await store.findTranscriptsByIdPrefix(normalized);
+
+  const only = matches[0];
+  if (only !== undefined && matches.length === 1) return only;
+  if (matches.length === 0) throw new FailureError(`No transcript matches "${prefix}".`);
+  ambiguous(
+    prefix,
+    'transcript',
+    matches.map((t) => `  ${t.id}  ${t.createdAt}  ${t.language}`),
+    matches.length,
   );
 }
 

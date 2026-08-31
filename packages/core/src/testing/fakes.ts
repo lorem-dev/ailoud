@@ -261,6 +261,13 @@ export class InMemoryStore implements ManagedRecordingStore {
       .sort((a, b) => a.id.localeCompare(b.id));
   }
 
+  async findTranscriptsByIdPrefix(prefix: string): Promise<Transcript[]> {
+    if (prefix === '') return [];
+    return [...this.transcripts.values()]
+      .filter((transcript) => transcript.id.startsWith(prefix))
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
   async deleteRecording(id: string): Promise<boolean> {
     if (!this.recordings.has(id)) return false;
     this.recordings.delete(id);

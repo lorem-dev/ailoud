@@ -2,7 +2,7 @@ import type { Command } from 'commander';
 import { FailureError, toPlainText, toSrt, toVtt, UsageError } from '@laud/core';
 import type { Transcript } from '@laud/core';
 import type { CliContext } from '../wiring.js';
-import { resolveRecording } from '../resolveId.js';
+import { resolveRecording, resolveTranscript } from '../resolveId.js';
 
 const FORMATS = ['text', 'json', 'srt', 'vtt'] as const;
 type Format = (typeof FORMATS)[number];
@@ -12,7 +12,10 @@ export function registerShow(program: Command, context: CliContext): void {
     .command('show')
     .argument('<id>', 'recording id, or enough of its start to be unambiguous')
     .option('--format <format>', `one of ${FORMATS.join(', ')}`, 'text')
-    .option('--transcript <id>', 'a specific transcript instead of the newest')
+    .option(
+      '--transcript <id>',
+      'a specific transcript instead of the newest; a unique prefix will do',
+    )
     .description('Print a transcript')
     .action(async (id: string, options: { format: string; transcript?: string }) => {
       // The transcript goes through ui.content(), not straight to stdout:
@@ -29,18 +32,27 @@ export function registerShow(program: Command, context: CliContext): void {
         // when one matches nothing or several things.
         const recording = await resolveRecording(context.store, id);
 
+        // recording.id from here down, never `id`: `id` is whatever the user
+        // typed, which may be a prefix. Looking a transcript up by the prefix
+        // finds nothing and reports "no transcript yet" for a recording that
+        // has one -- which is exactly what this did before the resolved id
+        // was threaded through.
         let transcript: Transcript | null;
         if (options.transcript === undefined) {
-          transcript = await context.store.latestTranscript(id);
+          transcript = await context.store.latestTranscript(recording.id);
         } else {
-          const candidate = await context.store.getTranscript(options.transcript);
-          if (candidate === null || candidate.recordingId !== id) {
-            throw new FailureError(`${options.transcript} is not a transcript of recording ${id}.`);
+          const candidate = await resolveTranscript(context.store, options.transcript);
+          if (candidate.recordingId !== recording.id) {
+            throw new FailureError(
+              `${candidate.id} is not a transcript of recording ${recording.id}.`,
+            );
           }
           transcript = candidate;
         }
         if (transcript === null) {
-          throw new FailureError(`${id} has no transcript yet. Run "laud transcribe ${id}".`);
+          throw new FailureError(
+            `${recording.id} has no transcript yet. Run "laud transcribe ${recording.id}".`,
+          );
         }
         const segments = await context.store.listSegments(transcript.id);
 

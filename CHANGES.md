@@ -64,10 +64,10 @@
   machine that never transcribes code-switched audio no longer carries a
   permanently failing `doctor` over it. `transcribe --multilingual` still
   exits 3 with an actionable message when the VAD model is not configured.
-- Recording ids can be abbreviated, as in docker: any prefix of at least two
-  characters that picks out exactly one recording works wherever a full id
-  does -- `show`, `transcribe` and `rm`. Case and surrounding whitespace do
-  not matter.
+- Ids can be abbreviated, as in docker: any prefix of at least two characters
+  that picks out exactly one thing works wherever a full id does. That covers
+  every command taking an id -- `show`, `transcribe`, `rm` -- and
+  `show --transcript` as well. Case and surrounding whitespace do not matter.
 - An ambiguous prefix is the ordinary case rather than the exception, because
   a ULID begins with a timestamp and recordings imported minutes apart agree
   for eight characters or more. So the error says how many matched, lists the

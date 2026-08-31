@@ -195,6 +195,18 @@ describe('laud show', () => {
     expect(rows[0].transcriptId).toBe(parsed.transcript.id);
   });
 
+  it('finds the transcript when the id given was only a prefix', async () => {
+    // The regression this pins. Resolving the prefix to a recording was not
+    // enough: the code went on using the string the user typed, so
+    // latestTranscript() was called with "ID0" and found nothing, and a
+    // recording that had a transcript was reported as having none. Every
+    // existing test passed a full id, where prefix and id are the same
+    // string, so nothing caught it.
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'show', 'ID0']);
+    expect(ctx.lines.join('\n')).toContain('Privet.');
+  });
+
   it('fails with a clear message for an unknown id', async () => {
     // Wording changed with prefix resolution: an id is now a prefix, so the
     // honest statement is that nothing MATCHES it, not that no recording has

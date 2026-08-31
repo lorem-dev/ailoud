@@ -152,6 +152,8 @@ export interface RecordingStore {
    * command again to learn nothing new.
    */
   findRecordingsByIdPrefix(prefix: string): Promise<Recording[]>;
+  /** As `findRecordingsByIdPrefix`, for transcripts. Same reasoning, same shape. */
+  findTranscriptsByIdPrefix(prefix: string): Promise<Transcript[]>;
   /**
    * The languages each of these transcripts is spoken in, most-spoken first.
    *
