@@ -7,7 +7,7 @@ import {
   VAD_MODEL,
   findModel,
 } from './catalogue.js';
-import type { Remedy } from './remedy.js';
+import type { LlmProvider, Remedy } from './remedy.js';
 
 /** A remedy with everything needed to execute it resolved. */
 export type Action =
@@ -16,6 +16,7 @@ export type Action =
   | { readonly kind: 'install-diarizer' }
   | { readonly kind: 'install-llm' }
   | { readonly kind: 'download-llm-model'; readonly model: ModelChoice }
+  | { readonly kind: 'set-llm-provider'; readonly provider: LlmProvider }
   | {
       readonly kind: 'download-model';
       readonly slot: 'transcription' | 'vad';
@@ -42,6 +43,10 @@ export interface PlanOptions {
  */
 const ORDER = [
   'create-directory',
+  // Before every install: it decides which of them are even wanted, and a
+  // reader of the plan should see the choice they made at the top rather than
+  // after two gigabytes of downloads they did not ask for.
+  'set-llm-provider',
   'install-ffmpeg',
   'install-whisper',
   'install-diarizer',
@@ -58,6 +63,11 @@ function keyOf(remedy: Remedy): string {
       return 'install-llm';
     case 'download-llm-model':
       return 'download-llm-model';
+    case 'set-llm-provider':
+      // Not keyed by provider: two different providers are not two jobs, they
+      // are a contradiction, and silently doing both would leave whichever
+      // ran last in the config with no record of the conflict.
+      return 'set-llm-provider';
     case 'create-directory':
       return `create-directory:${remedy.path}`;
     case 'install-ffmpeg':

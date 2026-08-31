@@ -10,12 +10,23 @@
  * check is the one such case: its remedy is "back up, then delete", which
  * is destructive and belongs to a human.
  */
+/**
+ * The engines `laud summarize` can talk to. Declared here rather than only in
+ * the CLI's config schema because a provisioning remedy names one, and the two
+ * lists drifting apart would let `setup` write a provider the config refuses
+ * to parse.
+ */
+export const LLM_PROVIDERS = ['llama-cpp', 'openai-compatible', 'anthropic', 'claude-cli'] as const;
+
+export type LlmProvider = (typeof LLM_PROVIDERS)[number];
+
 export type Remedy =
   | { readonly kind: 'install-ffmpeg' }
   | { readonly kind: 'install-whisper' }
   | { readonly kind: 'install-diarizer' }
   | { readonly kind: 'install-llm' }
   | { readonly kind: 'download-llm-model' }
+  | { readonly kind: 'set-llm-provider'; readonly provider: LlmProvider }
   | { readonly kind: 'download-model'; readonly slot: 'transcription' | 'vad' }
   | {
       readonly kind: 'download-diarization-model';

@@ -565,6 +565,7 @@ export function registerDoctor(
     .option('--fix', 'provision anything that failed a check, using the same engine as setup')
     .option('--yes', 'confirm the fix plan without prompting')
     .option('--model <name>', 'transcription model to download if one is needed (default: small)')
+    .option('--llm <choice>', 'summariser to set up: local, claude-cli, claude-api, openai, skip')
     .description('Check that the binaries, model, database, and storage laud needs are ready')
     .action(async (options: DoctorOptions) => {
       await context.ui.frame('Environment check', async () => {

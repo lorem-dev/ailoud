@@ -221,13 +221,34 @@ describe('describeAction / describePlan', () => {
     arch: 'x64',
     dataDir: '/data',
     manager: 'apt-get',
+    configFile: '/config/laud.yaml',
   };
   const brew: PlanEnvironment = {
     platform: 'darwin',
     arch: 'arm64',
     dataDir: '/data',
     manager: 'brew',
+    configFile: '/config/laud.yaml',
   };
+
+  it('names where the choice lands and what it still needs, before consent', () => {
+    // Someone whose only remaining step is "export a key" should learn that
+    // while deciding, not the first time summarize refuses.
+    const lines = describePlan([{ kind: 'set-llm-provider', provider: 'anthropic' }], apt);
+    expect(lines[0]).toContain("Claude through Anthropic's API");
+    expect(lines.join('\n')).toContain('/config/laud.yaml');
+    expect(lines.join('\n')).toMatch(/ANTHROPIC_API_KEY/);
+  });
+
+  it('says laud will not install Claude Code for the subscription route', () => {
+    const lines = describePlan([{ kind: 'set-llm-provider', provider: 'claude-cli' }], brew);
+    expect(lines.join('\n')).toMatch(/does not install it/);
+  });
+
+  it('adds nothing to the download total, since it downloads nothing', () => {
+    const lines = describePlan([{ kind: 'set-llm-provider', provider: 'openai-compatible' }], apt);
+    expect(lines.join('\n')).toContain('Total download: 0 MB');
+  });
 
   it('appends the total download size as the last line', () => {
     const actions: readonly Action[] = [
@@ -866,6 +887,48 @@ describe('executePlan', () => {
       ok: false,
       detail: 'tar exited with code 1',
     });
+  });
+});
+describe('executePlan: set-llm-provider', () => {
+  it('records the chosen provider as a config update', async () => {
+    // The action spawns nothing, so its whole effect is this update. Left
+    // unhandled, the plan named it, the user consented to it, and nothing
+    // happened -- the switch had no exhaustiveness guard to catch that.
+    const result = await executePlan([{ kind: 'set-llm-provider', provider: 'anthropic' }], {
+      platform: 'linux',
+      arch: 'x64',
+      dataDir: '/nonexistent',
+      manager: null,
+      interactive: false,
+      onStep: () => {},
+    });
+    expect(result.updates).toEqual({ llmProvider: 'anthropic' });
+  });
+
+  it('reports an outcome, so the run does not look like it skipped the action', async () => {
+    const result = await executePlan([{ kind: 'set-llm-provider', provider: 'claude-cli' }], {
+      platform: 'linux',
+      arch: 'x64',
+      dataDir: '/nonexistent',
+      manager: null,
+      interactive: false,
+      onStep: () => {},
+    });
+    expect(result.outcomes).toHaveLength(1);
+    expect(result.outcomes[0]!.ok).toBe(true);
+  });
+
+  it('downloads nothing', async () => {
+    for (const fn of Object.values(providers)) fn.mockReset();
+    await executePlan([{ kind: 'set-llm-provider', provider: 'openai-compatible' }], {
+      platform: 'linux',
+      arch: 'x64',
+      dataDir: '/nonexistent',
+      manager: null,
+      interactive: false,
+      onStep: () => {},
+    });
+    for (const fn of Object.values(providers)) expect(fn).not.toHaveBeenCalled();
   });
 });
 

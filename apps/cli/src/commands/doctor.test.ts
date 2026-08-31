@@ -6,6 +6,7 @@ import { Command } from 'commander';
 import { EnvironmentError, UsageError, planProvisioning } from '@laud/core';
 import { buildProgram, exitCodeFor } from '../program.js';
 import { parseConfig } from '../config.js';
+import { blocksReadiness } from './setup.js';
 import type { CliContext } from '../wiring.js';
 import { context } from './testContext.js';
 import {
@@ -134,6 +135,29 @@ describe('checkEmbeddingModel', () => {
     expect(check.ok).toBe(false);
     expect(check.detail).toBe(`missing: ${missing}`);
   });
+});
+
+describe('doctor accepts every language-model choice setup can make', () => {
+  // The requirement in one place: whichever engine someone picks -- and
+  // "none yet" is one of them -- doctor reports its state but never fails
+  // over it. Held today by `optional: true` on each branch and by the runner
+  // check being conditional; asserted here so neither can be dropped
+  // silently.
+  const providers = ['llama-cpp', 'anthropic', 'openai-compatible', 'claude-cli'] as const;
+
+  for (const provider of providers) {
+    it(`stays ready with ${provider} unconfigured`, async () => {
+      const ctx = context();
+      const checks = await runChecks(
+        { ...ctx, config: { ...ctx.config, llm: { ...ctx.config.llm, provider } } },
+        'linux',
+        {},
+      );
+      const languageChecks = checks.filter((c) => c.name.startsWith('language '));
+      expect(languageChecks.length).toBeGreaterThan(0);
+      for (const check of languageChecks) expect(blocksReadiness(check)).toBe(false);
+    });
+  }
 });
 
 describe('checkLanguageModel', () => {

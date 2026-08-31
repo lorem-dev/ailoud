@@ -364,6 +364,20 @@ export async function executePlan(
           outcomes.push({ action, ok: true, detail: target });
           break;
         }
+        case 'set-llm-provider': {
+          // Spawns nothing: the whole effect is the config update, applied
+          // with the rest of them once the run finishes.
+          updates = { ...updates, llmProvider: action.provider };
+          outcomes.push({ action, ok: true, detail: `llm.provider = ${action.provider}` });
+          break;
+        }
+        default: {
+          // A switch with no default silently does nothing for a kind nobody
+          // added a case for -- the plan names the action, the user consents,
+          // and it never runs. This makes that a compile error instead.
+          const unreachable: never = action;
+          throw new Error(`unhandled action ${JSON.stringify(unreachable)}`);
+        }
       }
     } catch (error) {
       outcomes.push({

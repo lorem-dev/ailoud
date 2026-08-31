@@ -1,6 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import { EnvironmentError, UsageError } from '@laud/core';
+import { EnvironmentError, LLM_PROVIDERS, UsageError } from '@laud/core';
 
 // Zod 4's `.default()` short-circuits: when the key is missing it substitutes
 // the default value as-is, without re-running it through the inner schema.
@@ -43,9 +43,10 @@ const ConfigSchema = z.object({
     .prefault({}),
   llm: z
     .object({
-      provider: z
-        .enum(['llama-cpp', 'openai-compatible', 'anthropic', 'claude-cli'])
-        .default('llama-cpp'),
+      // From core's list, not a second copy of it: a provisioning remedy names
+      // a provider, and the two drifting apart would let setup write one this
+      // schema then refuses to parse.
+      provider: z.enum(LLM_PROVIDERS).default('llama-cpp'),
       llamaCpp: z
         .object({
           binary: z.string().default('llama-cli'),

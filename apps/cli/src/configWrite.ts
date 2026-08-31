@@ -4,6 +4,7 @@ import { parseDocument } from 'yaml';
 import { UsageError } from '@laud/core';
 
 export interface ConfigUpdates {
+  readonly llmProvider?: string;
   readonly llmBinary?: string;
   readonly llmModel?: string;
   readonly model?: string;
@@ -22,21 +23,25 @@ export interface ConfigUpdates {
  * `diarizerBinary` disambiguates the two on this side, and this map is what
  * turns it back into `stt.diarization.binary` on the way out.
  */
-const SECTION: Record<keyof ConfigUpdates, readonly [root: string, section: string, key: string]> =
-  {
-    binary: ['stt', 'whisperCpp', 'binary'],
-    model: ['stt', 'whisperCpp', 'model'],
-    vadBinary: ['stt', 'whisperCpp', 'vadBinary'],
-    vadModel: ['stt', 'whisperCpp', 'vadModel'],
-    diarizerBinary: ['stt', 'diarization', 'binary'],
-    segmentationModel: ['stt', 'diarization', 'segmentationModel'],
-    embeddingModel: ['stt', 'diarization', 'embeddingModel'],
-    // The language model lives under its own root, not under stt: it is not
-    // speech-to-text, and filing it there would make the config lie about what
-    // it configures.
-    llmBinary: ['llm', 'llamaCpp', 'binary'],
-    llmModel: ['llm', 'llamaCpp', 'model'],
-  };
+const PATH: Record<keyof ConfigUpdates, readonly string[]> = {
+  binary: ['stt', 'whisperCpp', 'binary'],
+  model: ['stt', 'whisperCpp', 'model'],
+  vadBinary: ['stt', 'whisperCpp', 'vadBinary'],
+  vadModel: ['stt', 'whisperCpp', 'vadModel'],
+  diarizerBinary: ['stt', 'diarization', 'binary'],
+  segmentationModel: ['stt', 'diarization', 'segmentationModel'],
+  embeddingModel: ['stt', 'diarization', 'embeddingModel'],
+  // The language model lives under its own root, not under stt: it is not
+  // speech-to-text, and filing it there would make the config lie about what
+  // it configures.
+  llmBinary: ['llm', 'llamaCpp', 'binary'],
+  llmModel: ['llm', 'llamaCpp', 'model'],
+  // Two segments, not three: the chosen provider sits directly under llm,
+  // beside the per-provider blocks rather than inside one of them. A path of
+  // any depth rather than a fixed root/section/key triple, so a key like this
+  // does not need the shape bent around it.
+  llmProvider: ['llm', 'provider'],
+};
 
 /**
  * Sets the given keys in a config file's text, leaving everything else as it
@@ -64,16 +69,20 @@ export function applyConfigUpdates(source: string | null, updates: ConfigUpdates
   // apps/cli/package.json), so no '{}' seed is needed here.
   const doc = parseDocument(source ?? '');
   for (const [key, value] of entries) {
-    const [root, section, configKey] = SECTION[key as keyof ConfigUpdates];
+    const path = PATH[key as keyof ConfigUpdates];
     try {
-      doc.setIn([root, section, configKey], value);
+      doc.setIn(path, value);
     } catch {
       // yaml's own message here ("Expected YAML collection at stt") assumes
       // familiarity with the document API; name the config key instead so
       // someone editing the file by hand knows what to fix.
+      const parents = path
+        .slice(0, -1)
+        .map((_, index) => `"${path.slice(0, index + 1).join('.')}"`)
+        .join(' or ');
       throw new UsageError(
-        `Cannot set "${root}.${section}.${configKey}": "${root}" or "${root}.${section}" in the ` +
-          `existing config is not a mapping. Fix that section by hand and try again.`,
+        `Cannot set "${path.join('.')}": ${parents} in the existing config is not a mapping. ` +
+          'Fix that section by hand and try again.',
       );
     }
   }

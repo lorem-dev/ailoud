@@ -12,6 +12,27 @@ function escapeRegExp(literal: string): string {
 }
 
 describe('applyConfigUpdates', () => {
+  it('writes the chosen provider two levels down, beside the per-provider blocks', () => {
+    // Not three: llm.provider sits directly under llm. The path map used to
+    // be a fixed root/section/key triple, which had no shape for this.
+    const out = applyConfigUpdates(null, { llmProvider: 'anthropic' });
+    expect(parseConfig(out).llm.provider).toBe('anthropic');
+    expect(out).toMatch(/llm:\s*\n\s+provider: anthropic/);
+  });
+
+  it('leaves an existing llamaCpp block alone when only the provider changes', () => {
+    const before = applyConfigUpdates(null, { llmModel: '/models/qwen.gguf' });
+    const after = applyConfigUpdates(before, { llmProvider: 'claude-cli' });
+    expect(parseConfig(after).llm.llamaCpp.model).toBe('/models/qwen.gguf');
+    expect(parseConfig(after).llm.provider).toBe('claude-cli');
+  });
+
+  it('names the full path when llm is not a mapping', () => {
+    expect(() =>
+      applyConfigUpdates('llm: nonsense\n', { llmProvider: 'openai-compatible' }),
+    ).toThrow(/"llm\.provider"/);
+  });
+
   it('creates a well-formed config from nothing', () => {
     const out = applyConfigUpdates(null, { model: '/data/models/ggml-small.bin' });
     expect(out).toContain('model: /data/models/ggml-small.bin');

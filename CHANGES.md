@@ -229,3 +229,24 @@
 - `doctor`'s undecorated output widens its name column to the longest check
   name. At a fixed width, `diarization segmentation model` ran into its own
   detail: `diarization segmentation modelnot configured`.
+- `laud setup` asks which language model to set up instead of assuming the
+  local one: llama.cpp with Qwen2.5-3B, Claude, OpenAI, or skip for now, with
+  Claude asking subscription or API key as a second question. Guessing that
+  one from whether the CLI happens to be installed would quietly put someone
+  who has both on the route that costs money.
+- Only the local answer downloads anything. The rest record the choice in
+  `llm.provider` and name the credential still needed, so a machine that talks
+  to a hosted engine no longer pays 2.1 GB for a runner it will never call.
+- The question is answered before the plan is printed, because the answer
+  changes the plan: the command list and the download total consented to are
+  the ones that will run. `--llm local|claude-cli|claude-api|openai|skip`
+  answers it up front, and is what an unattended run uses -- `local` remains
+  the default with no terminal, so existing `setup --yes` scripts are
+  unaffected.
+- `skip` configures nothing and leaves `summarize` unavailable. Every outcome,
+  that one included, is reported by `doctor` as `n/a` rather than a failure;
+  a test now pins that for all four providers, which until now held only by
+  the coincidence of each branch being marked optional.
+- The action executor rejects an unhandled action kind at compile time. Its
+  switch had no default, so a kind nobody wrote a case for was named in the
+  plan, consented to, and then silently did nothing.

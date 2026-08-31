@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { confirm, isCancel, select } from '@clack/prompts';
+import { chooseLlm, remediesForChoice } from '../llmChoice.js';
 import type { Command } from 'commander';
 import {
   DEFAULT_MODEL_NAME,
@@ -11,7 +12,7 @@ import {
   planDownloadBytes,
   planProvisioning,
 } from '@laud/core';
-import type { Action, Remedy } from '@laud/core';
+import type { Action, LlmProvider, Remedy } from '@laud/core';
 import {
   LLAMA_VERSION,
   SHERPA_VERSION,
@@ -188,6 +189,35 @@ export function formatBytes(bytes: number): string {
   return `${Math.round(bytes / 1_000_000)} MB`;
 }
 
+/** How each provider is named to the user: what they picked, not the adapter's id. */
+const PROVIDER_LABEL: Record<LlmProvider, string> = {
+  'llama-cpp': 'a local model through llama.cpp',
+  'claude-cli': 'Claude through the Claude Code CLI',
+  anthropic: "Claude through Anthropic's API",
+  'openai-compatible': 'OpenAI',
+};
+
+/**
+ * What choosing a hosted engine actually entails, printed before consent.
+ *
+ * The credential is named here rather than after the run: someone whose only
+ * remaining step is "export a key" should learn that while deciding, not
+ * discover it the first time `summarize` refuses.
+ */
+function providerPlanLines(provider: LlmProvider, env: PlanEnvironment): readonly string[] {
+  const lines = [`Sets llm.provider to "${provider}" in ${env.configFile}`];
+  if (provider === 'anthropic') {
+    lines.push('Needs ANTHROPIC_API_KEY (or LAUD_LLM_API_KEY) in your environment');
+  }
+  if (provider === 'openai-compatible') {
+    lines.push('Needs OPENAI_API_KEY (or LAUD_LLM_API_KEY) in your environment');
+  }
+  if (provider === 'claude-cli') {
+    lines.push('Needs Claude Code installed and signed in; laud does not install it');
+  }
+  return lines;
+}
+
 /** One line describing a single planned action, used by both describePlan and the outcome report. */
 export function describeAction(action: Action): string {
   switch (action.kind) {
@@ -197,6 +227,8 @@ export function describeAction(action: Action): string {
       return 'Install ffmpeg';
     case 'install-llm':
       return 'Install llama.cpp, the local language model runner';
+    case 'set-llm-provider':
+      return `Use ${PROVIDER_LABEL[action.provider]} for summaries`;
     case 'download-llm-model':
       return `Download ${action.model.name} (${formatBytes(action.model.bytes)}), for summarising`;
     case 'install-whisper':
@@ -224,6 +256,8 @@ export interface PlanEnvironment {
   readonly arch: string;
   readonly dataDir: string;
   readonly manager: PackageManager | null;
+  /** Where a config-writing action will land, named in the plan rather than implied. */
+  readonly configFile: string;
 }
 
 const NO_PACKAGE_MANAGER =
@@ -318,6 +352,8 @@ export function describeCommands(action: Action, env: PlanEnvironment): readonly
       return diarizerPlanLines(env);
     case 'install-llm':
       return llmPlanLines(env);
+    case 'set-llm-provider':
+      return providerPlanLines(action.provider, env);
     case 'create-directory':
     case 'download-model':
     case 'download-diarization-model':
@@ -407,6 +443,7 @@ function reportUnfixable(context: CliContext, checks: readonly Check[]): void {
 export interface SetupOptions {
   readonly yes?: boolean;
   readonly model?: string;
+  readonly llm?: string;
 }
 
 /**
@@ -450,7 +487,18 @@ export async function runProvisioning(
     );
   }
 
-  const remedies = collectRemedies(checks);
+  const interactive = isInteractive(process.env, process.stdin.isTTY === true);
+  // Asked before the "nothing to fix" test below, not after: choosing a hosted
+  // engine REMOVES the local install and download from the list, so the answer
+  // can be the difference between a plan and an empty one.
+  const collected = collectRemedies(checks);
+  const llmChoice = await chooseLlm({
+    ...(options.llm === undefined ? {} : { llm: options.llm }),
+    remedies: collected,
+    interactive,
+    commandName,
+  });
+  const remedies = remediesForChoice(collected, llmChoice);
 
   if (remedies.length === 0) {
     // "Nothing to fix" and "nothing FIXABLE to fix" are different answers,
@@ -471,7 +519,6 @@ export async function runProvisioning(
     throw new EnvironmentError(NOT_READY_MESSAGE);
   }
 
-  const interactive = isInteractive(process.env, process.stdin.isTTY === true);
   const modelName = await chooseModel({
     ...(options.model === undefined ? {} : { model: options.model }),
     remedies,
@@ -491,6 +538,7 @@ export async function runProvisioning(
     arch: process.arch,
     dataDir: context.paths.dataDir,
     manager,
+    configFile: context.paths.configFile,
   };
   for (const line of describePlan(actions, env)) context.write(line);
 
@@ -612,6 +660,7 @@ export function registerSetup(
     .command('setup')
     .option('--yes', 'confirm the plan without prompting')
     .option('--model <name>', 'transcription model to download (default: small)')
+    .option('--llm <choice>', 'summariser to set up: local, claude-cli, claude-api, openai, skip')
     .description('Install ffmpeg and whisper.cpp, and download the models laud needs')
     .action(async (options: SetupOptions) => {
       await context.ui.frame('Setting up laud', async () => {

@@ -245,7 +245,12 @@ and the parts combined, split on segment boundaries. The prompt carries the
 speaker names set through `annotate`, so points are attributed to a person
 rather than to `speaker_00`.
 
-Which model answers is set by `llm.provider` in the config file:
+`laud setup` asks which engine to use and writes the answer to
+`llm.provider`; `--llm local|claude-cli|claude-api|openai|skip` answers it
+without a prompt, which is what an unattended run needs. Picking anything but
+`local` skips the 2.1 GB download entirely. `skip` configures nothing and
+leaves `summarize` unavailable until you come back to it -- `doctor` reports
+that as `n/a`, not as a failure. The providers:
 
 | `llm.provider`      | Reaches                                                        | Credential                                                            |
 | ------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
@@ -254,10 +259,15 @@ Which model answers is set by `llm.provider` in the config file:
 | `anthropic`         | Claude, through Anthropic's API                                | `LAUD_LLM_API_KEY` or `ANTHROPIC_API_KEY`                             |
 | `claude-cli`        | Claude, through the Claude Code CLI                            | the CLI's own sign-in -- a subscription, not a key                    |
 
-Claude is reachable both ways deliberately. A subscription is not an API key,
-and someone who already pays for one should not have to buy API credit to
-summarise their own recordings; `claude-cli` borrows the CLI's existing
-sign-in and runs one non-interactive completion with tools switched off.
+Claude is reachable both ways deliberately, and `setup` asks which rather
+than guessing: a subscription is not an API key, and someone who already pays
+for one should not have to buy API credit to summarise their own recordings.
+`claude-cli` borrows the CLI's existing sign-in and runs one non-interactive
+completion with tools switched off. laud does not install Claude Code itself.
+
+Whichever engine is chosen, `doctor` reports its state and never exits
+non-zero over it: summarising is opt-in, so an unset key, an unsigned-in CLI
+and a deliberate `skip` all read as `n/a`.
 
 Check that your machine is set up correctly:
 
@@ -331,14 +341,22 @@ laud setup
 command line of every install it will run (including any `sudo`), and how
 much it will download, asks once for confirmation, then installs ffmpeg,
 installs whisper.cpp, downloads a transcription model, installs the
-sherpa-onnx diarizer, downloads its two models, installs llama.cpp, and
-downloads a local summarisation model -- writing whatever it installed into
-`config.yaml`. The diarizer and the language model are provisioned right
-alongside the rest even though `--diarize` and `summarize` are opt-in: their
-`doctor` checks are optional (they cannot make `doctor` fail), but `setup`
-and `doctor --fix` still act on any check that is failing, optional or not.
-Nothing for the language model is installed when `llm.provider` names a
-hosted engine, where the missing piece is a key rather than a download. Checks that already pass are
+sherpa-onnx diarizer and downloads its two models -- writing whatever it
+installed into `config.yaml`. The diarizer is provisioned right alongside the
+rest even though `--diarize` is opt-in: its `doctor` checks are optional (they
+cannot make `doctor` fail), but `setup` and `doctor --fix` still act on any
+check that is failing, optional or not.
+
+The language model is the one piece `setup` asks about, because the choices
+are not interchangeable: it offers llama.cpp with Qwen2.5-3B (a 2.1 GB
+download, nothing leaves the machine), Claude, OpenAI, or skipping for now,
+and Claude then asks subscription or API key. Only the local answer downloads
+anything; the rest write `llm.provider` and name the environment variable
+still needed. The question is asked before the plan is printed, so the
+download total and the command list you consent to already reflect it. Answer
+it up front with `--llm`, which is also what an unattended run uses --
+`--llm local` without a terminal is the default, so existing `setup --yes`
+scripts keep the behaviour they had. Checks that already pass are
 left alone, so running `setup` again on an already-provisioned machine
 reports nothing to do. A check that failed but has no automated repair -- a
 corrupt database is the only one -- is reported with its manual fix, and the

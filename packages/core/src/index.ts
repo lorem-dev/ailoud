@@ -71,9 +71,9 @@ export { toPlainText } from './format/text.js';
 export { quoteSample, truncateSample } from './format/sample.js';
 export { formatDuration } from './format/duration.js';
 
-export type { Remedy, InstallTarget } from './provision/remedy.js';
+export type { Remedy, InstallTarget, LlmProvider } from './provision/remedy.js';
 
-export { installHint, WINDOWS_MANUAL_HINT } from './provision/remedy.js';
+export { installHint, WINDOWS_MANUAL_HINT, LLM_PROVIDERS } from './provision/remedy.js';
 
 export type { ModelChoice } from './provision/catalogue.js';
 
