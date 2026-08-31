@@ -131,11 +131,34 @@ segment in the wrong language:
 laud transcribe ID001 --multilingual
 ```
 
-It costs real time to do this: language detection runs once per ~2-second
-window of speech, at roughly half a second per window, on top of the
-transcription itself. A long recording of continuous speech in one language
-pays that cost for no benefit, which is why `--multilingual` is not the
-default.
+If you know which languages the recording holds, say so instead. Naming two
+or more turns multilingual mode on by itself:
+
+```shell
+laud transcribe ID001 --lang ru,en
+```
+
+That is worth doing, and not only for brevity. whisper's language detector
+answers with any language in the world and cannot be restricted, so on a
+Russian/English recording it will sometimes report Polish for a Russian
+stretch -- and that stretch is then transcribed as Polish, coming back as
+phonetic nonsense. Declaring the set turns such an answer from a discovery
+into a knowable mistake, which laud repairs from the surrounding stretches.
+
+Declaring also buys sharper switching. Detection needs roughly five seconds
+of one language to be reliable, while conversational turns run two to four
+seconds, so the two pull against each other. Undeclared, laud must favour
+reliability and use a wide window, which can swallow a short turn of the
+other language whole. Declared, mis-detections are repairable, so it uses a
+narrow window and keeps up with the conversation.
+
+`--lang` also takes a single code, which forces that language for the whole
+recording in one pass, and `auto`, which is the default.
+
+It costs real time to do this: language detection runs once per window of
+speech, at roughly half a second per window, on top of the transcription
+itself. A long recording of continuous speech in one language pays that cost
+for no benefit, which is why multilingual mode is not the default.
 
 `--multilingual` needs a second model beyond the one `transcribe` already
 uses: a voice-activity-detection (VAD) model, configured separately at

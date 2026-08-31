@@ -13,7 +13,9 @@ import type { RawSegment, Recording, Segment, Transcript } from '../domain/model
 import { FailureError } from '../domain/errors.js';
 import { assignSpeakers } from '../diarize/assign.js';
 import {
+  detectionWindowMs,
   mergeRuns,
+  resolveDeclaredLanguages,
   subdivideSpans,
   type DetectedSpan,
   type LanguageRun,
@@ -50,6 +52,19 @@ export interface TranscribeOptions {
    * rather than silently falling back to single-language behaviour.
    */
   readonly multilingual?: boolean;
+  /**
+   * The languages the caller knows are present. Only meaningful alongside
+   * `multilingual`.
+   *
+   * whisper's detector answers with any language in the world and cannot be
+   * restricted, so on a Russian/English recording it will sometimes report
+   * Polish for a Russian stretch -- and that stretch is then transcribed as
+   * Polish, coming back as phonetic nonsense. Declaring the set turns that
+   * answer from a discovery into a knowable mis-detection; see
+   * `resolveDeclaredLanguages`. Empty means nothing was declared and every
+   * detection is taken at face value.
+   */
+  readonly declaredLanguages?: readonly string[];
   /**
    * Runs speaker diarization over the recording and attributes each
    * transcribed segment to a speaker by time overlap. Requires
@@ -261,7 +276,8 @@ async function transcribeMultilingual(
     await deps.audio.toWav16kMono(`${deps.mediaRoot}/${recording.mediaPath}`, tempWav.path);
 
     const spans = await segmenter.segments(tempWav.path);
-    const windows = subdivideSpans(spans);
+    const declared = options.declaredLanguages ?? [];
+    const windows = subdivideSpans(spans, detectionWindowMs(declared.length));
 
     const detected: DetectedSpan[] = [];
     for (const window of windows) {
@@ -277,7 +293,10 @@ async function transcribeMultilingual(
       }
     }
 
-    const runs = mergeRuns(detected);
+    // Applied before merging, not after: mergeRuns groups by language, so a
+    // window still carrying a mis-detected language would split a run that
+    // should have been continuous.
+    const runs = mergeRuns(resolveDeclaredLanguages(detected, declared));
     if (runs.length === 0) {
       throw new FailureError(`${deps.stt.name} found no speech in ${recording.sourcePath}`);
     }

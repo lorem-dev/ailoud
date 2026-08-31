@@ -64,6 +64,27 @@
   machine that never transcribes code-switched audio no longer carries a
   permanently failing `doctor` over it. `transcribe --multilingual` still
   exits 3 with an actionable message when the VAD model is not configured.
+- `transcribe --stt-lang <code>` is now `--lang <codes>` and takes a set:
+  `--lang ru,en`. Naming two or more languages turns multilingual mode on by
+  itself, since naming them IS the statement that the recording switches
+  between them, and confines detection to that set.
+- Detection is confined by repairing whisper's answer rather than restricting
+  its input, which is not possible: it reports any language in the world, so
+  on a Russian/English recording it would report Polish for a Russian stretch
+  and then transcribe that stretch AS Polish, returning phonetic nonsense. An
+  answer outside the declared set is now treated as a mis-detection and
+  resolved from its neighbours.
+- The detection window was measured rather than guessed, and now depends on
+  whether a set was declared. Undeclared, a mis-detection is unrepairable, so
+  the window is wide (5000ms) because detection needs about five seconds of
+  homogeneous speech to be right. Declared, mis-detections are repairable, so
+  the window is narrow (2000ms) to keep up with conversational turns: at
+  5000ms with a declared set, five of six English turns in a 32-second
+  conversation vanished into Russian-dominated windows.
+- The window also adapts to the span it divides, so a short recording is
+  never swallowed whole. A flat 5000ms window stopped splitting the
+  3.46-second bilingual clip the feature was built for, silently losing its
+  second language again.
 - `laud setup` and `laud doctor --fix` take an exclusive lock on the data
   directory before provisioning, so two concurrent runs cannot delete or
   truncate scratch files out from under each other. A live lock is refused

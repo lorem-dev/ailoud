@@ -27,6 +27,8 @@ export { assignSpeakers } from './diarize/assign.js';
 export {
   MIN_RUN_DURATION_MS,
   MAX_DETECTION_WINDOW_MS,
+  DECLARED_DETECTION_WINDOW_MS,
+  detectionWindowMs,
   mergeRuns,
   resolveDeclaredLanguages,
   subdivideSpans,

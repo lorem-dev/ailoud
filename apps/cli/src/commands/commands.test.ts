@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FailureError } from '@laud/core';
 import { buildProgram } from '../program.js';
 import { context } from './testContext.js';
+import { parseLanguages } from './transcribe.js';
 
 describe('laud import', () => {
   it('prints the id of an imported recording', async () => {
@@ -71,26 +72,43 @@ describe('laud transcribe', () => {
     );
   });
 
-  it('passes --stt-lang through as the language hint', async () => {
+  it('passes a single --lang through as the language hint', async () => {
     const ctx = context();
     await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'transcribe', '--stt-lang', 'ru']);
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'transcribe', '--lang', 'ru']);
     expect(ctx.lines[1]).toBe('ID001  ru  1 segment');
   });
 
-  it('refuses --stt-lang together with --multilingual', async () => {
+  it('allows a single --lang together with --multilingual', async () => {
+    // This used to be refused as a contradiction. It no longer is: with the
+    // flag now carrying a SET, one member is simply a set of one -- every run
+    // is that language. Degenerate, but it says something coherent, and
+    // refusing it would be refusing the user's own words.
     const ctx = context();
     await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
+    // The default fake provider cannot detect a language, so the multilingual
+    // path refuses on THAT, which is the proof it was taken.
     await expect(
       buildProgram(ctx).parseAsync([
         'node',
         'laud',
         'transcribe',
-        '--stt-lang',
+        '--lang',
         'ru',
         '--multilingual',
       ]),
-    ).rejects.toThrow(/--stt-lang and --multilingual contradict/);
+    ).rejects.toThrow(/cannot detect a language/);
+  });
+
+  it('turns multilingual on by itself when --lang names two languages', async () => {
+    // Naming two languages IS the statement that the recording switches
+    // between them; making the user also pass --multilingual would be asking
+    // them to say it twice.
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'laud', 'transcribe', '--lang', 'ru,en']),
+    ).rejects.toThrow(/cannot detect a language/);
   });
 
   it('--multilingual reaches the pipeline instead of the single-pass path', async () => {
@@ -198,4 +216,45 @@ describe('laud transcribe --diarize', () => {
       ).rejects.toThrow(/--speakers must be a positive integer/);
     },
   );
+});
+
+describe('parseLanguages', () => {
+  it('treats an absent flag and "auto" alike, as nothing declared', () => {
+    expect(parseLanguages(undefined)).toEqual([]);
+    expect(parseLanguages('auto')).toEqual([]);
+  });
+
+  it('accepts one code, and several', () => {
+    expect(parseLanguages('ru')).toEqual(['ru']);
+    expect(parseLanguages('ru,en')).toEqual(['ru', 'en']);
+  });
+
+  it('tolerates surrounding whitespace and normalises case', () => {
+    expect(parseLanguages(' RU , en ')).toEqual(['ru', 'en']);
+  });
+
+  it('accepts three-letter codes', () => {
+    expect(parseLanguages('rus,eng')).toEqual(['rus', 'eng']);
+  });
+
+  it('rejects an empty entry rather than quietly dropping it', () => {
+    // A stray comma means the user believes something about this run that is
+    // not true; repairing it silently would hide that.
+    expect(() => parseLanguages('ru,,en')).toThrow(/empty entry/);
+    expect(() => parseLanguages('ru,')).toThrow(/empty entry/);
+  });
+
+  it('rejects "auto" mixed with a real language', () => {
+    expect(() => parseLanguages('auto,ru')).toThrow(/cannot mix/);
+  });
+
+  it('rejects a duplicate', () => {
+    expect(() => parseLanguages('ru,en,ru')).toThrow(/"ru" twice/);
+  });
+
+  it('rejects something that is not a language code', () => {
+    expect(() => parseLanguages('russian')).toThrow(/two- or three-letter/);
+    expect(() => parseLanguages('r')).toThrow(/two- or three-letter/);
+    expect(() => parseLanguages('ru,7')).toThrow(/two- or three-letter/);
+  });
 });

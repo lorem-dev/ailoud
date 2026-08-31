@@ -3,12 +3,52 @@ import { FailureError, summarizeLanguages, transcribeRecording, UsageError } fro
 import type { CliContext } from '../wiring.js';
 
 interface TranscribeOptions {
-  readonly sttLang: string;
+  readonly lang?: string;
   readonly model?: string;
   readonly force?: boolean;
   readonly multilingual?: boolean;
   readonly diarize?: boolean;
   readonly speakers?: string;
+}
+
+/**
+ * Parses `--lang`, the comma-separated set of languages the caller says the
+ * recording holds.
+ *
+ * Returns an empty list for `auto` and for the flag being absent, which both
+ * mean "decide for yourself" -- the caller then treats emptiness as "nothing
+ * declared" rather than having to special-case the word.
+ *
+ * Rejects rather than repairs. A stray comma, a repeated code, or `auto`
+ * mixed with a real code all mean the user believes something about this run
+ * that is not true, and quietly normalising any of them would hide that.
+ */
+export function parseLanguages(raw: string | undefined): readonly string[] {
+  if (raw === undefined) return [];
+  const parts = raw.split(',').map((part) => part.trim());
+  if (parts.some((part) => part === '')) {
+    throw new UsageError(`--lang has an empty entry, got "${raw}". Use codes like "ru,en".`);
+  }
+  const codes = parts.map((part) => part.toLowerCase());
+  if (codes.length === 1 && codes[0] === 'auto') return [];
+  if (codes.includes('auto')) {
+    throw new UsageError(
+      `--lang cannot mix "auto" with a language, got "${raw}": "auto" means detect everything, ` +
+        'so naming a language alongside it says two contradictory things.',
+    );
+  }
+  for (const code of codes) {
+    if (!/^[a-z]{2,3}$/.test(code)) {
+      throw new UsageError(
+        `--lang expects two- or three-letter language codes, got "${code}" in "${raw}".`,
+      );
+    }
+  }
+  const duplicate = codes.find((code, index) => codes.indexOf(code) !== index);
+  if (duplicate !== undefined) {
+    throw new UsageError(`--lang lists "${duplicate}" twice, in "${raw}".`);
+  }
+  return codes;
 }
 
 /**
@@ -28,7 +68,11 @@ export function registerTranscribe(program: Command, context: CliContext): void 
   program
     .command('transcribe')
     .argument('[ids...]', 'recording ids; defaults to everything not yet transcribed')
-    .option('--stt-lang <code>', 'spoken language, or "auto" to detect', 'auto')
+    .option(
+      '--lang <codes>',
+      'spoken language, or several comma-separated ("ru,en"), or "auto" to detect. Naming two ' +
+        'or more turns on multilingual mode and confines detection to them',
+    )
     .option('--model <name>', 'override the configured model')
     .option('--force', 're-transcribe recordings that already have a transcript')
     .option(
@@ -45,13 +89,11 @@ export function registerTranscribe(program: Command, context: CliContext): void 
             '--force needs explicit recording ids: it would otherwise re-transcribe the whole library.',
           );
         }
-        if (options.multilingual === true && options.sttLang !== 'auto') {
-          throw new UsageError(
-            '--stt-lang and --multilingual contradict each other: --stt-lang forces one ' +
-              'language for the whole recording, while --multilingual detects one per ' +
-              'stretch. Drop one of the two.',
-          );
-        }
+        const languages = parseLanguages(options.lang);
+        // Two or more languages IS the statement that the recording switches
+        // between them, so requiring --multilingual as well would be asking
+        // the user to say the same thing twice.
+        const multilingual = options.multilingual === true || languages.length >= 2;
         if (options.speakers !== undefined && options.diarize !== true) {
           // A flag that silently does nothing is worse than one that
           // complains: without --diarize, --speakers has nothing to inform.
@@ -85,7 +127,7 @@ export function registerTranscribe(program: Command, context: CliContext): void 
         }
 
         const stt = context.createStt();
-        const segmenter = options.multilingual === true ? context.createSegmenter() : undefined;
+        const segmenter = multilingual ? context.createSegmenter() : undefined;
         const diarizer = options.diarize === true ? context.createDiarizer() : undefined;
         for (const recording of recordings) {
           if (options.force !== true) {
@@ -111,9 +153,15 @@ export function registerTranscribe(program: Command, context: CliContext): void 
               },
               recording,
               {
-                ...(options.sttLang === 'auto' ? {} : { language: options.sttLang }),
+                // One declared language means force it for the whole file, the
+                // single-pass case. Two or more means multilingual, where the
+                // set constrains detection instead of forcing an answer. The
+                // single-language-plus---multilingual case lands in the second
+                // branch with a one-member set: degenerate, but coherent, and
+                // not worth refusing.
+                ...(!multilingual && languages.length === 1 ? { language: languages[0] } : {}),
                 ...(options.model === undefined ? {} : { model: options.model }),
-                ...(options.multilingual === true ? { multilingual: true } : {}),
+                ...(multilingual ? { multilingual: true, declaredLanguages: languages } : {}),
                 ...(options.diarize === true ? { diarize: true } : {}),
                 ...(speakers === undefined ? {} : { speakers }),
               },

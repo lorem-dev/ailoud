@@ -81,6 +81,46 @@ export const MIN_RUN_DURATION_MS = 1500;
 export const MAX_DETECTION_WINDOW_MS = 5000;
 
 /**
+ * The detection window to use when the caller HAS declared which languages
+ * are present.
+ *
+ * Narrow, deliberately, and the opposite of what the unconstrained case
+ * wants. The two settings answer different risks:
+ *
+ * Undeclared, a mis-detection is unrepairable -- nothing knows the answer is
+ * wrong -- so the window must be wide enough for detection to be right,
+ * which costs the ability to localise a fast switch.
+ *
+ * Declared, a mis-detection outside the set is knowable and gets repaired by
+ * `resolveDeclaredLanguages`, so reliability is no longer what the window
+ * has to buy. What it has to buy is resolution, because a window wider than
+ * a conversational turn swallows whole turns of the other language.
+ *
+ * Measured on a 32-second Russian/English conversation of roughly
+ * two-second turns, both runs with `--lang ru,en`:
+ *
+ *   5000ms window: 8 segments. Russian excellent, but five of the six
+ *                  English turns vanished -- each window straddled two or
+ *                  three turns, Russian won the window, and the English
+ *                  inside it was transcribed as Russian.
+ *   2000ms window: 12 segments. Every turn of both languages present, edges
+ *                  of some phrases clipped. No Polish either way.
+ *
+ * Losing five turns outright is far worse than clipping edges, so declaring
+ * a set buys back the narrow window that unconstrained detection cannot
+ * afford.
+ */
+export const DECLARED_DETECTION_WINDOW_MS = 2000;
+
+/**
+ * Which window a run should use, given how many languages the caller
+ * declared. One place, so the pipeline cannot pick one and a test another.
+ */
+export function detectionWindowMs(declaredCount: number): number {
+  return declaredCount > 0 ? DECLARED_DETECTION_WINDOW_MS : MAX_DETECTION_WINDOW_MS;
+}
+
+/**
  * Splits any span longer than `windowMs` into windows of at most that
  * length, so per-window language detection has something to key a switch
  * on even when the segmenter returned one span for a whole recording. A

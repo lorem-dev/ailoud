@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DECLARED_DETECTION_WINDOW_MS,
+  MAX_DETECTION_WINDOW_MS,
   MIN_RUN_DURATION_MS,
+  detectionWindowMs,
   mergeRuns,
   resolveDeclaredLanguages,
   subdivideSpans,
@@ -393,5 +396,23 @@ describe('resolveDeclaredLanguages', () => {
     const copy = structuredClone(spans);
     resolveDeclaredLanguages(spans, ['ru']);
     expect(spans).toEqual(copy);
+  });
+});
+
+describe('detectionWindowMs', () => {
+  it('is wide when nothing was declared, because a mis-detection is unrepairable then', () => {
+    expect(detectionWindowMs(0)).toBe(MAX_DETECTION_WINDOW_MS);
+  });
+
+  it('is narrow once languages are declared, because resolution buys back resolution', () => {
+    // Measured: at 5000ms with a declared set, five of six English turns in a
+    // 32-second conversation vanished into Russian-dominated windows; at
+    // 2000ms every turn survived.
+    expect(detectionWindowMs(2)).toBe(DECLARED_DETECTION_WINDOW_MS);
+    expect(detectionWindowMs(2)).toBeLessThan(detectionWindowMs(0));
+  });
+
+  it('treats a single declared language the same as several', () => {
+    expect(detectionWindowMs(1)).toBe(DECLARED_DETECTION_WINDOW_MS);
   });
 });
