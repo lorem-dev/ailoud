@@ -25,6 +25,7 @@ const EN_WAV = join(FIXTURES_DIR, 'en-short.wav');
 const EN_REFERENCE = readFileSync(join(FIXTURES_DIR, 'en-short.txt'), 'utf8').trim();
 const RU_WAV = join(FIXTURES_DIR, 'ru-short.wav');
 const MIXED_WAV = join(FIXTURES_DIR, 'mixed-short.wav');
+const ANGLICISMS_WAV = join(FIXTURES_DIR, 'ru-anglicisms.wav');
 
 const WER_THRESHOLD = 0.25;
 
@@ -257,6 +258,54 @@ describe('laud end-to-end', () => {
     expect(transcribed.code).toBe(0);
     const { language } = parseTranscribeLine(transcribed.stdout.trim());
     expect(language).toBe('ru');
+  });
+
+  it('keeps English loanwords in Russian speech from turning into other words', async () => {
+    // Russian has absorbed a lot of English, and it is written in Cyrillic:
+    // "дедлайн", "фидбэк", "пул-реквест". This is NOT code-switching -- it is
+    // one language -- and the risk is that a transcriber treats a loanword as
+    // foreign and substitutes something else for it.
+    //
+    // The bar, deliberately, is not spelling. Rendering a loanword
+    // phonetically in the target script is a correct outcome, and whisper
+    // does drift on some of them ("фидбэк" comes back as "фитбок", "легаси"
+    // as "легася"). What must not happen is the word being replaced by an
+    // unrelated one, so this asserts on the loanwords that come through
+    // intact and leaves the phonetic drifters out rather than baking today's
+    // misspellings in as expectations -- that would turn a guard into a
+    // snapshot of a model version.
+    const LOANWORDS = [
+      'дедлайн',
+      'релиз',
+      'фикс',
+      'реквест',
+      'митинг',
+      'юзер',
+      'деплой',
+      'лог',
+      'таймаут',
+      'рефакторинг',
+      'чат',
+    ];
+
+    await sandbox.writeConfig(`stt:\n  whisperCpp:\n    model: ${WHISPER_MODEL}\n`);
+    const imported = await sandbox.run(['import', ANGLICISMS_WAV]);
+    const id = parseImportLine(imported.stdout.trim()).id;
+
+    const transcribed = await sandbox.run(['transcribe', id, '--lang', 'ru']);
+    expect(transcribed.code).toBe(0);
+
+    const shown = await sandbox.run(['show', id, '--format', 'json']);
+    expect(shown.code).toBe(0);
+    const transcript = transcriptTextFromShowJson(shown.stdout).toLowerCase();
+
+    const missing = LOANWORDS.filter((word) => !transcript.includes(word));
+    if (missing.length > 0) {
+      throw new Error(
+        `loanwords replaced rather than transcribed: ${missing.join(', ')}; ` +
+          `transcript: ${JSON.stringify(transcript)}`,
+      );
+    }
   });
 
   it('the mixed-language fixture keeps both languages under --multilingual', async () => {

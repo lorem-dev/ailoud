@@ -58,6 +58,14 @@ const FIXTURES = [
   // similar voices would mostly test the model's limits. mixed-short above
   // does technically hold two speakers, but both its voices are female,
   // which is why it is not the fixture to diarize against.
+  // Russian carrying English loanwords, all written the way Russians write
+  // them -- in Cyrillic. One voice: this is not code-switching, it is one
+  // language that has absorbed foreign words, and the distinction matters.
+  // Multilingual mode must NOT split these turns, because splitting one is
+  // how "дедлайн" gets transcribed as English and comes back as a different
+  // word entirely. Transcribing them phonetically in Cyrillic is the correct
+  // outcome; substituting an unrelated word is the failure.
+  { name: 'ru-anglicisms', voices: ['Milena'] },
   { name: 'two-speakers-en', voices: ['Samantha', 'Daniel'] },
   // Three, because the design spike found speaker-count discovery is the
   // weak spot: two speakers were correct across a wide threshold band,
