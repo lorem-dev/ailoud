@@ -207,6 +207,69 @@ describe('laud show', () => {
     expect(ctx.lines.join('\n')).toContain('Privet.');
   });
 
+  it('lists who spoke with --speakers, naming them when they have names', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    // The fixture transcript has no speakers, so give it some directly.
+    const transcript = await ctx.store.latestTranscript('ID001');
+    await ctx.store.insertTranscript({ ...transcript!, id: 'TX9' }, [
+      {
+        id: 'SG1',
+        transcriptId: 'TX9',
+        idx: 0,
+        startMs: 0,
+        endMs: 3000,
+        text: 'hello',
+        speaker: 'speaker_00',
+        language: null,
+      },
+      {
+        id: 'SG2',
+        transcriptId: 'TX9',
+        idx: 1,
+        startMs: 3000,
+        endMs: 4000,
+        text: 'hi',
+        speaker: 'speaker_01',
+        language: null,
+      },
+    ]);
+    await ctx.store.setSpeakerName('ID001', 'speaker_00', 'Ann');
+    ctx.lines.length = 0;
+
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'show', 'ID001', '--speakers']);
+    const out = ctx.lines.join('\n');
+    expect(out).toContain('Ann');
+    // The label stays visible beside the name: it is what a later --speaker
+    // or annotate call may need, and hiding it would make the mapping
+    // unverifiable.
+    expect(out).toContain('speaker_00');
+    expect(out).toContain('speaker_01');
+  });
+
+  it('refuses --speakers together with --speaker', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await expect(
+      buildProgram(ctx).parseAsync([
+        'node',
+        'laud',
+        'show',
+        'ID001',
+        '--speakers',
+        '--speaker',
+        'Ann',
+      ]),
+    ).rejects.toThrow(/one or the other/);
+  });
+
+  it('names the speakers a recording does have when --speaker misses', async () => {
+    // The user has a label or a name slightly wrong; the fix should be in
+    // front of them rather than another command away.
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'laud', 'show', 'ID001', '--speaker', 'nobody']),
+    ).rejects.toThrow(/without --diarize|This recording has/);
+  });
+
   it('fails with a clear message for an unknown id', async () => {
     // Wording changed with prefix resolution: an id is now a prefix, so the
     // honest statement is that nothing MATCHES it, not that no recording has

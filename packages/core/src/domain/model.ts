@@ -43,6 +43,18 @@ export interface Segment {
   readonly language: string | null;
 }
 
+/**
+ * A human's name for one of the labels a diarizer produced.
+ *
+ * `label` is what the diarizer said ("speaker_00"); `name` is who that
+ * actually is. The pair lives per recording, because the same label means a
+ * different person in a different file.
+ */
+export interface SpeakerName {
+  readonly label: string;
+  readonly name: string;
+}
+
 /** What a transcription provider returns, before it is given ids and stored. */
 export interface RawSegment {
   readonly startMs: number;

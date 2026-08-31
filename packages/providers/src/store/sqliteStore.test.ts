@@ -344,3 +344,49 @@ describe('SqliteStore and the recording date', () => {
     await rm(dir, { recursive: true, force: true });
   });
 });
+
+describe('SqliteStore and speaker names', () => {
+  it('stores, replaces, and lists names in label order', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await store.setSpeakerName('R1', 'speaker_01', 'Bob');
+    await store.setSpeakerName('R1', 'speaker_00', 'Ann');
+    await store.setSpeakerName('R1', 'speaker_00', 'Anna');
+    expect(await store.listSpeakerNames('R1')).toEqual([
+      { label: 'speaker_00', name: 'Anna' },
+      { label: 'speaker_01', name: 'Bob' },
+    ]);
+    store.close();
+  });
+
+  it('keeps one recordings names out of anothers', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await store.insertRecording({ ...recording, id: 'R2', sha256: 'def', mediaPath: 'de/def.mp3' });
+    await store.setSpeakerName('R1', 'speaker_00', 'Ann');
+    // The same label means a different person in a different file, which is
+    // why the table is keyed on both.
+    expect(await store.listSpeakerNames('R2')).toEqual([]);
+    store.close();
+  });
+
+  it('takes names with the recording when it is deleted', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await store.setSpeakerName('R1', 'speaker_00', 'Ann');
+    await store.deleteRecording('R1');
+    expect(await store.listSpeakerNames('R1')).toEqual([]);
+    store.close();
+  });
+
+  it('sets title and notes independently, leaving the other alone', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await store.annotateRecording('R1', { notes: 'context' });
+    await store.annotateRecording('R1', { title: 'Standup' });
+    const updated = await store.getRecording('R1');
+    expect(updated?.notes).toBe('context');
+    expect(updated?.title).toBe('Standup');
+    store.close();
+  });
+});

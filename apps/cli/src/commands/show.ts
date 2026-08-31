@@ -1,5 +1,15 @@
 import type { Command } from 'commander';
-import { FailureError, toPlainText, toSrt, toVtt, UsageError } from '@laud/core';
+import {
+  FailureError,
+  UsageError,
+  formatTimestamp,
+  segmentsOfSpeaker,
+  speakerNameMap,
+  summarizeSpeakers,
+  toPlainText,
+  toSrt,
+  toVtt,
+} from '@laud/core';
 import type { Transcript } from '@laud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecording, resolveTranscript } from '../resolveId.js';
@@ -12,64 +22,126 @@ export function registerShow(program: Command, context: CliContext): void {
     .command('show')
     .argument('<id>', 'recording id, or enough of its start to be unambiguous')
     .option('--format <format>', `one of ${FORMATS.join(', ')}`, 'text')
+    .option('--speakers', 'list who spoke, instead of the transcript')
+    .option('--speaker <who>', 'only this speaker, by diarizer label or by the name you gave them')
     .option(
       '--transcript <id>',
       'a specific transcript instead of the newest; a unique prefix will do',
     )
     .description('Print a transcript')
-    .action(async (id: string, options: { format: string; transcript?: string }) => {
-      // The transcript goes through ui.content(), not straight to stdout:
-      // that puts it inside the frame for someone reading a terminal, while
-      // a redirect or a pipe -- which selects PlainUi -- still receives the
-      // exact bytes. See Ui.content.
-      await context.ui.frame('Transcript', async () => {
-        if (!FORMATS.includes(options.format as Format)) {
-          throw new UsageError(
-            `Unknown format "${options.format}". Use one of: ${FORMATS.join(', ')}.`,
-          );
-        }
-        // A prefix will do, as in docker; resolveRecording explains itself
-        // when one matches nothing or several things.
-        const recording = await resolveRecording(context.store, id);
-
-        // recording.id from here down, never `id`: `id` is whatever the user
-        // typed, which may be a prefix. Looking a transcript up by the prefix
-        // finds nothing and reports "no transcript yet" for a recording that
-        // has one -- which is exactly what this did before the resolved id
-        // was threaded through.
-        let transcript: Transcript | null;
-        if (options.transcript === undefined) {
-          transcript = await context.store.latestTranscript(recording.id);
-        } else {
-          const candidate = await resolveTranscript(context.store, options.transcript);
-          if (candidate.recordingId !== recording.id) {
-            throw new FailureError(
-              `${candidate.id} is not a transcript of recording ${recording.id}.`,
+    .action(
+      async (
+        id: string,
+        options: {
+          format: string;
+          transcript?: string;
+          speakers?: boolean;
+          speaker?: string;
+        },
+      ) => {
+        // The transcript goes through ui.content(), not straight to stdout:
+        // that puts it inside the frame for someone reading a terminal, while
+        // a redirect or a pipe -- which selects PlainUi -- still receives the
+        // exact bytes. See Ui.content.
+        await context.ui.frame('Transcript', async () => {
+          if (!FORMATS.includes(options.format as Format)) {
+            throw new UsageError(
+              `Unknown format "${options.format}". Use one of: ${FORMATS.join(', ')}.`,
             );
           }
-          transcript = candidate;
-        }
-        if (transcript === null) {
-          throw new FailureError(
-            `${recording.id} has no transcript yet. Run "laud transcribe ${recording.id}".`,
-          );
-        }
-        const segments = await context.store.listSegments(transcript.id);
+          // A prefix will do, as in docker; resolveRecording explains itself
+          // when one matches nothing or several things.
+          const recording = await resolveRecording(context.store, id);
 
-        switch (options.format as Format) {
-          case 'text':
-            context.ui.content(toPlainText(segments));
+          // recording.id from here down, never `id`: `id` is whatever the user
+          // typed, which may be a prefix. Looking a transcript up by the prefix
+          // finds nothing and reports "no transcript yet" for a recording that
+          // has one -- which is exactly what this did before the resolved id
+          // was threaded through.
+          let transcript: Transcript | null;
+          if (options.transcript === undefined) {
+            transcript = await context.store.latestTranscript(recording.id);
+          } else {
+            const candidate = await resolveTranscript(context.store, options.transcript);
+            if (candidate.recordingId !== recording.id) {
+              throw new FailureError(
+                `${candidate.id} is not a transcript of recording ${recording.id}.`,
+              );
+            }
+            transcript = candidate;
+          }
+          if (transcript === null) {
+            throw new FailureError(
+              `${recording.id} has no transcript yet. Run "laud transcribe ${recording.id}".`,
+            );
+          }
+          const allSegments = await context.store.listSegments(transcript.id);
+          const names = await context.store.listSpeakerNames(recording.id);
+
+          if (options.speakers === true) {
+            if (options.speaker !== undefined) {
+              throw new UsageError(
+                '--speakers lists who spoke and --speaker picks one of them; use one or the other.',
+              );
+            }
+            const summary = summarizeSpeakers(allSegments, names);
+            if (summary.length === 0) {
+              throw new FailureError(
+                `${recording.id} has no speakers: it was transcribed without --diarize.`,
+              );
+            }
+            context.ui.content(
+              options.format === 'json'
+                ? JSON.stringify(summary, null, 2)
+                : summary
+                    .map(
+                      (speaker) =>
+                        `${speaker.name ?? speaker.label}  ${formatTimestamp(speaker.spokenMs, 'short')}  ` +
+                        `${speaker.segmentCount} segment${speaker.segmentCount === 1 ? '' : 's'}` +
+                        `${speaker.name === null ? '' : `  (${speaker.label})`}`,
+                    )
+                    .join('\n'),
+            );
             return;
-          case 'srt':
-            context.ui.content(toSrt(segments));
-            return;
-          case 'vtt':
-            context.ui.content(toVtt(segments));
-            return;
-          case 'json':
-            context.ui.content(JSON.stringify({ recording, transcript, segments }, null, 2));
-            return;
-        }
-      });
-    });
+          }
+
+          const segments =
+            options.speaker === undefined
+              ? allSegments
+              : segmentsOfSpeaker(allSegments, names, options.speaker);
+          if (options.speaker !== undefined && segments.length === 0) {
+            // Names the alternatives rather than just failing: the user has a
+            // label or a name in mind and got it slightly wrong, and the fix is
+            // in front of them either way.
+            const known = summarizeSpeakers(allSegments, names).map(
+              (speaker) => speaker.name ?? speaker.label,
+            );
+            throw new FailureError(
+              known.length === 0
+                ? `${recording.id} has no speakers: it was transcribed without --diarize.`
+                : `No speaker "${options.speaker}" in ${recording.id}. This recording has: ${known.join(', ')}.`,
+            );
+          }
+
+          const nameMap = speakerNameMap(names);
+
+          switch (options.format as Format) {
+            case 'text':
+              context.ui.content(toPlainText(segments, nameMap));
+              return;
+            case 'srt':
+              context.ui.content(toSrt(segments));
+              return;
+            case 'vtt':
+              context.ui.content(toVtt(segments));
+              return;
+            case 'json':
+              context.ui.content(
+                JSON.stringify({ recording, transcript, segments, speakers: names }, null, 2),
+              );
+              return;
+          }
+        });
+      },
+    );
 }

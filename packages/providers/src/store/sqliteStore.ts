@@ -4,6 +4,7 @@ import type {
   Recording,
   RecordingListFilter,
   Segment,
+  SpeakerName,
   Transcript,
 } from '@laud/core';
 import { orderLanguages, pendingMigrations } from '@laud/core';
@@ -262,6 +263,38 @@ export class SqliteStore implements ManagedRecordingStore {
       .prepare(`SELECT * FROM transcript WHERE id LIKE ? || '%' ORDER BY id`)
       .all(prefix) as unknown as TranscriptRow[];
     return rows.map(toTranscript);
+  }
+
+  async setSpeakerName(recordingId: string, label: string, name: string): Promise<void> {
+    // Upsert: naming the same speaker twice is a correction, not an error.
+    this.db
+      .prepare(
+        `INSERT INTO speaker (recording_id, label, name) VALUES (?, ?, ?)
+         ON CONFLICT (recording_id, label) DO UPDATE SET name = excluded.name`,
+      )
+      .run(recordingId, label, name);
+  }
+
+  async listSpeakerNames(recordingId: string): Promise<SpeakerName[]> {
+    const rows = this.db
+      .prepare('SELECT label, name FROM speaker WHERE recording_id = ? ORDER BY label')
+      .all(recordingId) as unknown as { label: string; name: string }[];
+    return rows.map((row) => ({ label: row.label, name: row.name }));
+  }
+
+  async annotateRecording(
+    id: string,
+    fields: { readonly title?: string; readonly notes?: string },
+  ): Promise<void> {
+    // COALESCE with a null parameter leaves the stored value alone, so one
+    // statement covers "set the title", "set the notes", and "set both"
+    // without three of them drifting apart.
+    this.db
+      .prepare(
+        `UPDATE recording SET title = COALESCE(?, title), notes = COALESCE(?, notes)
+         WHERE id = ?`,
+      )
+      .run(fields.title ?? null, fields.notes ?? null, id);
   }
 
   async deleteRecording(id: string): Promise<boolean> {

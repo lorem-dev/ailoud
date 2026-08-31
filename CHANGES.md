@@ -64,6 +64,20 @@
   machine that never transcribes code-switched audio no longer carries a
   permanently failing `doctor` over it. `transcribe --multilingual` still
   exits 3 with an actionable message when the VAD model is not configured.
+- `laud annotate <id>` adds context to a recording: `--title`, `--notes`, and
+  `--speaker label=name` (repeatable) to give a diarizer's `speaker_00` a real
+  name. Named speakers feed the summaries planned for the next milestone, and
+  make a transcript readable now.
+- Names live in their own table keyed by recording and label, not written over
+  the segments. The label is what the diarizer produced and the name is a
+  human's annotation of it, so re-transcribing with `--force` re-runs
+  diarization without losing the names -- verified on a real recording.
+- `laud show <id> --speakers` lists who spoke, ordered by how much, with their
+  names, segment counts and total speech. `--speaker <who>` shows only that
+  speaker, matched by diarizer label or by the name you gave them, either
+  case. A miss names the speakers the recording does have.
+- Transcript text prints the name where a speaker has one, and the label where
+  they do not.
 - Ids can be abbreviated, as in docker: any prefix of at least two characters
   that picks out exactly one thing works wherever a full id does. That covers
   every command taking an id -- `show`, `transcribe`, `rm` -- and

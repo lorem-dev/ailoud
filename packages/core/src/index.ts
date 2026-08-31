@@ -1,4 +1,4 @@
-export type { Recording, Transcript, Segment, RawSegment } from './domain/model.js';
+export type { RawSegment, Recording, Segment, SpeakerName, Transcript } from './domain/model.js';
 
 export type {
   Clock,
@@ -25,6 +25,13 @@ export type { LanguageTotal } from './transcribe/languages.js';
 export { assignSpeakers } from './diarize/assign.js';
 export { normalizeRecordedAt, recordedOrImportedAt } from './domain/recordedAt.js';
 export { resolveBySpeaker } from './transcribe/bySpeaker.js';
+export {
+  segmentsOfSpeaker,
+  speakerDisplayName,
+  speakerNameMap,
+  summarizeSpeakers,
+} from './transcribe/speakers.js';
+export type { SpeakerSummary } from './transcribe/speakers.js';
 export type { DetectedTurn } from './transcribe/bySpeaker.js';
 
 export {

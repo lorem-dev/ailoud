@@ -12,7 +12,7 @@ import type {
   TempFile,
   TranscriptionProvider,
 } from '../domain/ports.js';
-import type { RawSegment, Recording, Segment, Transcript } from '../domain/model.js';
+import type { RawSegment, Recording, Segment, SpeakerName, Transcript } from '../domain/model.js';
 import { SCHEMA_VERSION } from '../db/schema.js';
 import { summarizeLanguages } from '../transcribe/languages.js';
 
@@ -268,9 +268,40 @@ export class InMemoryStore implements ManagedRecordingStore {
       .sort((a, b) => a.id.localeCompare(b.id));
   }
 
+  readonly speakerNames = new Map<string, Map<string, string>>();
+
+  async setSpeakerName(recordingId: string, label: string, name: string): Promise<void> {
+    const byLabel = this.speakerNames.get(recordingId) ?? new Map<string, string>();
+    byLabel.set(label, name);
+    this.speakerNames.set(recordingId, byLabel);
+  }
+
+  async listSpeakerNames(recordingId: string): Promise<SpeakerName[]> {
+    const byLabel = this.speakerNames.get(recordingId);
+    if (byLabel === undefined) return [];
+    return [...byLabel.entries()]
+      .map(([label, name]) => ({ label, name }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  async annotateRecording(
+    id: string,
+    fields: { readonly title?: string; readonly notes?: string },
+  ): Promise<void> {
+    const recording = this.recordings.get(id);
+    if (recording === undefined) return;
+    this.recordings.set(id, {
+      ...recording,
+      title: fields.title ?? recording.title,
+      notes: fields.notes ?? recording.notes,
+    });
+  }
+
   async deleteRecording(id: string): Promise<boolean> {
     if (!this.recordings.has(id)) return false;
     this.recordings.delete(id);
+    // Mirrors the speaker table's ON DELETE CASCADE.
+    this.speakerNames.delete(id);
     // Mirrors ON DELETE CASCADE in the real schema: a transcript cannot
     // outlive its recording, nor a segment its transcript. A fake that kept
     // them would let a test pass against behaviour the real store does not

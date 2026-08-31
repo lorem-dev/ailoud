@@ -62,6 +62,23 @@ export const MIGRATIONS: readonly Migration[] = [
       `ALTER TABLE recording ADD COLUMN recorded_at TEXT`,
     ],
   },
+  {
+    version: 3,
+    statements: [
+      // Real names for the labels a diarizer invents. Kept in their own
+      // table rather than written over segment.speaker: the label is what
+      // the diarizer produced and must survive re-transcription, while the
+      // name is a human's annotation of it. Overwriting one with the other
+      // would lose the ability to re-run diarization without losing the
+      // names, and lose the names on the next --force.
+      `CREATE TABLE speaker (
+         recording_id TEXT NOT NULL REFERENCES recording(id) ON DELETE CASCADE,
+         label TEXT NOT NULL,
+         name TEXT NOT NULL,
+         PRIMARY KEY (recording_id, label)
+       )`,
+    ],
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

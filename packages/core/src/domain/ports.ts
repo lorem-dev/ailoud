@@ -1,4 +1,4 @@
-import type { Recording, RawSegment, Segment, Transcript } from './model.js';
+import type { RawSegment, Recording, Segment, SpeakerName, Transcript } from './model.js';
 
 export interface Clock {
   nowIso(): string;
@@ -141,6 +141,15 @@ export interface RecordingStore {
    * there" instead of guessing.
    */
   deleteRecording(id: string): Promise<boolean>;
+  /** Sets or replaces the human name for one diarizer label of one recording. */
+  setSpeakerName(recordingId: string, label: string, name: string): Promise<void>;
+  /** Every named speaker of a recording, in label order. */
+  listSpeakerNames(recordingId: string): Promise<SpeakerName[]>;
+  /** Sets the recording's title or notes. Undefined fields are left as they are. */
+  annotateRecording(
+    id: string,
+    fields: { readonly title?: string; readonly notes?: string },
+  ): Promise<void>;
   /**
    * Every recording whose id starts with `prefix`, in id order.
    *
