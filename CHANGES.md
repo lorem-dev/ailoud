@@ -250,3 +250,32 @@
 - The action executor rejects an unhandled action kind at compile time. Its
   switch had no default, so a kind nobody wrote a case for was named in the
   plan, consented to, and then silently did nothing.
+- After the engine, `laud setup` asks which model, and asks the provider for
+  the list rather than shipping one: `GET /v1/models` on Anthropic or OpenAI.
+  A built-in list was the alternative and is stale the day a vendor ships
+  anything.
+- Both endpoints need a key, so with none set the question is skipped, the
+  configured model is kept, and the run says which variable to export to get
+  the choice -- rather than picking one and not saying which. A listing that
+  fails or times out is reported the same way and does not sink the rest of
+  the plan.
+- OpenAI's `/v1/models` is a catalogue of everything on the account, with
+  nothing in the response marking which entries are chat models, so they are
+  filtered out by id -- a denylist of substrings (`embedding`, `tts`,
+  `whisper`, ...) rather than an allowlist of prefixes, so a new chat model
+  appears the day it ships.
+- Anthropic's list is paginated and is followed to the end. Stopping at the
+  first page would have hidden models with nothing on screen to say so.
+- The subscription route has no listing endpoint, so it offers the Claude Code
+  tiers `opus`, `sonnet` and `haiku`: aliases, not pinned ids, so each follows
+  the newest model of its tier and the list cannot go stale.
+- `--llm-model <id>` answers up front and is taken verbatim, with no request
+  made: validating it would put a network call in every unattended run, and an
+  unknown id is rejected at the first summary with the provider's own message.
+- The model is written into the block its provider reads -- `llm.anthropic`,
+  `llm.openaiCompatible` or `llm.claudeCli` -- since a model id only means
+  something inside one of them.
+- Known gap: neither endpoint reports a context window, so choosing a model
+  does not adjust `contextTokens`. Picking a small-context model needs that key
+  set by hand; the symptom is a context error from the API on the first
+  oversized request, not a silently truncated summary.

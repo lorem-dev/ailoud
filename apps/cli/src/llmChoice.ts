@@ -2,7 +2,24 @@ import { select } from '@clack/prompts';
 import { isCancel } from '@clack/prompts';
 import { UsageError } from '@laud/core';
 import type { LlmProvider, Remedy } from '@laud/core';
+import { listAnthropicModels, listOpenAiModels } from '@laud/providers';
+import type { ModelOption } from '@laud/providers';
+import { apiKeyFrom } from './apiKey.js';
 import type { CommandName } from './commands/setup.js';
+
+/**
+ * The tiers the Claude Code CLI accepts.
+ *
+ * Hard-coded because there is nothing to ask: the subscription route has no
+ * model-listing endpoint, only `--model <alias-or-id>`. Aliases rather than
+ * pinned ids on purpose -- each one follows the newest model of its tier, so
+ * this list does not go stale the way a list of ids would.
+ */
+const CLAUDE_CLI_ALIASES: readonly ModelOption[] = [
+  { id: 'opus', label: 'opus -- most capable, slowest' },
+  { id: 'sonnet', label: 'sonnet -- the balanced default' },
+  { id: 'haiku', label: 'haiku -- fastest, cheapest' },
+];
 
 /**
  * Which summarisation engine the user wants, as `setup` asks it.
@@ -14,6 +31,12 @@ import type { CommandName } from './commands/setup.js';
  * are an implementation detail of the answer.
  */
 export type LlmChoice = 'local' | 'claude-cli' | 'claude-api' | 'openai' | 'skip';
+
+/** The answer: which engine, and which model of it when one was chosen. */
+export interface LlmSelection {
+  readonly choice: LlmChoice;
+  readonly model?: string;
+}
 
 export const LLM_CHOICES: readonly LlmChoice[] = [
   'local',
@@ -58,10 +81,53 @@ export function planNeedsLlmChoice(remedies: readonly Remedy[]): boolean {
 
 export interface LlmChoiceOptions {
   readonly llm?: string;
+  readonly llmModel?: string;
   readonly remedies: readonly Remedy[];
   readonly interactive: boolean;
   readonly selectImpl?: typeof select;
   readonly commandName?: CommandName;
+  /** For reading the API key the model list needs. Injected so a test can pin it. */
+  readonly env?: NodeJS.ProcessEnv;
+  /** Overridable so a test never reaches the network. */
+  readonly listModels?: (
+    choice: LlmChoice,
+    env: NodeJS.ProcessEnv,
+  ) => Promise<readonly ModelOption[]>;
+  /** Where a "could not list models" note goes. Silent when absent. */
+  readonly note?: (message: string) => void;
+}
+
+/**
+ * The models a choice can offer, asked of the provider itself.
+ *
+ * Both hosted APIs will only answer with a key, so this returns an empty list
+ * when there is none -- and the caller then leaves the configured default
+ * alone rather than inventing a list. A built-in list was the alternative and
+ * is worse: it is stale the day a vendor ships anything.
+ */
+export async function modelsFor(
+  choice: LlmChoice,
+  env: NodeJS.ProcessEnv,
+): Promise<readonly ModelOption[]> {
+  if (choice === 'claude-cli') return CLAUDE_CLI_ALIASES;
+  if (choice === 'claude-api') {
+    const key = apiKeyFrom(env, 'ANTHROPIC_API_KEY');
+    if (key === undefined) return [];
+    return listAnthropicModels('https://api.anthropic.com/v1', key);
+  }
+  if (choice === 'openai') {
+    const key = apiKeyFrom(env, 'OPENAI_API_KEY');
+    if (key === undefined) return [];
+    return listOpenAiModels('https://api.openai.com/v1', key);
+  }
+  return [];
+}
+
+/** Which environment variable a choice needs before its models can be listed. */
+function keyVariable(choice: LlmChoice): string | null {
+  if (choice === 'claude-api') return 'ANTHROPIC_API_KEY';
+  if (choice === 'openai') return 'OPENAI_API_KEY';
+  return null;
 }
 
 /**
@@ -75,9 +141,21 @@ export interface LlmChoiceOptions {
  * this question existed -- an unattended run must not change behaviour just
  * because an interactive one gained a choice.
  */
-export async function chooseLlm(options: LlmChoiceOptions): Promise<LlmChoice> {
-  if (options.llm !== undefined) return parseLlmChoice(options.llm);
-  if (!options.interactive || !planNeedsLlmChoice(options.remedies)) return 'local';
+export async function chooseLlm(options: LlmChoiceOptions): Promise<LlmSelection> {
+  const withModel = (choice: LlmChoice, model?: string): LlmSelection =>
+    model === undefined ? { choice } : { choice, model };
+
+  if (options.llm !== undefined) {
+    const choice = parseLlmChoice(options.llm);
+    // Taken verbatim, never checked against the live list: validating it would
+    // put a network call in the middle of every unattended run, and an id the
+    // provider does not know is rejected at the first summary with its own
+    // message, which is clearer than anything guessed here.
+    return withModel(choice, options.llmModel);
+  }
+  if (!options.interactive || !planNeedsLlmChoice(options.remedies)) {
+    return withModel('local', options.llmModel);
+  }
 
   const selectImpl = options.selectImpl ?? select;
   const cancelled = (): never => {
@@ -103,7 +181,10 @@ export async function chooseLlm(options: LlmChoiceOptions): Promise<LlmChoice> {
     ],
   });
   if (isCancel(engine)) cancelled();
-  if (String(engine) !== 'claude') return parseLlmChoice(String(engine));
+  if (String(engine) !== 'claude') {
+    const choice = parseLlmChoice(String(engine));
+    return withModel(choice, await chooseModelId(choice, options, cancelled));
+  }
 
   const route = await selectImpl({
     message: 'How should laud reach Claude?',
@@ -118,7 +199,60 @@ export async function chooseLlm(options: LlmChoiceOptions): Promise<LlmChoice> {
     ],
   });
   if (isCancel(route)) cancelled();
-  return parseLlmChoice(String(route));
+  const choice = parseLlmChoice(String(route));
+  return withModel(choice, await chooseModelId(choice, options, cancelled));
+}
+
+/**
+ * Which model of the chosen engine, asked of the engine.
+ *
+ * Returns undefined -- leaving whatever the config already says -- whenever
+ * there is nothing to choose from: the local route has no list, and the hosted
+ * ones cannot be listed without a key. That case is announced rather than
+ * passed over silently, because "laud picked a model for me and did not say
+ * which" is the confusing outcome.
+ */
+async function chooseModelId(
+  choice: LlmChoice,
+  options: LlmChoiceOptions,
+  cancelled: () => never,
+): Promise<string | undefined> {
+  if (choice === 'local' || choice === 'skip') return undefined;
+
+  const env = options.env ?? process.env;
+  const list = options.listModels ?? modelsFor;
+  let models: readonly ModelOption[];
+  try {
+    models = await list(choice, env);
+  } catch (error) {
+    // A failed listing must not sink the whole run: everything else in the
+    // plan is still worth doing, and the configured default still works.
+    options.note?.(
+      `Could not ask for the model list (${
+        error instanceof Error ? error.message : String(error)
+      }); keeping the configured model.`,
+    );
+    return undefined;
+  }
+
+  if (models.length === 0) {
+    const variable = keyVariable(choice);
+    options.note?.(
+      variable === null
+        ? 'No models to choose from; keeping the configured model.'
+        : `${variable} is not set, so laud cannot ask which models you can use. ` +
+            'Keeping the configured model -- set the key and re-run to choose one.',
+    );
+    return undefined;
+  }
+
+  const answer = await (options.selectImpl ?? select)({
+    message: 'Which model should laud use?',
+    initialValue: models[0]!.id,
+    options: models.map((model) => ({ value: model.id, label: model.label })),
+  });
+  if (isCancel(answer)) cancelled();
+  return String(answer);
 }
 
 /**
@@ -130,12 +264,20 @@ export async function chooseLlm(options: LlmChoiceOptions): Promise<LlmChoice> {
  */
 export function remediesForChoice(
   remedies: readonly Remedy[],
-  choice: LlmChoice,
+  selection: LlmSelection,
 ): readonly Remedy[] {
-  if (choice === 'local') return remedies;
+  if (selection.choice === 'local') return remedies;
   const kept = remedies.filter(
     (remedy) => remedy.kind !== 'install-llm' && remedy.kind !== 'download-llm-model',
   );
-  const provider = providerFor(choice);
-  return provider === null ? kept : [...kept, { kind: 'set-llm-provider', provider }];
+  const provider = providerFor(selection.choice);
+  if (provider === null) return kept;
+  return [
+    ...kept,
+    {
+      kind: 'set-llm-provider',
+      provider,
+      ...(selection.model === undefined ? {} : { model: selection.model }),
+    },
+  ];
 }

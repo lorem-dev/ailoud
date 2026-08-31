@@ -47,5 +47,7 @@ export { AnthropicSummarizer, extractAnthropicText } from './llm/anthropic.js';
 export type { AnthropicOptions } from './llm/anthropic.js';
 export { ClaudeCliSummarizer } from './llm/claudeCli.js';
 export type { ClaudeCliOptions } from './llm/claudeCli.js';
+export { listOpenAiModels, listAnthropicModels, isChatModel } from './llm/models.js';
+export type { ModelOption } from './llm/models.js';
 export { LLAMA_VERSION, installLlama, llamaTarballUrl } from './provision/llamaInstall.js';
 export type { InstallLlamaOptions, InstallLlamaResult } from './provision/llamaInstall.js';

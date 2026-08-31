@@ -5,6 +5,9 @@ import { UsageError } from '@laud/core';
 
 export interface ConfigUpdates {
   readonly llmProvider?: string;
+  readonly llmAnthropicModel?: string;
+  readonly llmOpenaiModel?: string;
+  readonly llmClaudeCliModel?: string;
   readonly llmBinary?: string;
   readonly llmModel?: string;
   readonly model?: string;
@@ -41,6 +44,12 @@ const PATH: Record<keyof ConfigUpdates, readonly string[]> = {
   // any depth rather than a fixed root/section/key triple, so a key like this
   // does not need the shape bent around it.
   llmProvider: ['llm', 'provider'],
+  // One key per provider, because the model id only means something inside its
+  // own block: "sonnet" is a Claude Code alias, "claude-sonnet-5" is an API id,
+  // and "gpt-4o" is neither.
+  llmAnthropicModel: ['llm', 'anthropic', 'model'],
+  llmOpenaiModel: ['llm', 'openaiCompatible', 'model'],
+  llmClaudeCliModel: ['llm', 'claudeCli', 'model'],
 };
 
 /**

@@ -204,8 +204,16 @@ const PROVIDER_LABEL: Record<LlmProvider, string> = {
  * remaining step is "export a key" should learn that while deciding, not
  * discover it the first time `summarize` refuses.
  */
-function providerPlanLines(provider: LlmProvider, env: PlanEnvironment): readonly string[] {
-  const lines = [`Sets llm.provider to "${provider}" in ${env.configFile}`];
+function providerPlanLines(
+  provider: LlmProvider,
+  model: string | undefined,
+  env: PlanEnvironment,
+): readonly string[] {
+  const lines = [
+    model === undefined
+      ? `Sets llm.provider to "${provider}" in ${env.configFile}`
+      : `Sets llm.provider to "${provider}" and its model to "${model}" in ${env.configFile}`,
+  ];
   if (provider === 'anthropic') {
     lines.push('Needs ANTHROPIC_API_KEY (or LAUD_LLM_API_KEY) in your environment');
   }
@@ -353,7 +361,7 @@ export function describeCommands(action: Action, env: PlanEnvironment): readonly
     case 'install-llm':
       return llmPlanLines(env);
     case 'set-llm-provider':
-      return providerPlanLines(action.provider, env);
+      return providerPlanLines(action.provider, action.model, env);
     case 'create-directory':
     case 'download-model':
     case 'download-diarization-model':
@@ -444,6 +452,7 @@ export interface SetupOptions {
   readonly yes?: boolean;
   readonly model?: string;
   readonly llm?: string;
+  readonly llmModel?: string;
 }
 
 /**
@@ -494,9 +503,11 @@ export async function runProvisioning(
   const collected = collectRemedies(checks);
   const llmChoice = await chooseLlm({
     ...(options.llm === undefined ? {} : { llm: options.llm }),
+    ...(options.llmModel === undefined ? {} : { llmModel: options.llmModel }),
     remedies: collected,
     interactive,
     commandName,
+    note: (message) => context.write(message),
   });
   const remedies = remediesForChoice(collected, llmChoice);
 
@@ -661,6 +672,10 @@ export function registerSetup(
     .option('--yes', 'confirm the plan without prompting')
     .option('--model <name>', 'transcription model to download (default: small)')
     .option('--llm <choice>', 'summariser to set up: local, claude-cli, claude-api, openai, skip')
+    .option(
+      '--llm-model <id>',
+      'model id for the chosen summariser (default: ask, or keep the configured one)',
+    )
     .description('Install ffmpeg and whisper.cpp, and download the models laud needs')
     .action(async (options: SetupOptions) => {
       await context.ui.frame('Setting up laud', async () => {

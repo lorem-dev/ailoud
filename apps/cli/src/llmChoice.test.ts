@@ -3,6 +3,7 @@ import { UsageError } from '@laud/core';
 import type { Remedy } from '@laud/core';
 import {
   LLM_CHOICES,
+  modelsFor,
   chooseLlm,
   parseLlmChoice,
   planNeedsLlmChoice,
@@ -71,35 +72,37 @@ describe('planNeedsLlmChoice', () => {
 
 describe('remediesForChoice', () => {
   it('leaves the plan alone for the local choice', () => {
-    expect(remediesForChoice(localRemedies, 'local')).toEqual(localRemedies);
+    expect(remediesForChoice(localRemedies, { choice: 'local' })).toEqual(localRemedies);
   });
 
   it('drops the local install and download for a hosted engine', () => {
     // Two gigabytes of GGUF is exactly the work someone picking Claude said
     // no to.
-    const kept = remediesForChoice(localRemedies, 'claude-api');
+    const kept = remediesForChoice(localRemedies, { choice: 'claude-api' });
     expect(kept.map((r) => r.kind)).not.toContain('install-llm');
     expect(kept.map((r) => r.kind)).not.toContain('download-llm-model');
   });
 
   it('records the answer as its own remedy, so it flows through plan and consent', () => {
-    expect(remediesForChoice(localRemedies, 'openai')).toContainEqual({
+    expect(remediesForChoice(localRemedies, { choice: 'openai' })).toContainEqual({
       kind: 'set-llm-provider',
       provider: 'openai-compatible',
     });
   });
 
   it('keeps every unrelated remedy', () => {
-    expect(remediesForChoice(localRemedies, 'skip')).toContainEqual({ kind: 'install-ffmpeg' });
+    expect(remediesForChoice(localRemedies, { choice: 'skip' })).toContainEqual({
+      kind: 'install-ffmpeg',
+    });
   });
 
   it('writes nothing at all for skip', () => {
-    const kept = remediesForChoice(localRemedies, 'skip');
+    const kept = remediesForChoice(localRemedies, { choice: 'skip' });
     expect(kept.map((r) => r.kind)).toEqual(['install-ffmpeg']);
   });
 
   it('can empty the plan, which is the point of skip', () => {
-    expect(remediesForChoice([{ kind: 'download-llm-model' }], 'skip')).toEqual([]);
+    expect(remediesForChoice([{ kind: 'download-llm-model' }], { choice: 'skip' })).toEqual([]);
   });
 });
 
@@ -112,7 +115,7 @@ describe('chooseLlm', () => {
       interactive: true,
       selectImpl: selectImpl as never,
     });
-    expect(choice).toBe('openai');
+    expect(choice).toEqual({ choice: 'openai' });
     expect(selectImpl).not.toHaveBeenCalled();
   });
 
@@ -124,7 +127,7 @@ describe('chooseLlm', () => {
 
   it('defaults to local with no terminal, leaving unattended runs as they were', async () => {
     const choice = await chooseLlm({ remedies: localRemedies, interactive: false });
-    expect(choice).toBe('local');
+    expect(choice).toEqual({ choice: 'local' });
   });
 
   it('asks nothing when no local model would be provisioned', async () => {
@@ -134,7 +137,7 @@ describe('chooseLlm', () => {
       interactive: true,
       selectImpl: selectImpl as never,
     });
-    expect(choice).toBe('local');
+    expect(choice).toEqual({ choice: 'local' });
     expect(selectImpl).not.toHaveBeenCalled();
   });
 
@@ -147,7 +150,7 @@ describe('chooseLlm', () => {
       interactive: true,
       selectImpl: selectImpl as never,
     });
-    expect(choice).toBe('claude-api');
+    expect(choice.choice).toBe('claude-api');
     expect(selectImpl).toHaveBeenCalledTimes(2);
   });
 
@@ -159,7 +162,7 @@ describe('chooseLlm', () => {
         interactive: true,
         selectImpl: selectImpl as never,
       }),
-    ).toBe('skip');
+    ).toEqual({ choice: 'skip' });
     expect(selectImpl).toHaveBeenCalledTimes(1);
   });
 
@@ -186,5 +189,136 @@ describe('chooseLlm', () => {
       chooseLlm({ remedies: localRemedies, interactive: true, selectImpl: selectImpl as never }),
     ).rejects.toThrow(UsageError);
     expect(selectImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('choosing a model of the chosen engine', () => {
+  const twoModels = async () => [
+    { id: 'claude-opus-5', label: 'Claude Opus 5' },
+    { id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
+  ];
+
+  it('asks the provider, and writes what was picked', async () => {
+    const selectImpl = vi
+      .fn()
+      .mockResolvedValueOnce('claude')
+      .mockResolvedValueOnce('claude-api')
+      .mockResolvedValueOnce('claude-opus-5');
+    const selection = await chooseLlm({
+      remedies: localRemedies,
+      interactive: true,
+      selectImpl: selectImpl as never,
+      listModels: twoModels,
+    });
+    expect(selection).toEqual({ choice: 'claude-api', model: 'claude-opus-5' });
+  });
+
+  it('shows the vendor label but stores the id', async () => {
+    const selectImpl = vi.fn().mockResolvedValueOnce('openai').mockResolvedValueOnce('gpt-5');
+    await chooseLlm({
+      remedies: localRemedies,
+      interactive: true,
+      selectImpl: selectImpl as never,
+      listModels: async () => [{ id: 'gpt-5', label: 'GPT-5 (newest)' }],
+    });
+    const shown = selectImpl.mock.calls[1]![0] as { options: { value: string; label: string }[] };
+    expect(shown.options[0]).toEqual({ value: 'gpt-5', label: 'GPT-5 (newest)' });
+  });
+
+  it('says why it could not ask, instead of picking silently', async () => {
+    // "laud chose a model for me and did not say which" is the confusing
+    // outcome; an unlistable provider has to be announced.
+    const notes: string[] = [];
+    const selectImpl = vi.fn().mockResolvedValueOnce('openai');
+    const selection = await chooseLlm({
+      remedies: localRemedies,
+      interactive: true,
+      selectImpl: selectImpl as never,
+      listModels: async () => [],
+      note: (message) => notes.push(message),
+    });
+    expect(selection).toEqual({ choice: 'openai' });
+    expect(notes.join('\n')).toContain('OPENAI_API_KEY');
+    expect(selectImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('survives a listing that throws, keeping the rest of the plan', async () => {
+    const notes: string[] = [];
+    const selectImpl = vi.fn().mockResolvedValueOnce('openai');
+    const selection = await chooseLlm({
+      remedies: localRemedies,
+      interactive: true,
+      selectImpl: selectImpl as never,
+      listModels: async () => {
+        throw new Error('HTTP 401');
+      },
+      note: (message) => notes.push(message),
+    });
+    expect(selection).toEqual({ choice: 'openai' });
+    expect(notes.join('\n')).toContain('401');
+  });
+
+  it('never asks for a model on the routes that have none', async () => {
+    const listModels = vi.fn(async () => []);
+    for (const answer of ['local', 'skip']) {
+      const selectImpl = vi.fn().mockResolvedValueOnce(answer);
+      await chooseLlm({
+        remedies: localRemedies,
+        interactive: true,
+        selectImpl: selectImpl as never,
+        listModels,
+      });
+      expect(selectImpl, answer).toHaveBeenCalledTimes(1);
+    }
+    expect(listModels).not.toHaveBeenCalled();
+  });
+
+  it('takes --llm-model verbatim, with no network call', async () => {
+    // Validating it would put a request in the middle of every unattended
+    // run; an unknown id is rejected at the first summary with its own message.
+    const listModels = vi.fn(async () => []);
+    const selection = await chooseLlm({
+      llm: 'openai',
+      llmModel: 'gpt-9-experimental',
+      remedies: localRemedies,
+      interactive: true,
+      listModels,
+    });
+    expect(selection).toEqual({ choice: 'openai', model: 'gpt-9-experimental' });
+    expect(listModels).not.toHaveBeenCalled();
+  });
+
+  it('carries the model into the remedy the plan acts on', () => {
+    expect(remediesForChoice([], { choice: 'claude-api', model: 'claude-opus-5' })).toContainEqual({
+      kind: 'set-llm-provider',
+      provider: 'anthropic',
+      model: 'claude-opus-5',
+    });
+  });
+
+  it('omits the model from the remedy when none was chosen', () => {
+    expect(remediesForChoice([], { choice: 'openai' })).toContainEqual({
+      kind: 'set-llm-provider',
+      provider: 'openai-compatible',
+    });
+  });
+});
+
+describe('modelsFor', () => {
+  it('offers the Claude Code tiers as aliases, which do not go stale', async () => {
+    // The subscription route has no listing endpoint, and an alias follows
+    // the newest model of its tier.
+    const ids = (await modelsFor('claude-cli', {})).map((m) => m.id);
+    expect(ids).toEqual(['opus', 'sonnet', 'haiku']);
+  });
+
+  it('returns nothing for a hosted provider with no key, rather than reaching out', async () => {
+    expect(await modelsFor('claude-api', {})).toEqual([]);
+    expect(await modelsFor('openai', {})).toEqual([]);
+  });
+
+  it('has nothing to offer for the local model or for skipping', async () => {
+    expect(await modelsFor('local', {})).toEqual([]);
+    expect(await modelsFor('skip', {})).toEqual([]);
   });
 });

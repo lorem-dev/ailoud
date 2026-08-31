@@ -26,7 +26,12 @@ export type Remedy =
   | { readonly kind: 'install-diarizer' }
   | { readonly kind: 'install-llm' }
   | { readonly kind: 'download-llm-model' }
-  | { readonly kind: 'set-llm-provider'; readonly provider: LlmProvider }
+  | {
+      readonly kind: 'set-llm-provider';
+      readonly provider: LlmProvider;
+      /** The model id to write alongside it, when one was chosen. */
+      readonly model?: string;
+    }
   | { readonly kind: 'download-model'; readonly slot: 'transcription' | 'vad' }
   | {
       readonly kind: 'download-diarization-model';

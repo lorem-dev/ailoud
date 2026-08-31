@@ -16,7 +16,11 @@ export type Action =
   | { readonly kind: 'install-diarizer' }
   | { readonly kind: 'install-llm' }
   | { readonly kind: 'download-llm-model'; readonly model: ModelChoice }
-  | { readonly kind: 'set-llm-provider'; readonly provider: LlmProvider }
+  | {
+      readonly kind: 'set-llm-provider';
+      readonly provider: LlmProvider;
+      readonly model?: string;
+    }
   | {
       readonly kind: 'download-model';
       readonly slot: 'transcription' | 'vad';

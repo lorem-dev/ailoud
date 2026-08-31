@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { access, constants, mkdir, rename, rm } from 'node:fs/promises';
 import { FailureError } from '@laud/core';
-import type { Action } from '@laud/core';
+import type { Action, LlmProvider } from '@laud/core';
 import {
   detectPackageManager,
   downloadFile,
@@ -368,7 +368,17 @@ export async function executePlan(
           // Spawns nothing: the whole effect is the config update, applied
           // with the rest of them once the run finishes.
           updates = { ...updates, llmProvider: action.provider };
-          outcomes.push({ action, ok: true, detail: `llm.provider = ${action.provider}` });
+          if (action.model !== undefined) {
+            updates = { ...updates, ...modelUpdateFor(action.provider, action.model) };
+          }
+          outcomes.push({
+            action,
+            ok: true,
+            detail:
+              action.model === undefined
+                ? `llm.provider = ${action.provider}`
+                : `llm.provider = ${action.provider}, model = ${action.model}`,
+          });
           break;
         }
         default: {
@@ -389,6 +399,25 @@ export async function executePlan(
   }
 
   return { outcomes, updates };
+}
+
+/**
+ * Which config key a chosen model id belongs in.
+ *
+ * llama-cpp is absent on purpose: its "model" is a GGUF file on disk, written
+ * by the download action, not a model id anyone picks from a list.
+ */
+function modelUpdateFor(provider: LlmProvider, model: string): ConfigUpdates {
+  switch (provider) {
+    case 'anthropic':
+      return { llmAnthropicModel: model };
+    case 'openai-compatible':
+      return { llmOpenaiModel: model };
+    case 'claude-cli':
+      return { llmClaudeCliModel: model };
+    case 'llama-cpp':
+      return {};
+  }
 }
 
 /** The refusal an action reports when it would have to spawn something with no terminal. */

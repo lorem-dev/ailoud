@@ -259,6 +259,23 @@ that as `n/a`, not as a failure. The providers:
 | `anthropic`         | Claude, through Anthropic's API                                | `LAUD_LLM_API_KEY` or `ANTHROPIC_API_KEY`                             |
 | `claude-cli`        | Claude, through the Claude Code CLI                            | the CLI's own sign-in -- a subscription, not a key                    |
 
+After the engine, `setup` asks which model, and asks the provider itself
+rather than carrying a list that goes stale: `GET /v1/models` on Anthropic or
+OpenAI. Both need a key, so with none set the question is skipped, the
+configured model is kept, and `setup` says which variable to export to get the
+choice. The subscription route has no listing endpoint, so it offers the
+Claude Code tiers -- `opus`, `sonnet`, `haiku` -- which are aliases that
+follow the newest model of each tier and so never need updating. `--llm-model
+<id>` answers up front and is taken verbatim, with no request made: an id the
+provider does not know is rejected at the first summary, with its message.
+
+One thing to watch: neither endpoint reports a model's context window, so
+picking a model does not adjust `contextTokens`. The defaults suit the current
+Claude and GPT-4o-class models; choosing a small-context model (say
+`gpt-3.5-turbo`, 16k against a 128k default) means setting
+`llm.openaiCompatible.contextTokens` by hand, or the first oversized request
+comes back as a context error from the API.
+
 Claude is reachable both ways deliberately, and `setup` asks which rather
 than guessing: a subscription is not an API key, and someone who already pays
 for one should not have to buy API credit to summarise their own recordings.
@@ -349,8 +366,9 @@ check that is failing, optional or not.
 
 The language model is the one piece `setup` asks about, because the choices
 are not interchangeable: it offers llama.cpp with Qwen2.5-3B (a 2.1 GB
-download, nothing leaves the machine), Claude, OpenAI, or skipping for now,
-and Claude then asks subscription or API key. Only the local answer downloads
+download, nothing leaves the machine), Claude, OpenAI, or skipping for now;
+Claude then asks subscription or API key, and every hosted route then asks
+which model. Only the local answer downloads
 anything; the rest write `llm.provider` and name the environment variable
 still needed. The question is asked before the plan is printed, so the
 download total and the command list you consent to already reflect it. Answer

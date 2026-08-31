@@ -240,6 +240,14 @@ describe('describeAction / describePlan', () => {
     expect(lines.join('\n')).toMatch(/ANTHROPIC_API_KEY/);
   });
 
+  it('names the chosen model in the plan, not just the provider', () => {
+    const lines = describePlan(
+      [{ kind: 'set-llm-provider', provider: 'anthropic', model: 'claude-opus-5' }],
+      apt,
+    );
+    expect(lines.join('\n')).toContain('claude-opus-5');
+  });
+
   it('says laud will not install Claude Code for the subscription route', () => {
     const lines = describePlan([{ kind: 'set-llm-provider', provider: 'claude-cli' }], brew);
     expect(lines.join('\n')).toMatch(/does not install it/);
@@ -916,6 +924,27 @@ describe('executePlan: set-llm-provider', () => {
     });
     expect(result.outcomes).toHaveLength(1);
     expect(result.outcomes[0]!.ok).toBe(true);
+  });
+
+  it('writes the model into the block that provider reads', async () => {
+    // "sonnet" is a Claude Code alias, "claude-sonnet-5" an API id, "gpt-4o"
+    // neither: a model id only means something inside its own block.
+    const cases = [
+      ['anthropic', 'llmAnthropicModel'],
+      ['openai-compatible', 'llmOpenaiModel'],
+      ['claude-cli', 'llmClaudeCliModel'],
+    ] as const;
+    for (const [provider, key] of cases) {
+      const result = await executePlan([{ kind: 'set-llm-provider', provider, model: 'm' }], {
+        platform: 'linux',
+        arch: 'x64',
+        dataDir: '/nonexistent',
+        manager: null,
+        interactive: false,
+        onStep: () => {},
+      });
+      expect(result.updates, provider).toEqual({ llmProvider: provider, [key]: 'm' });
+    }
   });
 
   it('downloads nothing', async () => {
