@@ -358,3 +358,19 @@ show`, `laud rm`, `laud annotate`. `docker ps` still works years after
   library is for. It asks first, takes `--force`, refuses with no terminal, and
   resolves every id before deleting any of them -- half a deletion is the worst
   outcome when the user asked about a set.
+- `import`, `transcribe` and `summarize` moved under `audio` as well, so every
+  verb lives under the noun it acts on and the top level is two nouns plus
+  `doctor` and `setup`. `laud --help` now shows the shape of the tool rather
+  than a list that grows with every feature.
+- Every second-level verb has a one-letter alias -- `l` ls, `v` show, `r` rm,
+  `a` annotate, `i` import, `t` transcribe, `s` summarize -- and the same verb
+  takes the same letter in both groups, so they are worth learning once instead
+  of per noun. `v` for `show` because `s` belongs to `summarize`, and because
+  `view` is what `gh` calls it anyway.
+- The letters live in one table rather than beside each command, since the risk
+  they carry is collision and a table is where that is visible. A test reads
+  that table and fails on a duplicate, a missing letter, or one longer than a
+  character.
+- The old top-level spellings all keep working, `import`, `transcribe` and
+  `summarize` included. The e2e suite drives `laud import`, `laud transcribe`,
+  `laud ls` and `laud show`, and passes untouched.

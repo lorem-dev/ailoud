@@ -221,12 +221,13 @@ two people talk at once is attributed to whichever speaker dominates it.
 `--format json` carries the same value in its `speaker` field. SRT and VTT
 are unchanged -- subtitle formats have their own speaker conventions.
 
-Commands that inspect or remove what already exists live under the noun they
-act on, the way `docker container ls` and `gh pr list` do. Commands that bring
-something into being -- `import`, `transcribe`, `summarize` -- stay at the top
-level:
+Every command lives under the noun it acts on, the way `docker container ls`
+and `gh pr list` do. There are two nouns, plus `doctor` and `setup`:
 
 ```shell
+laud audio import ./recordings
+laud audio transcribe
+laud audio summarize ID001
 laud audio ls
 laud audio show ID001
 laud audio annotate ID001 --title "Standup"
@@ -237,14 +238,31 @@ laud report show SUM0
 laud report rm SUM0
 ```
 
-The group is singular with the plural as an alias, so `laud report rm SUM0`
-reads as removing one report rather than all of them; `laud recordings ls` and
-`laud reports ls` work too. A bare `laud audio` prints its verbs.
+Every verb has a one-letter alias, and the same verb takes the same letter in
+both groups, so the letters are worth learning once rather than per noun:
 
-The old short spellings keep working and always will -- `laud ls`, `laud show`,
-`laud rm`, `laud annotate` -- the same bargain `docker ps` struck with `docker
-container ls`. They are left out of `laud --help` so that it shows the shape of
-the tool rather than every command twice.
+| letter | verb          |     | letter | verb         |
+| ------ | ------------- | --- | ------ | ------------ |
+| `l`    | `ls`          |     | `i`    | `import`     |
+| `v`    | `show` (view) |     | `t`    | `transcribe` |
+| `r`    | `rm`          |     | `s`    | `summarize`  |
+| `a`    | `annotate`    |     |        |              |
+
+```shell
+laud audio l
+laud audio v ID001
+laud report l
+```
+
+The group is singular with the plural as an alias, so `laud report rm SUM0`
+reads as removing one report rather than all of them; `laud recordings l` and
+`laud reports l` work too. A bare `laud audio` prints its verbs.
+
+The old top-level spellings keep working and always will -- `laud import`,
+`laud transcribe`, `laud summarize`, `laud ls`, `laud show`, `laud rm`, `laud
+annotate` -- the same bargain `docker ps` struck with `docker container ls`.
+They are left out of `laud --help` so that it shows the shape of the tool
+rather than every command twice.
 
 ```shell
 laud ls

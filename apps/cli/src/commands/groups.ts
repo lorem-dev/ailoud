@@ -61,3 +61,42 @@ export function inGroupAndTopLevel(
   const [aliased] = holder.commands;
   if (aliased !== undefined) program.addCommand(aliased, { hidden: true });
 }
+
+/**
+ * The one-letter alias for each second-level verb.
+ *
+ * One table rather than a letter beside each command definition, because the
+ * risk here is collision and a table is where you can see it: every letter
+ * below appears exactly once, and the test for that reads this map.
+ *
+ * The same verb gets the same letter in every group -- `l` lists, `v` views,
+ * `r` removes -- so the letters are worth learning once instead of per noun.
+ * `v` for `show` rather than `s`: `s` belongs to `summarize`, which is a thing
+ * people run, where `show` is closer to `gh pr view` anyway.
+ */
+const LETTER: Record<string, string> = {
+  ls: 'l',
+  show: 'v',
+  annotate: 'a',
+  rm: 'r',
+  import: 'i',
+  transcribe: 't',
+  summarize: 's',
+};
+
+/** Every letter this build assigns, for the collision test to read. */
+export const SECOND_LEVEL_LETTERS: Readonly<Record<string, string>> = LETTER;
+
+/**
+ * Attaches the one-letter aliases to a group's verbs.
+ *
+ * Applied after registration rather than inside each command, so the letters
+ * stay in the table above. A verb with no entry simply has no letter, which is
+ * the right default for anything added later without a considered one.
+ */
+export function attachLetters(group: Command): void {
+  for (const command of group.commands) {
+    const letter = LETTER[command.name()];
+    if (letter !== undefined) command.alias(letter);
+  }
+}

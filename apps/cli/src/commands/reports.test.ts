@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { FailureError, UsageError } from '@laud/core';
 import type { Summary } from '@laud/core';
 import { buildProgram } from '../program.js';
-import { contextWithTranscript } from './testContext.js';
+import { FIXTURE_PATH, contextWithTranscript } from './testContext.js';
 import { reportPreview } from './reports.js';
+import { SECOND_LEVEL_LETTERS } from './groups.js';
 
 const summary = (over: Partial<Summary> = {}): Summary => ({
   id: 'SUM00000000000000000000001',
@@ -241,6 +242,61 @@ describe('command layout', () => {
       await buildProgram(ctx).parseAsync(argv);
       expect(ctx.lines.join('\n'), argv.join(' ')).toContain('ID001');
     }
+  });
+
+  it('leaves only the two nouns and the environment commands at the top level', async () => {
+    // The whole point of the reshuffle: laud --help shows the shape of the
+    // tool, not a list that grows with every verb.
+    const ctx = await contextWithTranscript({ skipImport: true });
+    const visible = buildProgram(ctx)
+      .commands.filter((command) => command.name() !== 'help')
+      .filter((command) => {
+        const hidden = (command as unknown as { _hidden?: boolean })._hidden;
+        return hidden !== true;
+      })
+      .map((command) => command.name());
+    expect(visible).toEqual(['audio', 'report', 'doctor', 'setup']);
+  });
+
+  it('gives every second-level verb a one-letter alias, none colliding', async () => {
+    // Collision is the risk a single table exists to make visible.
+    const ctx = await contextWithTranscript({ skipImport: true });
+    for (const groupName of ['audio', 'report']) {
+      const found = buildProgram(ctx).commands.find((c) => c.name() === groupName)!;
+      const letters = found.commands
+        .filter((command) => command.name() !== 'help')
+        .map((command) => command.aliases()[0]);
+      expect(letters, groupName).not.toContain(undefined);
+      expect(new Set(letters).size, groupName).toBe(letters.length);
+      for (const letter of letters) expect(letter, `${groupName} ${letter}`).toHaveLength(1);
+    }
+  });
+
+  it('uses the same letter for the same verb in both groups', async () => {
+    // Worth learning once, not per noun.
+    expect(SECOND_LEVEL_LETTERS['ls']).toBe('l');
+    expect(SECOND_LEVEL_LETTERS['show']).toBe('v');
+    expect(SECOND_LEVEL_LETTERS['rm']).toBe('r');
+  });
+
+  it('dispatches on the letter', async () => {
+    for (const argv of [
+      ['node', 'laud', 'audio', 'l'],
+      ['node', 'laud', 'recordings', 'l'],
+    ]) {
+      const ctx = await contextWithTranscript({ clearLines: true });
+      await buildProgram(ctx).parseAsync(argv);
+      expect(ctx.lines.join('\n'), argv.join(' ')).toContain('ID001');
+    }
+  });
+
+  it('keeps import, transcribe and summarize working at the top level too', async () => {
+    // e2e drives these, and so does anyone's shell history.
+    const ctx = await contextWithTranscript({ skipImport: true });
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', FIXTURE_PATH]);
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'transcribe']);
+    expect((await ctx.store.listRecordings({})).length).toBeGreaterThan(0);
+    expect(await ctx.store.latestTranscript('ID001')).not.toBeNull();
   });
 
   it('lists the groups but not the aliased commands in the top-level help', async () => {

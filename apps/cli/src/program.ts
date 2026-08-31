@@ -9,7 +9,7 @@ import { registerRm } from './commands/rm.js';
 import { registerAnnotate } from './commands/annotate.js';
 import { registerSummarize } from './commands/summarize.js';
 import { registerReports } from './commands/reports.js';
-import { group, inGroupAndTopLevel } from './commands/groups.js';
+import { attachLetters, group, inGroupAndTopLevel } from './commands/groups.js';
 import { registerTranscribe } from './commands/transcribe.js';
 import type { CliContext } from './wiring.js';
 
@@ -66,17 +66,23 @@ export function buildProgram(context: CliContext): Command {
   // that inspects or removes what already exists lives under the noun it acts
   // on. That is the shape `docker` and `gh` settled on, and it is what keeps
   // `laud --help` readable as the library grows.
-  registerImport(program, context);
-  registerTranscribe(program, context);
-  registerSummarize(program, context);
-
   const audio = group(program, 'audio', 'recordings', 'Work with recordings in the library');
-  for (const register of [registerLs, registerShow, registerAnnotate, registerRm]) {
+  for (const register of [
+    registerImport,
+    registerTranscribe,
+    registerSummarize,
+    registerLs,
+    registerShow,
+    registerAnnotate,
+    registerRm,
+  ]) {
     inGroupAndTopLevel(program, audio, register, context);
   }
+  attachLetters(audio);
 
   const report = group(program, 'report', 'reports', 'Work with saved summaries');
   registerReports(report, context);
+  attachLetters(report);
 
   registerDoctor(program, context);
   registerSetup(program, context);
