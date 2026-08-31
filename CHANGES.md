@@ -336,3 +336,25 @@
   participant names and so called a clean English summary Russian, and a
   speaker-label pattern that matched the model honestly saying "speaker not
   identified". Both were caught by reading the outputs rather than the scores.
+- Commands are grouped by the noun they act on: `laud audio ls|show|annotate|rm`
+  and `laud report ls|show|rm`. Verbs that bring something into being --
+  `import`, `transcribe`, `summarize` -- stay at the top level. That is the
+  shape `docker` and `gh` settled on, and it is what keeps `laud --help`
+  readable as the library grows.
+- The group is singular with the plural as an alias -- `laud report rm SUM0`
+  reads as removing one report, while `laud reports rm SUM0` reads as removing
+  all of them. `recordings` and `reports` both resolve.
+- The short spellings keep working and are not deprecated: `laud ls`, `laud
+show`, `laud rm`, `laud annotate`. `docker ps` still works years after
+  `docker container ls` became canonical, because the short form is what hands
+  and scripts already know. They are hidden from the top-level help so it shows
+  the shape of the tool instead of every command twice. The e2e suite, which
+  drives `laud ls` and `laud show`, passes untouched -- which is the proof the
+  compatibility is real rather than claimed.
+- A bare `laud audio` prints its verbs instead of an error: someone typing it
+  does not yet know them, and the list is the answer to that.
+- `laud report rm` is new. Deleting a report never touches a recording or a
+  transcript: a report is derived, and what it was derived from is what the
+  library is for. It asks first, takes `--force`, refuses with no terminal, and
+  resolves every id before deleting any of them -- half a deletion is the worst
+  outcome when the user asked about a set.

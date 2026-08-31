@@ -202,6 +202,14 @@ export interface RecordingStore {
   listAllSummaries(): Promise<Summary[]>;
   /** Every summary whose id starts with `prefix`, in id order. See findRecordingsByIdPrefix. */
   findSummariesByIdPrefix(prefix: string): Promise<Summary[]>;
+  /**
+   * Deletes a summary and its links to recordings. False when there was none.
+   *
+   * Deleting a summary never touches a recording or a transcript: it is a
+   * derived thing, and the material it was derived from is what the library is
+   * for.
+   */
+  deleteSummary(id: string): Promise<boolean>;
   /** Sets or replaces the human name for one diarizer label of one recording. */
   setSpeakerName(recordingId: string, label: string, name: string): Promise<void>;
   /** Every named speaker of a recording, in label order. */

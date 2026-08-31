@@ -354,6 +354,13 @@ export class InMemoryStore implements ManagedRecordingStore {
       .sort((a, b) => a.id.localeCompare(b.id));
   }
 
+  async deleteSummary(id: string): Promise<boolean> {
+    const at = this.summaries.findIndex((summary) => summary.id === id);
+    if (at === -1) return false;
+    this.summaries.splice(at, 1);
+    return true;
+  }
+
   async setSpeakerName(recordingId: string, label: string, name: string): Promise<void> {
     const byLabel = this.speakerNames.get(recordingId) ?? new Map<string, string>();
     byLabel.set(label, name);

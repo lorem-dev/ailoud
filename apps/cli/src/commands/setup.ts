@@ -74,7 +74,7 @@ async function readCurrentConfig(configFile: string): Promise<LaudConfig> {
  * half the time it is reached -- exactly the drift the shared engine exists
  * to prevent, just relocated into the copy instead of the logic.
  */
-export type CommandName = 'setup' | 'doctor' | 'rm';
+export type CommandName = 'setup' | 'doctor' | 'rm' | 'report rm';
 
 export interface ModelNameOptions {
   readonly model?: string;

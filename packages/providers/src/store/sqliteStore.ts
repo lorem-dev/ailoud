@@ -396,6 +396,14 @@ export class SqliteStore implements ManagedRecordingStore {
     return rows.map((row) => this.toSummary(row));
   }
 
+  async deleteSummary(id: string): Promise<boolean> {
+    // The join rows go with it through ON DELETE CASCADE, which the store
+    // enables with PRAGMA foreign_keys = ON. Recordings are untouched: the
+    // cascade runs from summary to summary_recording, never the other way.
+    const result = this.db.prepare('DELETE FROM summary WHERE id = ?').run(id);
+    return Number(result.changes) > 0;
+  }
+
   private toSummary(row: SummaryRow): Summary {
     const ids = this.db
       .prepare(

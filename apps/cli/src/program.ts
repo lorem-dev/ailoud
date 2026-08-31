@@ -9,6 +9,7 @@ import { registerRm } from './commands/rm.js';
 import { registerAnnotate } from './commands/annotate.js';
 import { registerSummarize } from './commands/summarize.js';
 import { registerReports } from './commands/reports.js';
+import { group, inGroupAndTopLevel } from './commands/groups.js';
 import { registerTranscribe } from './commands/transcribe.js';
 import type { CliContext } from './wiring.js';
 
@@ -61,14 +62,22 @@ export function buildProgram(context: CliContext): Command {
     writeOut: (str) => context.write(str.replace(/\n$/, '')),
     writeErr: (str) => process.stderr.write(str),
   });
+  // Verbs that bring something into being stay at the top level; everything
+  // that inspects or removes what already exists lives under the noun it acts
+  // on. That is the shape `docker` and `gh` settled on, and it is what keeps
+  // `laud --help` readable as the library grows.
   registerImport(program, context);
   registerTranscribe(program, context);
-  registerLs(program, context);
-  registerShow(program, context);
-  registerRm(program, context);
-  registerAnnotate(program, context);
   registerSummarize(program, context);
-  registerReports(program, context);
+
+  const audio = group(program, 'audio', 'recordings', 'Work with recordings in the library');
+  for (const register of [registerLs, registerShow, registerAnnotate, registerRm]) {
+    inGroupAndTopLevel(program, audio, register, context);
+  }
+
+  const report = group(program, 'report', 'reports', 'Work with saved summaries');
+  registerReports(report, context);
+
   registerDoctor(program, context);
   registerSetup(program, context);
   return program;

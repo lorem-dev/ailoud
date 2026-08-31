@@ -4,6 +4,7 @@ import type { Summary } from '@laud/core';
 import { page, shouldPage } from '@laud/providers';
 import type { CliContext } from '../wiring.js';
 import { resolveRecording, resolveSummary } from '../resolveId.js';
+import { isInteractive, requireConsent } from './setup.js';
 
 interface ReportsOptions {
   readonly json?: boolean;
@@ -74,37 +75,31 @@ function listing(summaries: readonly Summary[]): string {
     .join('\n');
 }
 
-export function registerReports(program: Command, context: CliContext): void {
-  program
-    .command('reports')
-    .argument('[id]', 'a report id, or enough of its start to be unambiguous')
+/** Prints a report, paging it when it is long, as summarize pages its own output. */
+async function printReport(context: CliContext, summary: Summary, asJson: boolean): Promise<void> {
+  if (asJson) {
+    context.ui.content(JSON.stringify(summary));
+    return;
+  }
+  const payload =
+    `Report of ${formatRecordedAt(summary.createdAt)} -- ` +
+    `${summary.provider} ${summary.model}, ${summary.language}\n` +
+    `Covers: ${summary.recordingIds.join(', ')}\n\n${summary.body}`;
+  if (shouldPage(payload, process.stdout.isTTY === true)) {
+    await page(payload, (chunk) => context.ui.content(chunk));
+    return;
+  }
+  context.ui.content(payload);
+}
+
+export function registerReports(parent: Command, context: CliContext): void {
+  parent
+    .command('ls')
     .option('--json', 'print JSON instead of text')
     .option('--recording <id>', 'only reports covering this recording')
-    .description('List saved summaries, or print one in full')
-    .action(async (id: string | undefined, options: ReportsOptions) => {
+    .description('List saved reports, newest first')
+    .action(async (options: ReportsOptions) => {
       await context.ui.frame('Reports', async () => {
-        // One report, in full. Paged when it is long, for the same reason
-        // summarize pages its own output.
-        if (id !== undefined) {
-          const summary = await resolveSummary(context.store, id);
-          if (options.json === true) {
-            context.ui.content(JSON.stringify(summary));
-            return;
-          }
-          const covers = summary.recordingIds.join(', ');
-          const heading =
-            `Report of ${formatRecordedAt(summary.createdAt)} -- ` +
-            `${summary.provider} ${summary.model}, ${summary.language}\n` +
-            `Covers: ${covers}\n`;
-          const payload = `${heading}\n${summary.body}`;
-          if (shouldPage(payload, process.stdout.isTTY === true)) {
-            await page(payload, (chunk) => context.ui.content(chunk));
-            return;
-          }
-          context.ui.content(payload);
-          return;
-        }
-
         const summaries =
           options.recording === undefined
             ? await context.store.listAllSummaries()
@@ -134,6 +129,67 @@ export function registerReports(program: Command, context: CliContext): void {
           return;
         }
         context.ui.content(payload);
+      });
+    });
+
+  parent
+    .command('show')
+    .argument('<id>', 'a report id, or enough of its start to be unambiguous')
+    .option('--json', 'print JSON instead of text')
+    .description('Print one report in full')
+    .action(async (id: string, options: ReportsOptions) => {
+      await context.ui.frame('Report', async () => {
+        await printReport(context, await resolveSummary(context.store, id), options.json === true);
+      });
+    });
+
+  parent
+    .command('rm')
+    .argument('<ids...>', 'report ids to delete')
+    .option('--force', 'delete without asking')
+    .description('Delete saved reports')
+    .action(async (ids: string[], options: { readonly force?: boolean }) => {
+      await context.ui.frame('Deleting reports', async () => {
+        const summaries: Summary[] = [];
+        for (const id of ids) summaries.push(await resolveSummary(context.store, id));
+
+        context.write(
+          summaries.length === 1
+            ? 'This will permanently delete 1 report:'
+            : `This will permanently delete ${summaries.length} reports:`,
+        );
+        for (const summary of summaries) {
+          context.write(
+            `  ${summary.id}  ${formatRecordedAt(summary.createdAt)}  ${summary.model}  ` +
+              reportPreview(summary.body, 40),
+          );
+        }
+        // The recordings and transcripts stay: a report is derived, and what it
+        // was derived from is the library itself.
+        context.write('The recordings and their transcripts are not touched.');
+
+        // The same guard rm and setup use, for the same reason: one question,
+        // one answer, and the same refusal with no terminal so a script cannot
+        // delete without being asked.
+        const consented = await requireConsent({
+          yes: options.force === true,
+          interactive: isInteractive(process.env, process.stdin.isTTY === true),
+          // The command the user actually typed. Naming plain "rm" here is the
+          // same drift CommandName exists to prevent: it would send someone to
+          // a command that deletes recordings.
+          commandName: 'report rm',
+          action: 'deleting reports',
+          consentFlag: '--force',
+        });
+        if (!consented) {
+          context.write('Nothing was deleted.');
+          return;
+        }
+
+        for (const summary of summaries) {
+          const deleted = await context.store.deleteSummary(summary.id);
+          context.write(`${summary.id}  ${deleted ? 'deleted' : 'was already gone'}`);
+        }
       });
     });
 }

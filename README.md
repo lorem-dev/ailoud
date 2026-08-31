@@ -221,7 +221,30 @@ two people talk at once is attributed to whichever speaker dominates it.
 `--format json` carries the same value in its `speaker` field. SRT and VTT
 are unchanged -- subtitle formats have their own speaker conventions.
 
-List the library, and show a transcript:
+Commands that inspect or remove what already exists live under the noun they
+act on, the way `docker container ls` and `gh pr list` do. Commands that bring
+something into being -- `import`, `transcribe`, `summarize` -- stay at the top
+level:
+
+```shell
+laud audio ls
+laud audio show ID001
+laud audio annotate ID001 --title "Standup"
+laud audio rm ID001
+
+laud report ls
+laud report show SUM0
+laud report rm SUM0
+```
+
+The group is singular with the plural as an alias, so `laud report rm SUM0`
+reads as removing one report rather than all of them; `laud recordings ls` and
+`laud reports ls` work too. A bare `laud audio` prints its verbs.
+
+The old short spellings keep working and always will -- `laud ls`, `laud show`,
+`laud rm`, `laud annotate` -- the same bargain `docker ps` struck with `docker
+container ls`. They are left out of `laud --help` so that it shows the shape of
+the tool rather than every command twice.
 
 ```shell
 laud ls
@@ -248,15 +271,18 @@ that are not in English and a translation nobody asked for is not a summary.
 Codes are turned into names before the model sees them -- "Write in Russian"
 holds far better than "Write in ru".
 
-Every summary is saved. `laud reports` lists them and `laud reports <id>`
-prints one:
+Every summary is saved. `laud report ls` lists them, `laud report show <id>`
+prints one, and `laud report rm <id>` deletes one:
 
 ```shell
-laud reports
-laud reports SUM0
-laud reports --recording ID001
-laud reports --json
+laud report ls
+laud report ls --recording ID001
+laud report show SUM0
+laud report rm SUM0
 ```
+
+Deleting a report never touches a recording or its transcript: a report is
+derived, and what it was derived from is what the library is for.
 
 A summary of several recordings reuses each one's stored summary instead of
 re-reading its transcript, which is where the saving is: ten meetings from ten
