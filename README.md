@@ -230,6 +230,35 @@ laud show ID001
 laud show ID001 --format srt
 ```
 
+Summarise one recording, or a tagged group of them in a single pass:
+
+```shell
+laud summarize ID001
+laud summarize ID001 ID002
+laud summarize --tag standup
+```
+
+`summarize` has no default selection, unlike `transcribe`: summarising the
+whole library by accident costs minutes of local inference, or real money on
+a hosted model. A transcript too long for the model is summarised in parts
+and the parts combined, split on segment boundaries. The prompt carries the
+speaker names set through `annotate`, so points are attributed to a person
+rather than to `speaker_00`.
+
+Which model answers is set by `llm.provider` in the config file:
+
+| `llm.provider`      | Reaches                                                        | Credential                                                            |
+| ------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `llama-cpp`         | a local GGUF model through `llama-cli`                         | none; nothing leaves the machine                                      |
+| `openai-compatible` | OpenAI, and local servers like llama-server, Ollama, LM Studio | `LAUD_LLM_API_KEY` or `OPENAI_API_KEY`, and none for a local endpoint |
+| `anthropic`         | Claude, through Anthropic's API                                | `LAUD_LLM_API_KEY` or `ANTHROPIC_API_KEY`                             |
+| `claude-cli`        | Claude, through the Claude Code CLI                            | the CLI's own sign-in -- a subscription, not a key                    |
+
+Claude is reachable both ways deliberately. A subscription is not an API key,
+and someone who already pays for one should not have to buy API credit to
+summarise their own recordings; `claude-cli` borrows the CLI's existing
+sign-in and runs one non-interactive completion with tools switched off.
+
 Check that your machine is set up correctly:
 
 ```shell
@@ -237,14 +266,15 @@ laud doctor
 ```
 
 `doctor` is a first-class command, not a diagnostic afterthought: it reports
-twelve checks -- `ffmpeg` presence, `ffprobe` presence, the whisper binary,
+thirteen checks -- `ffmpeg` presence, `ffprobe` presence, the whisper binary,
 the whisper model file, the VAD binary, the VAD model file, the diarizer
-binary, the two diarization model files, the config file, the database path
-and its integrity, and the media root -- with a fix for each failing check.
-The VAD checks and the three diarization checks are both optional the same
-way: because `--multilingual` and `--diarize` are opt-in, a failing VAD or
-diarization check still reports its state, but never makes `doctor` exit
-non-zero by itself -- only checks unrelated to those two features do.
+binary, the two diarization model files, the language model, the config file,
+the database path and its integrity, and the media root -- with a fix for
+each failing check. The VAD checks, the three diarization checks, and the
+language-model check are all optional the same way: because `--multilingual`,
+`--diarize` and `summarize` are opt-in, a failing check for one of them still
+reports its state, but never makes `doctor` exit non-zero by itself -- only
+checks unrelated to those features do.
 See section 12 of the design doc for the exit code convention `doctor`
 failures use. Add `--fix` to have it install or download whatever failed,
 using the same engine `laud setup` uses -- see "First run: `laud setup`"
@@ -279,6 +309,14 @@ doctor`, but because `--multilingual` is opt-in, a failing VAD check is
   `n/a` rather than `FAIL` and never makes `doctor` exit non-zero on its own
   -- see "CLI quick start" above.
 
+- **`llama-cli`** (llama.cpp) and a **GGUF model file** -- local
+  summarisation for `laud summarize` only, and only when `llm.provider` is
+  `llama-cpp`; the other three providers need neither. Configured at
+  `llm.llamaCpp.binary` and `llm.llamaCpp.model`. Checked by `laud doctor`,
+  but because `summarize` is opt-in, a failing language-model check is
+  reported as `n/a` rather than `FAIL` and never makes `doctor` exit non-zero
+  on its own.
+
 ### First run: `laud setup`
 
 The fastest way to get all of the above is to let laud install it:
@@ -291,11 +329,14 @@ laud setup
 command line of every install it will run (including any `sudo`), and how
 much it will download, asks once for confirmation, then installs ffmpeg,
 installs whisper.cpp, downloads a transcription model, installs the
-sherpa-onnx diarizer, and downloads its two models -- writing whatever it
-installed into `config.yaml`. The diarizer is provisioned right alongside
-the rest even though `--diarize` is opt-in: its `doctor` checks are optional
-(they cannot make `doctor` fail), but `setup` and `doctor --fix` still act on
-any check that is failing, optional or not. Checks that already pass are
+sherpa-onnx diarizer, downloads its two models, installs llama.cpp, and
+downloads a local summarisation model -- writing whatever it installed into
+`config.yaml`. The diarizer and the language model are provisioned right
+alongside the rest even though `--diarize` and `summarize` are opt-in: their
+`doctor` checks are optional (they cannot make `doctor` fail), but `setup`
+and `doctor --fix` still act on any check that is failing, optional or not.
+Nothing for the language model is installed when `llm.provider` names a
+hosted engine, where the missing piece is a key rather than a download. Checks that already pass are
 left alone, so running `setup` again on an already-provisioned machine
 reports nothing to do. A check that failed but has no automated repair -- a
 corrupt database is the only one -- is reported with its manual fix, and the
@@ -412,10 +453,11 @@ Either way, `laud doctor` confirms what is still missing.
 - Config: `$XDG_CONFIG_HOME/laud/config.yaml`, default `~/.config/laud`.
 - Data: `$XDG_DATA_HOME/laud`, default `~/.local/share/laud`, holding
   `laud.db` and the `media/` tree.
-- Secrets (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) will come from the
-  environment or from Locksmith, never from the config file, and will never
-  be logged. This is a later-milestone feature; M1 does not use an LLM and
-  reads no such secret yet.
+- Secrets (`LAUD_LLM_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) come
+  from the environment, never from the config file, and are never logged: a
+  config file gets pasted into issues and committed by accident.
+  `LAUD_LLM_API_KEY` wins over the vendor variable, so a laud-specific key can
+  override a shared one. A variable exported but left blank counts as no key.
 
 ## Development
 

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { FailureError } from '@laud/core';
 import { LlamaCppSummarizer, cleanCompletion } from './llamaCpp.js';
 import { OpenAiCompatibleSummarizer, extractCompletion } from './openAiCompatible.js';
+import { AnthropicSummarizer, extractAnthropicText } from './anthropic.js';
+import { ClaudeCliSummarizer } from './claudeCli.js';
 
 describe('cleanCompletion', () => {
   it('returns the answer, trimmed', () => {
@@ -162,5 +164,151 @@ describe('OpenAiCompatibleSummarizer', () => {
       throw new Error('ENOTFOUND');
     };
     await expect(make(dead).complete('p')).rejects.toThrow(/could not reach/);
+  });
+});
+
+describe('extractAnthropicText', () => {
+  it('joins the text blocks', () => {
+    expect(
+      extractAnthropicText({
+        content: [
+          { type: 'text', text: 'one ' },
+          { type: 'text', text: 'two' },
+        ],
+      }),
+    ).toBe('one two');
+  });
+
+  it('skips blocks that are not text rather than stringifying them', () => {
+    // JSON.stringify-ing a tool_use block would put "[object Object]" or a
+    // blob of JSON in the middle of the user's summary.
+    const text = extractAnthropicText({
+      content: [
+        { type: 'thinking', thinking: 'hmm' },
+        { type: 'text', text: 'the summary' },
+      ],
+    });
+    expect(text).toBe('the summary');
+  });
+
+  it('fails loudly when there is no text at all', () => {
+    expect(() => extractAnthropicText({ content: [] })).toThrow(FailureError);
+    expect(() => extractAnthropicText({})).toThrow(/no text blocks/);
+  });
+});
+
+describe('AnthropicSummarizer', () => {
+  const reply = (text: string) =>
+    new Response(JSON.stringify({ content: [{ type: 'text', text }] }), { status: 200 });
+
+  function make(fetchImpl: unknown) {
+    return new AnthropicSummarizer({
+      baseUrl: 'https://api.anthropic.com/v1',
+      model: 'claude-test',
+      contextTokens: 200_000,
+      maxOutputTokens: 4096,
+      apiKey: 'secret',
+      fetchImpl: fetchImpl as never,
+    });
+  }
+
+  it('returns the completion', async () => {
+    expect(await make(async () => reply('the summary')).complete('p')).toBe('the summary');
+  });
+
+  it('posts to /messages, tolerating a trailing slash on the base url', async () => {
+    let seen = '';
+    const summarizer = new AnthropicSummarizer({
+      baseUrl: 'https://api.anthropic.com/v1/',
+      model: 'm',
+      contextTokens: 1000,
+      maxOutputTokens: 10,
+      apiKey: 'k',
+      fetchImpl: (async (url: string) => {
+        seen = url;
+        return reply('x');
+      }) as never,
+    });
+    await summarizer.complete('p');
+    expect(seen).toBe('https://api.anthropic.com/v1/messages');
+  });
+
+  it('authenticates the way Anthropic requires, not the way OpenAI does', async () => {
+    // The whole reason this adapter is not a base-url swap on the OpenAI one.
+    let headers: Record<string, string> = {};
+    await make(async (_url: string, init: { headers: Record<string, string> }) => {
+      headers = init.headers;
+      return reply('x');
+    }).complete('p');
+    expect(headers['x-api-key']).toBe('secret');
+    expect(headers['authorization']).toBeUndefined();
+    expect(headers['anthropic-version']).toBe('2023-06-01');
+  });
+
+  it('sends the prompt as a user message with a max_tokens cap', async () => {
+    let body: { messages: { role: string; content: string }[]; max_tokens: number } = {
+      messages: [],
+      max_tokens: 0,
+    };
+    await make(async (_url: string, init: { body: string }) => {
+      body = JSON.parse(init.body);
+      return reply('x');
+    }).complete('summarise this');
+    expect(body.messages).toEqual([{ role: 'user', content: 'summarise this' }]);
+    // Omitted, the API rejects the request outright.
+    expect(body.max_tokens).toBe(4096);
+  });
+
+  it('surfaces the error body, which says whether the key or the quota is the problem', async () => {
+    const failing = async () =>
+      new Response('{"error":{"message":"credit balance is too low"}}', { status: 400 });
+    await expect(make(failing).complete('p')).rejects.toThrow(/credit balance is too low/);
+    await expect(make(failing).complete('p')).rejects.toThrow(/HTTP 400/);
+  });
+});
+
+describe('ClaudeCliSummarizer', () => {
+  function make(runner: unknown) {
+    return new ClaudeCliSummarizer({
+      binary: 'claude',
+      model: 'sonnet',
+      contextTokens: 200_000,
+      runner: runner as never,
+    });
+  }
+
+  const succeed = async () => ({ code: 0, stdout: 'the summary\n', stderr: '' });
+
+  it('returns the trimmed output', async () => {
+    expect(await make(succeed).complete('p')).toBe('the summary');
+  });
+
+  it('runs one non-interactive completion with no tools', async () => {
+    let args: string[] = [];
+    await make(async (_binary: string, a: string[]) => {
+      args = a;
+      return { code: 0, stdout: 'x', stderr: '' };
+    }).complete('summarise this');
+    // --print, or it opens a session and never returns.
+    expect(args).toContain('--print');
+    // An empty allow-list, or the model can read files and run commands in
+    // whatever directory laud happened to be started from.
+    expect(args[args.indexOf('--allowed-tools') + 1]).toBe('');
+    // After --, so a transcript beginning with a dash is not read as a flag.
+    expect(args.slice(-2)).toEqual(['--', 'summarise this']);
+  });
+
+  it('points at signing in when the CLI fails', async () => {
+    const failing = async () => ({ code: 1, stdout: '', stderr: 'not authenticated' });
+    await expect(make(failing).complete('p')).rejects.toThrow(FailureError);
+    await expect(make(failing).complete('p')).rejects.toThrow(/not authenticated/);
+    await expect(make(failing).complete('p')).rejects.toThrow(/signed in/);
+  });
+
+  it('treats empty output as a failure rather than an empty summary', async () => {
+    // Exit 0 with nothing on stdout is what an unauthenticated CLI can do;
+    // storing that as "the summary" would be silently wrong.
+    const empty = async () => ({ code: 0, stdout: '   \n', stderr: '' });
+    await expect(make(empty).complete('p')).rejects.toThrow(/returned nothing/);
   });
 });

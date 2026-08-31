@@ -5,6 +5,8 @@ import type { Remedy } from '@laud/core';
 import { run } from '@laud/providers';
 import type { CliContext } from '../wiring.js';
 import type { Check } from '../ui/index.js';
+import type { LaudConfig } from '../config.js';
+import { apiKeyFrom } from '../apiKey.js';
 // Imported, not reimplemented: the whole point of this design is that
 // `setup` and `doctor --fix` share one provisioning path. Yes, this makes
 // doctor.ts and setup.ts mutually import each other (setup.ts imports
@@ -287,6 +289,112 @@ export async function checkEmbeddingModel(
   }
 }
 
+/**
+ * The language model, whichever kind is configured.
+ *
+ * One check rather than four, because a user has exactly one provider
+ * selected and the other three are none of their business. What "configured"
+ * means differs completely between them -- a file on disk, a key in the
+ * environment, a signed-in CLI -- so this dispatches rather than pretending
+ * they are the same shape.
+ *
+ * `optional: true` throughout, like the diarization checks above: `summarize`
+ * is opt-in, and someone who only transcribes should not carry a red
+ * `doctor` for a feature they have never used.
+ */
+export async function checkLanguageModel(
+  configFile: string,
+  llm: LaudConfig['llm'],
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): Promise<Check> {
+  const name = 'language model';
+
+  if (llm.provider === 'claude-cli') {
+    const fix =
+      `Install Claude Code and sign in, or set "llm.provider" in ${configFile} to another ` +
+      'provider.';
+    // Only that the binary runs. Whether the subscription is signed in is not
+    // knowable without making a billable request, and doctor does not spend
+    // the user's money to answer a question.
+    const result = await checkBinary(name, llm.claudeCli.binary, ['--version'], fix, undefined, {
+      kind: 'install-llm',
+    });
+    return {
+      ...result,
+      ...(result.ok
+        ? { detail: `${llm.claudeCli.binary} (${llm.claudeCli.model}, via subscription)` }
+        : {}),
+      optional: true,
+    };
+  }
+
+  if (llm.provider === 'anthropic' || llm.provider === 'openai-compatible') {
+    const variable = llm.provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY';
+    const key = apiKeyFrom(env, variable);
+    const settings = llm.provider === 'anthropic' ? llm.anthropic : llm.openaiCompatible;
+    // A local OpenAI-compatible server needs no key, so its absence is only a
+    // problem when the endpoint is a hosted one.
+    const hosted = /api\.(openai|anthropic)\.com/.test(settings.baseUrl);
+    if (key === undefined && hosted) {
+      return {
+        name,
+        ok: false,
+        detail: `${settings.model} at ${settings.baseUrl}, no API key`,
+        fix: `Set LAUD_LLM_API_KEY or ${variable} in your environment. Keys are read from the environment, never from ${configFile}.`,
+        optional: true,
+      };
+    }
+    return {
+      name,
+      ok: true,
+      detail: `${settings.model} at ${settings.baseUrl}${key === undefined ? '' : ', key set'}`,
+      optional: true,
+    };
+  }
+
+  const settings = llm.llamaCpp;
+  if (settings.model === null) {
+    return {
+      name,
+      ok: false,
+      detail: 'not configured',
+      fix:
+        `Run "laud setup" to install a local model, or set "llm.llamaCpp.model" in ${configFile} ` +
+        `to a GGUF file. ${installHint('llm', platform)} installs the runner.`,
+      remedy: { kind: 'download-llm-model' },
+      optional: true,
+    };
+  }
+  try {
+    await access(settings.model, constants.F_OK);
+  } catch {
+    return {
+      name,
+      ok: false,
+      detail: `missing: ${settings.model}`,
+      fix: `Run "laud setup", or point "llm.llamaCpp.model" in ${configFile} at a GGUF file that exists.`,
+      remedy: { kind: 'download-llm-model' },
+      optional: true,
+    };
+  }
+  const binary = await checkBinary(
+    name,
+    settings.binary,
+    ['--version'],
+    installHint('llm', platform),
+    undefined,
+    {
+      kind: 'install-llm',
+    },
+  );
+  return {
+    ...binary,
+    ...(binary.ok ? { detail: `${settings.binary} with ${settings.model}` } : {}),
+    optional: true,
+  };
+}
+
 /** Absent is `ok`: with no config file, defaults apply and that is normal on a first run. */
 async function checkConfigFile(configFile: string): Promise<Check> {
   const name = 'config file';
@@ -343,6 +451,9 @@ async function checkMediaRoot(mediaRoot: string, remedy?: Remedy): Promise<Check
 export async function runChecks(
   context: CliContext,
   platform: NodeJS.Platform = process.platform,
+  // Injected rather than read from the global, so a test can pin what the
+  // key check sees without touching the real environment.
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<Check[]> {
   const { config, paths } = context;
   return [
@@ -411,6 +522,7 @@ export async function runChecks(
       kind: 'download-diarization-model',
       slot: 'embedding',
     }),
+    await checkLanguageModel(paths.configFile, config.llm, env, platform),
     await checkConfigFile(paths.configFile),
     checkDatabase(context),
     await checkMediaRoot(paths.mediaRoot, { kind: 'create-directory', path: paths.mediaRoot }),

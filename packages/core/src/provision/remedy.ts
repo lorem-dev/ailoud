@@ -14,6 +14,8 @@ export type Remedy =
   | { readonly kind: 'install-ffmpeg' }
   | { readonly kind: 'install-whisper' }
   | { readonly kind: 'install-diarizer' }
+  | { readonly kind: 'install-llm' }
+  | { readonly kind: 'download-llm-model' }
   | { readonly kind: 'download-model'; readonly slot: 'transcription' | 'vad' }
   | {
       readonly kind: 'download-diarization-model';
@@ -21,7 +23,7 @@ export type Remedy =
     }
   | { readonly kind: 'create-directory'; readonly path: string };
 
-export type InstallTarget = 'ffmpeg' | 'whisper' | 'diarizer';
+export type InstallTarget = 'ffmpeg' | 'whisper' | 'diarizer' | 'llm';
 
 /** What Windows users get told instead of a command laud can run for them. */
 export const WINDOWS_MANUAL_HINT =
@@ -53,6 +55,10 @@ export function installHint(target: InstallTarget, platform: NodeJS.Platform): s
   if (platform === 'darwin') {
     if (target === 'ffmpeg') return 'brew install ffmpeg';
     if (target === 'whisper') return 'brew install whisper-cpp';
+    // llama.cpp has a brew formula too, so say so rather than sending a
+    // macOS user through laud's own installer for something one command
+    // already does.
+    if (target === 'llm') return 'brew install llama.cpp';
     return 'laud setup';
   }
   if (platform === 'linux' && target === 'ffmpeg') {

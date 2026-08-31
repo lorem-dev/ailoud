@@ -130,3 +130,24 @@ export const DEFAULT_MODEL_NAME = 'small';
 export function findModel(name: string): ModelChoice | undefined {
   return TRANSCRIPTION_MODELS.find((model) => model.name === name);
 }
+
+/**
+ * The local language model `laud setup` installs for summarising.
+ *
+ * Qwen2.5 3B rather than a Llama of the same size: this tool exists for
+ * recordings that are not in English, and a summary of a Russian meeting is
+ * only worth having from a model that handles Russian well. Q4_K_M is the
+ * quantisation that fits comfortably on an ordinary laptop while staying
+ * coherent -- smaller ones start inventing, which is the one thing a summary
+ * must not do.
+ *
+ * From Qwen's own repository rather than a re-upload: one fewer party between
+ * the weights and the user. Size measured against the real endpoint.
+ */
+export const LANGUAGE_MODEL: ModelChoice = {
+  name: 'qwen2.5-3b-instruct',
+  file: 'qwen2.5-3b-instruct-q4_k_m.gguf',
+  url: 'https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf',
+  bytes: 2_104_932_768,
+  summary: 'local summarisation, multilingual',
+};

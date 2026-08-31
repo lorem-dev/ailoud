@@ -69,14 +69,27 @@
   rather than one at a time and stapled: "what came out of these
   conversations" is a different question from three separate answers, and the
   second is already available by running the command three times.
-- Two engines behind one port. `llm.provider: llama-cpp` runs a local GGUF
-  model the way whisper.cpp is run -- a binary, spawned per request, nothing
-  leaving the machine. `llm.provider: openai-compatible` speaks the
+- Four engines behind one port, chosen with `llm.provider`. `llama-cpp` runs
+  a local GGUF model the way whisper.cpp is run -- a binary, spawned per
+  request, nothing leaving the machine. `openai-compatible` speaks the
   chat-completions shape, which covers OpenAI, most hosted alternatives, and
-  local servers like llama-server, Ollama and LM Studio.
-- The API key is read from `LAUD_LLM_API_KEY` or `OPENAI_API_KEY` in the
-  environment, never from the config file: a config file gets pasted into
-  issues and committed by accident.
+  local servers like llama-server, Ollama and LM Studio. `anthropic` calls
+  Claude's own API. `claude-cli` reaches Claude through the Claude Code CLI.
+- Claude is reachable both ways on purpose: by API key, and by subscription.
+  A Claude subscription is not an API key, and someone who already pays for
+  one should not have to buy API credit to summarise their own recordings.
+  `claude-cli` borrows the CLI's existing sign-in; it runs one non-interactive
+  completion with tools switched off, because summarising is a completion and
+  an agent with file and shell access is not what was asked for.
+- Anthropic gets its own adapter rather than a base-url swap on the OpenAI
+  one: the two APIs differ in path, authentication header, a required version
+  header, and where the reply's text lives. Pretending otherwise would have
+  produced an adapter that looked generic and worked for one vendor.
+- The API key is read from `LAUD_LLM_API_KEY`, or `ANTHROPIC_API_KEY` /
+  `OPENAI_API_KEY` for the selected vendor -- from the environment, never from
+  the config file: a config file gets pasted into issues and committed by
+  accident. An exported-but-blank variable counts as no key, so `doctor`
+  cannot report "key set" while every request comes back 401.
 - A transcript too long for the model is summarised in parts and the parts
   combined, split on segment boundaries so no sentence is cut in half. The
   split is decided from the model's own context size.
@@ -190,3 +203,17 @@
   than waiting -- provisioning can sit on a consent prompt for minutes. A
   stale lock (holder no longer running, or an empty/corrupt lock file left
   by a crash) is taken over automatically.
+- `laud doctor` reports the language model, and `laud setup` can provision it.
+  Both treat it as optional, the way the VAD and diarization checks are:
+  `summarize` is opt-in, and a machine that only transcribes must not carry a
+  permanently red `doctor` over a feature it never uses.
+- The check knows what "configured" means for each provider, because they do
+  not agree: a GGUF file and a runner on disk for `llama-cpp`, a key in the
+  environment for the hosted APIs, a binary that runs for `claude-cli`.
+  Whether a subscription is signed in is not checked -- that is not knowable
+  without making a billable request, and `doctor` does not spend the user's
+  money to answer a question. A local OpenAI-compatible endpoint is not asked
+  for a key, since Ollama and llama-server want none.
+- `laud setup` installs llama.cpp -- `brew` on macOS, a pinned release tarball
+  on Linux, where every target laud supports is published -- and downloads
+  Qwen2.5-3B-Instruct (Q4_K_M, about 2 GB) as the local summarisation model.

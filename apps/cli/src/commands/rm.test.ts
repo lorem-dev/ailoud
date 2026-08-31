@@ -3,10 +3,11 @@ import { UsageError } from '@laud/core';
 import { buildProgram } from '../program.js';
 import { context } from './testContext.js';
 import type { MemFs } from '@laud/core/testing';
+import type * as ClackPrompts from '@clack/prompts';
 import { describeDeletion } from './rm.js';
 
 vi.mock('@clack/prompts', async () => {
-  const actual = await vi.importActual<typeof import('@clack/prompts')>('@clack/prompts');
+  const actual = await vi.importActual<typeof ClackPrompts>('@clack/prompts');
   return { ...actual, confirm: vi.fn(async () => true), isCancel: () => false };
 });
 

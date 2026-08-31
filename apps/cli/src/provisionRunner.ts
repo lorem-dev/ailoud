@@ -3,9 +3,11 @@ import { access, constants, mkdir, rename, rm } from 'node:fs/promises';
 import { FailureError } from '@laud/core';
 import type { Action } from '@laud/core';
 import {
+  detectPackageManager,
   downloadFile,
   ffmpegInstallCommands,
   formatInstallCommand,
+  installLlama,
   installSherpa,
   installWhisper,
   run,
@@ -183,6 +185,64 @@ export async function executePlan(
             ok: true,
             detail: paths === null ? 'installed on PATH' : `installed at ${paths.binary}`,
           });
+          break;
+        }
+        case 'install-llm': {
+          // Unlike the diarizer, this one CAN take a package-manager route:
+          // llama.cpp has a brew formula, so on macOS it is one command
+          // rather than a tarball. That route can prompt, which is why the
+          // installer refuses it without a terminal instead of hanging.
+          const useBrew =
+            deps.platform === 'darwin' && (await detectPackageManager(deps.platform)) === 'brew';
+          deps.onStep(useBrew ? 'Running brew install llama.cpp' : 'Installing llama.cpp');
+          let lastPercent = -1;
+          const result = await installLlama({
+            platform: deps.platform,
+            arch: deps.arch,
+            dataDir: deps.dataDir,
+            interactive: deps.interactive,
+            useBrew,
+            onProgress: (received, total) => {
+              if (total === null || total === 0) return;
+              const percent = Math.floor((received / total) * 100);
+              if (percent === lastPercent) return;
+              lastPercent = percent;
+              deps.onProgress?.('llama.cpp', percent);
+            },
+          });
+          if (result.skipped) {
+            outcomes.push({
+              action,
+              ok: false,
+              detail: 'needs a terminal for brew; run: brew install llama.cpp',
+            });
+            break;
+          }
+          // Null after a brew install: it is on PATH, and recording an
+          // absolute Cellar path would break on the next brew upgrade.
+          if (result.binary !== null) updates = { ...updates, llmBinary: result.binary };
+          outcomes.push({
+            action,
+            ok: true,
+            detail: result.binary === null ? 'installed on PATH' : `installed at ${result.binary}`,
+          });
+          break;
+        }
+        case 'download-llm-model': {
+          const target = join(deps.dataDir, 'models', action.model.file);
+          deps.onStep(`Downloading ${action.model.file}`);
+          let lastPercent = -1;
+          await downloadFile(action.model.url, target, {
+            onProgress: (received, total) => {
+              if (total === null || total === 0) return;
+              const percent = Math.floor((received / total) * 100);
+              if (percent === lastPercent) return;
+              lastPercent = percent;
+              deps.onProgress?.(action.model.file, percent);
+            },
+          });
+          updates = { ...updates, llmModel: target };
+          outcomes.push({ action, ok: true, detail: target });
           break;
         }
         case 'install-diarizer': {

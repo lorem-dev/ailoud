@@ -12,6 +12,7 @@ import {
   checkBinary,
   checkDiarizerBinary,
   checkEmbeddingModel,
+  checkLanguageModel,
   checkModel,
   checkSegmentationModel,
   checkVadBinary,
@@ -132,6 +133,155 @@ describe('checkEmbeddingModel', () => {
     const check = await checkEmbeddingModel('/c', missing);
     expect(check.ok).toBe(false);
     expect(check.detail).toBe(`missing: ${missing}`);
+  });
+});
+
+describe('checkLanguageModel', () => {
+  const llm = (overrides: Record<string, unknown>) =>
+    ({ ...parseConfig(null).llm, ...overrides }) as ReturnType<typeof parseConfig>['llm'];
+
+  it('is optional no matter which provider is selected or how it fails', async () => {
+    // The point of the whole check: summarize is opt-in, and someone who only
+    // transcribes must not carry a red doctor for a feature they never use.
+    const providers = ['llama-cpp', 'anthropic', 'openai-compatible', 'claude-cli'] as const;
+    for (const provider of providers) {
+      const check = await checkLanguageModel(
+        '/c',
+        llm({
+          provider,
+          claudeCli: { binary: 'laud-no-such-cli', model: 'sonnet', contextTokens: 1 },
+        }),
+        {},
+        'linux',
+      );
+      expect(check.optional, provider).toBe(true);
+    }
+  });
+
+  it('asks for a local model when llama.cpp has none configured', async () => {
+    const check = await checkLanguageModel('/c', llm({ provider: 'llama-cpp' }), {}, 'linux');
+    expect(check.ok).toBe(false);
+    expect(check.detail).toBe('not configured');
+    expect(check.fix).toContain('llm.llamaCpp.model');
+    expect(check.remedy).toEqual({ kind: 'download-llm-model' });
+  });
+
+  it('reports the missing-file message when the configured GGUF is gone', async () => {
+    const missing = join(dir, 'no-such-model.gguf');
+    const check = await checkLanguageModel(
+      '/c',
+      llm({
+        provider: 'llama-cpp',
+        llamaCpp: { ...parseConfig(null).llm.llamaCpp, binary: process.execPath, model: missing },
+      }),
+      {},
+      'linux',
+    );
+    expect(check.ok).toBe(false);
+    expect(check.detail).toBe(`missing: ${missing}`);
+    expect(check.remedy).toEqual({ kind: 'download-llm-model' });
+  });
+
+  it('passes when the local runner and the model are both there', async () => {
+    const check = await checkLanguageModel(
+      '/c',
+      llm({
+        provider: 'llama-cpp',
+        llamaCpp: {
+          ...parseConfig(null).llm.llamaCpp,
+          binary: process.execPath,
+          model: process.execPath,
+        },
+      }),
+      {},
+      'linux',
+    );
+    expect(check.ok).toBe(true);
+    expect(check.detail).toContain(process.execPath);
+  });
+
+  it('wants a key for a hosted endpoint, and says keys never live in the config file', async () => {
+    const check = await checkLanguageModel('/c', llm({ provider: 'anthropic' }), {}, 'linux');
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain('no API key');
+    expect(check.fix).toContain('ANTHROPIC_API_KEY');
+    expect(check.fix).toMatch(/never from \/c/);
+  });
+
+  it('accepts either the shared variable or the vendor one', async () => {
+    const shared = await checkLanguageModel(
+      '/c',
+      llm({ provider: 'anthropic' }),
+      { LAUD_LLM_API_KEY: 'k' },
+      'linux',
+    );
+    expect(shared.ok).toBe(true);
+    const vendor = await checkLanguageModel(
+      '/c',
+      llm({ provider: 'openai-compatible' }),
+      { OPENAI_API_KEY: 'k' },
+      'linux',
+    );
+    expect(vendor.ok).toBe(true);
+  });
+
+  it('does not report the key as set when the variable is empty', async () => {
+    // An exported-but-blank variable is the classic half-configured shell,
+    // and calling it "key set" would send the user looking somewhere else.
+    const check = await checkLanguageModel(
+      '/c',
+      llm({ provider: 'anthropic' }),
+      { ANTHROPIC_API_KEY: '' },
+      'linux',
+    );
+    expect(check.detail).not.toContain('key set');
+  });
+
+  it('does not demand a key from a local OpenAI-compatible server', async () => {
+    // Ollama and llama-server want no credential; insisting on one would make
+    // doctor wrong for the setup that needs it least.
+    const check = await checkLanguageModel(
+      '/c',
+      llm({
+        provider: 'openai-compatible',
+        openaiCompatible: {
+          ...parseConfig(null).llm.openaiCompatible,
+          baseUrl: 'http://localhost:11434/v1',
+        },
+      }),
+      {},
+      'linux',
+    );
+    expect(check.ok).toBe(true);
+  });
+
+  it('checks only that the Claude CLI runs, never spending money to verify the subscription', async () => {
+    const check = await checkLanguageModel(
+      '/c',
+      llm({
+        provider: 'claude-cli',
+        claudeCli: { ...parseConfig(null).llm.claudeCli, binary: process.execPath },
+      }),
+      {},
+      'linux',
+    );
+    expect(check.ok).toBe(true);
+    expect(check.detail).toContain('via subscription');
+  });
+
+  it('names the config key to switch away when the Claude CLI is absent', async () => {
+    const check = await checkLanguageModel(
+      '/c',
+      llm({
+        provider: 'claude-cli',
+        claudeCli: { ...parseConfig(null).llm.claudeCli, binary: 'laud-no-such-claude' },
+      }),
+      {},
+      'linux',
+    );
+    expect(check.ok).toBe(false);
+    expect(check.fix).toContain('llm.provider');
+    expect(check.remedy).toEqual({ kind: 'install-llm' });
   });
 });
 
@@ -325,6 +475,7 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
     // like the whisper/vad pair above.
     await writeFile(join(scopedDir, 'seg-model.bin'), 'fake segmentation model', 'utf8');
     await writeFile(join(scopedDir, 'emb-model.bin'), 'fake embedding model', 'utf8');
+    await writeFile(join(scopedDir, 'llm-model.gguf'), 'fake language model', 'utf8');
   });
 
   afterEach(async () => {
@@ -364,7 +515,18 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
             threads: 4,
           },
         },
-        llm: parseConfig(null).llm,
+        llm: {
+          ...parseConfig(null).llm,
+          llamaCpp: {
+            ...parseConfig(null).llm.llamaCpp,
+            // Configured like the whisper and diarization models above, so
+            // "every check passes" is actually true. Leaving it null made the
+            // optional language-model check fail and contribute a remedy,
+            // which is correct behaviour and the wrong fixture.
+            binary: process.execPath,
+            model: join(scopedDir, 'llm-model.gguf'),
+          },
+        },
       },
     };
   }
@@ -588,6 +750,7 @@ describe('a corrupt database: every entry point must refuse', () => {
     // diarizer healthy too, since runChecks checks it unconditionally.
     await writeFile(join(corruptDir, 'seg-model.bin'), 'fake segmentation model', 'utf8');
     await writeFile(join(corruptDir, 'emb-model.bin'), 'fake embedding model', 'utf8');
+    await writeFile(join(corruptDir, 'llm-model.gguf'), 'fake language model', 'utf8');
     for (const name of ['ffmpeg', 'ffprobe']) {
       const scriptPath = join(binDir, name);
       await writeFile(scriptPath, '#!/bin/sh\nexit 0\n', 'utf8');
@@ -633,7 +796,19 @@ describe('a corrupt database: every entry point must refuse', () => {
             threads: 4,
           },
         },
-        llm: parseConfig(null).llm,
+        llm: {
+          ...parseConfig(null).llm,
+          llamaCpp: {
+            ...parseConfig(null).llm.llamaCpp,
+            // Configured, so the database really is the ONLY failing check.
+            // Left null, the optional language-model check contributes a
+            // remedy, provisioning finds work to do, and the run stops at the
+            // consent prompt before it ever reaches the un-fixable report
+            // this describe block is about.
+            binary: process.execPath,
+            model: join(corruptDir, 'llm-model.gguf'),
+          },
+        },
       },
     };
   }

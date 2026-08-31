@@ -4,6 +4,8 @@ import { parseDocument } from 'yaml';
 import { UsageError } from '@laud/core';
 
 export interface ConfigUpdates {
+  readonly llmBinary?: string;
+  readonly llmModel?: string;
   readonly model?: string;
   readonly vadModel?: string;
   readonly binary?: string;
@@ -20,15 +22,21 @@ export interface ConfigUpdates {
  * `diarizerBinary` disambiguates the two on this side, and this map is what
  * turns it back into `stt.diarization.binary` on the way out.
  */
-const SECTION: Record<keyof ConfigUpdates, readonly [section: string, key: string]> = {
-  binary: ['whisperCpp', 'binary'],
-  model: ['whisperCpp', 'model'],
-  vadBinary: ['whisperCpp', 'vadBinary'],
-  vadModel: ['whisperCpp', 'vadModel'],
-  diarizerBinary: ['diarization', 'binary'],
-  segmentationModel: ['diarization', 'segmentationModel'],
-  embeddingModel: ['diarization', 'embeddingModel'],
-};
+const SECTION: Record<keyof ConfigUpdates, readonly [root: string, section: string, key: string]> =
+  {
+    binary: ['stt', 'whisperCpp', 'binary'],
+    model: ['stt', 'whisperCpp', 'model'],
+    vadBinary: ['stt', 'whisperCpp', 'vadBinary'],
+    vadModel: ['stt', 'whisperCpp', 'vadModel'],
+    diarizerBinary: ['stt', 'diarization', 'binary'],
+    segmentationModel: ['stt', 'diarization', 'segmentationModel'],
+    embeddingModel: ['stt', 'diarization', 'embeddingModel'],
+    // The language model lives under its own root, not under stt: it is not
+    // speech-to-text, and filing it there would make the config lie about what
+    // it configures.
+    llmBinary: ['llm', 'llamaCpp', 'binary'],
+    llmModel: ['llm', 'llamaCpp', 'model'],
+  };
 
 /**
  * Sets the given keys in a config file's text, leaving everything else as it
@@ -42,7 +50,7 @@ const SECTION: Record<keyof ConfigUpdates, readonly [section: string, key: strin
  *
  * Pure -- string in, string out -- so the merge rules are unit tested without
  * a filesystem. Throws (and writes nothing) if `source` is not valid YAML, or
- * if `stt` or the target section (`stt.whisperCpp`, `stt.diarization`)
+ * if `stt` or the target section (`stt.whisperCpp`, `llm.llamaCpp`)
  * already exists as something other than a mapping -- both are the safe
  * direction, since guessing how to reshape a hand-written file could destroy
  * whatever was there.
@@ -56,16 +64,16 @@ export function applyConfigUpdates(source: string | null, updates: ConfigUpdates
   // apps/cli/package.json), so no '{}' seed is needed here.
   const doc = parseDocument(source ?? '');
   for (const [key, value] of entries) {
-    const [section, configKey] = SECTION[key as keyof ConfigUpdates];
+    const [root, section, configKey] = SECTION[key as keyof ConfigUpdates];
     try {
-      doc.setIn(['stt', section, configKey], value);
+      doc.setIn([root, section, configKey], value);
     } catch {
       // yaml's own message here ("Expected YAML collection at stt") assumes
       // familiarity with the document API; name the config key instead so
       // someone editing the file by hand knows what to fix.
       throw new UsageError(
-        `Cannot set "stt.${section}.${configKey}": "stt" or "stt.${section}" in the existing ` +
-          `config is not a mapping. Fix that section by hand and try again.`,
+        `Cannot set "${root}.${section}.${configKey}": "${root}" or "${root}.${section}" in the ` +
+          `existing config is not a mapping. Fix that section by hand and try again.`,
       );
     }
   }

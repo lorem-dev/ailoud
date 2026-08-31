@@ -80,18 +80,29 @@ describe('assignSpeakerColors', () => {
   });
 });
 
+/**
+ * Drops every SGR sequence. Spelled from \u001b, not a literal byte, so this
+ * file stays ASCII. The lint rule guards against a control character landing
+ * in a pattern by accident; here one is the whole point.
+ */
+function stripColor(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(new RegExp('\u001b\\[[0-9;]*m', 'g'), '');
+}
+
 describe('speakerPainter', () => {
   it('paints only the name, and resets the foreground only afterwards', () => {
     const paint = speakerPainter(['Ann'], true);
     // 39 rather than 0: a blanket reset would cancel styling the surrounding
     // UI had set.
-    expect(paint('Ann')).toMatch(/^\[38;5;\d+mAnn\[39m$/);
+    // Built from a string rather than written literally: source files here
+    // stay ASCII, so the escape byte is spelled \u001b.
+    expect(paint('Ann')).toMatch(new RegExp(`^\u001b\\[38;5;\\d+mAnn\u001b\\[39m$`));
   });
 
   it('leaves the name itself untouched', () => {
     const paint = speakerPainter(['Ann Smith'], true);
-    // eslint-disable-next-line no-control-regex
-    expect(paint('Ann Smith').replace(/\[[0-9;]*m/g, '')).toBe('Ann Smith');
+    expect(stripColor(paint('Ann Smith'))).toBe('Ann Smith');
   });
 
   it('does nothing at all when disabled', () => {

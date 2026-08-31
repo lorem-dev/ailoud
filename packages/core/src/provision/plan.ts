@@ -1,6 +1,12 @@
 import { UsageError } from '../domain/errors.js';
 import type { ModelChoice } from './catalogue.js';
-import { EMBEDDING_MODEL, SEGMENTATION_MODEL, VAD_MODEL, findModel } from './catalogue.js';
+import {
+  EMBEDDING_MODEL,
+  LANGUAGE_MODEL,
+  SEGMENTATION_MODEL,
+  VAD_MODEL,
+  findModel,
+} from './catalogue.js';
 import type { Remedy } from './remedy.js';
 
 /** A remedy with everything needed to execute it resolved. */
@@ -8,6 +14,8 @@ export type Action =
   | { readonly kind: 'install-ffmpeg' }
   | { readonly kind: 'install-whisper' }
   | { readonly kind: 'install-diarizer' }
+  | { readonly kind: 'install-llm' }
+  | { readonly kind: 'download-llm-model'; readonly model: ModelChoice }
   | {
       readonly kind: 'download-model';
       readonly slot: 'transcription' | 'vad';
@@ -37,13 +45,19 @@ const ORDER = [
   'install-ffmpeg',
   'install-whisper',
   'install-diarizer',
+  'install-llm',
   'download-model',
+  'download-llm-model',
   'download-diarization-model',
 ] satisfies readonly Action['kind'][];
 
 /** Two remedies are the same job when this key matches. */
 function keyOf(remedy: Remedy): string {
   switch (remedy.kind) {
+    case 'install-llm':
+      return 'install-llm';
+    case 'download-llm-model':
+      return 'download-llm-model';
     case 'create-directory':
       return `create-directory:${remedy.path}`;
     case 'install-ffmpeg':
@@ -78,6 +92,7 @@ function resolve(remedy: Remedy, options: PlanOptions): Action {
     const model = remedy.slot === 'segmentation' ? SEGMENTATION_MODEL : EMBEDDING_MODEL;
     return { ...remedy, model };
   }
+  if (remedy.kind === 'download-llm-model') return { ...remedy, model: LANGUAGE_MODEL };
   return remedy;
 }
 

@@ -63,6 +63,17 @@ describe('parseConfig', () => {
           contextTokens: 128_000,
           maxOutputTokens: 1024,
         },
+        anthropic: {
+          baseUrl: 'https://api.anthropic.com/v1',
+          model: 'claude-sonnet-5',
+          contextTokens: 200_000,
+          maxOutputTokens: 2048,
+        },
+        claudeCli: {
+          binary: 'claude',
+          model: 'sonnet',
+          contextTokens: 200_000,
+        },
       },
     });
   });

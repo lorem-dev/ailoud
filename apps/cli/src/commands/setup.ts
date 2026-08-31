@@ -13,11 +13,13 @@ import {
 } from '@laud/core';
 import type { Action, Remedy } from '@laud/core';
 import {
+  LLAMA_VERSION,
   SHERPA_VERSION,
   WHISPER_TAG,
   detectPackageManager,
   ffmpegInstallCommands,
   formatInstallCommand,
+  llamaTarballUrl,
   sherpaTarballUrl,
   whisperInstallCommands,
   whisperTarballUrl,
@@ -193,6 +195,10 @@ export function describeAction(action: Action): string {
       return `Create directory ${action.path}`;
     case 'install-ffmpeg':
       return 'Install ffmpeg';
+    case 'install-llm':
+      return 'Install llama.cpp, the local language model runner';
+    case 'download-llm-model':
+      return `Download ${action.model.name} (${formatBytes(action.model.bytes)}), for summarising`;
     case 'install-whisper':
       return 'Install whisper.cpp';
     case 'install-diarizer':
@@ -275,6 +281,28 @@ function diarizerPlanLines(env: PlanEnvironment): readonly string[] {
 }
 
 /**
+ * What installing the language-model runner will do, for the consent plan.
+ *
+ * On macOS this is one brew command, because llama.cpp has a formula and
+ * sending a user through laud's own installer for something brew already does
+ * would be gratuitous. Everywhere else it is the pinned release tarball, the
+ * same route whisper.cpp and sherpa take.
+ */
+function llmPlanLines(env: PlanEnvironment): readonly string[] {
+  if (env.platform === 'darwin' && env.manager === 'brew') {
+    return ['Runs: brew install llama.cpp'];
+  }
+  try {
+    return [
+      `Downloads ${llamaTarballUrl(env.platform, env.arch)}`,
+      `Extracts it into ${join(env.dataDir, 'llama', LLAMA_VERSION)}`,
+    ];
+  } catch (error) {
+    return [error instanceof Error ? error.message : String(error)];
+  }
+}
+
+/**
  * The exact commands an action will run, indented under its summary line.
  * Empty for actions that spawn nothing.
  */
@@ -287,9 +315,12 @@ export function describeCommands(action: Action, env: PlanEnvironment): readonly
       return whisperPlanLines(env);
     case 'install-diarizer':
       return diarizerPlanLines(env);
+    case 'install-llm':
+      return llmPlanLines(env);
     case 'create-directory':
     case 'download-model':
     case 'download-diarization-model':
+    case 'download-llm-model':
       return [];
   }
 }

@@ -136,9 +136,13 @@ export interface ContextWithTranscriptOptions {
  */
 export async function contextWithTranscript(
   opts: ContextWithTranscriptOptions = {},
-): Promise<CliContext & { lines: string[]; sttInstances: FakeStt[] }> {
+): Promise<CliContext & { lines: string[]; sttInstances: FakeStt[]; summarizerPrompts: string[] }> {
   const ctx = context();
-  const done = (): CliContext & { lines: string[]; sttInstances: FakeStt[] } => {
+  const done = (): CliContext & {
+    lines: string[];
+    sttInstances: FakeStt[];
+    summarizerPrompts: string[];
+  } => {
     if (opts.clearLines === true) ctx.lines.length = 0;
     return ctx;
   };

@@ -43,7 +43,9 @@ const ConfigSchema = z.object({
     .prefault({}),
   llm: z
     .object({
-      provider: z.enum(['llama-cpp', 'openai-compatible']).default('llama-cpp'),
+      provider: z
+        .enum(['llama-cpp', 'openai-compatible', 'anthropic', 'claude-cli'])
+        .default('llama-cpp'),
       llamaCpp: z
         .object({
           binary: z.string().default('llama-cli'),
@@ -59,6 +61,24 @@ const ConfigSchema = z.object({
           model: z.string().default('gpt-4o-mini'),
           contextTokens: z.number().int().min(512).default(128_000),
           maxOutputTokens: z.number().int().min(64).default(1024),
+        })
+        .prefault({}),
+      anthropic: z
+        .object({
+          baseUrl: z.string().default('https://api.anthropic.com/v1'),
+          model: z.string().default('claude-sonnet-5'),
+          contextTokens: z.number().int().min(512).default(200_000),
+          maxOutputTokens: z.number().int().min(64).default(2048),
+        })
+        .prefault({}),
+      claudeCli: z
+        .object({
+          binary: z.string().default('claude'),
+          // A Claude Code alias rather than a pinned id: the alias follows
+          // the newest model of that tier, which is what someone paying for a
+          // subscription wants without editing config every release.
+          model: z.string().default('sonnet'),
+          contextTokens: z.number().int().min(512).default(200_000),
         })
         .prefault({}),
     })

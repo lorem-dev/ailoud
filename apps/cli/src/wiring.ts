@@ -12,6 +12,8 @@ import type {
 } from '@laud/core';
 import { EnvironmentError } from '@laud/core';
 import {
+  AnthropicSummarizer,
+  ClaudeCliSummarizer,
   FfmpegAudioTool,
   LlamaCppSummarizer,
   NodeFs,
@@ -27,6 +29,7 @@ import { parseConfig, resolvePaths } from './config.js';
 import type { LaudConfig, LaudPaths } from './config.js';
 import { createUi } from './ui/index.js';
 import type { Ui } from './ui/index.js';
+import { apiKeyFrom } from './apiKey.js';
 
 export interface CliContext {
   readonly paths: LaudPaths;
@@ -121,12 +124,41 @@ export async function createContext(
     },
     createSummarizer(): Summarizer {
       const llm = config.llm;
+
+      if (llm.provider === 'claude-cli') {
+        // No key at all: the CLI is already signed in, and borrowing that is
+        // the whole point -- someone paying for a subscription should not
+        // have to buy API credit to summarise their own recordings.
+        return new ClaudeCliSummarizer({
+          binary: llm.claudeCli.binary,
+          model: llm.claudeCli.model,
+          contextTokens: llm.claudeCli.contextTokens,
+        });
+      }
+
+      if (llm.provider === 'anthropic') {
+        const settings = llm.anthropic;
+        const apiKey = apiKeyFrom(env, 'ANTHROPIC_API_KEY');
+        if (apiKey === undefined) {
+          throw new EnvironmentError(
+            'No API key for Claude. Set LAUD_LLM_API_KEY (or ANTHROPIC_API_KEY) in your ' +
+              'environment, or switch "llm.provider" to "claude-cli" to use a Claude ' +
+              'subscription through the Claude Code CLI instead. Keys are read from the ' +
+              `environment on purpose and never from ${paths.configFile}.`,
+          );
+        }
+        return new AnthropicSummarizer({
+          baseUrl: settings.baseUrl,
+          model: settings.model,
+          contextTokens: settings.contextTokens,
+          maxOutputTokens: settings.maxOutputTokens,
+          apiKey,
+        });
+      }
+
       if (llm.provider === 'openai-compatible') {
         const settings = llm.openaiCompatible;
-        // From the environment, never the config file: a config file gets
-        // pasted into issues and committed by accident. LAUD_LLM_API_KEY
-        // first so a laud-specific key can override a shared one.
-        const apiKey = env['LAUD_LLM_API_KEY'] ?? env['OPENAI_API_KEY'];
+        const apiKey = apiKeyFrom(env, 'OPENAI_API_KEY');
         if (settings.baseUrl.startsWith('https://api.openai.com') && apiKey === undefined) {
           throw new EnvironmentError(
             'No API key for the language model. Set LAUD_LLM_API_KEY (or OPENAI_API_KEY) in ' +
