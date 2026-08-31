@@ -1,19 +1,20 @@
 export type { RawSegment, Recording, Segment, SpeakerName, Transcript } from './domain/model.js';
 
 export type {
-  Clock,
-  Ids,
-  Fs,
-  TempFile,
   AudioTool,
-  TranscriptionProvider,
-  SpeechSpan,
-  SpeechSegmenter,
-  SpeakerTurn,
+  Clock,
   Diarizer,
+  Fs,
+  Ids,
+  ManagedRecordingStore,
   RecordingListFilter,
   RecordingStore,
-  ManagedRecordingStore,
+  SpeakerTurn,
+  SpeechSegmenter,
+  SpeechSpan,
+  Summarizer,
+  TempFile,
+  TranscriptionProvider,
 } from './domain/ports.js';
 
 export type { Migration } from './db/schema.js';

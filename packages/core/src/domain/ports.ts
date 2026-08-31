@@ -116,6 +116,26 @@ export interface Diarizer {
   ): Promise<readonly SpeakerTurn[]>;
 }
 
+/**
+ * A large language model, behind one interface whatever is answering.
+ *
+ * Deliberately narrow: one string in, one string out. Everything that varies
+ * between a local llama.cpp process and a hosted API -- model names, context
+ * windows, keys, retries -- belongs to the adapter, and none of it belongs in
+ * the pipeline that asks the question.
+ *
+ * `contextTokens` is the one thing a caller cannot avoid knowing: it decides
+ * whether a transcript has to be split before it can be sent, which happens
+ * before any request is made.
+ */
+export interface Summarizer {
+  /** For error messages and `doctor`, e.g. "llama.cpp" or "openai". */
+  readonly name: string;
+  /** How much the model can be shown at once, in tokens. */
+  readonly contextTokens: number;
+  complete(prompt: string): Promise<string>;
+}
+
 export interface RecordingListFilter {
   /** Only recordings carrying every one of these tags. */
   readonly tags?: readonly string[];
