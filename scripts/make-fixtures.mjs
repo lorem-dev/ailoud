@@ -19,6 +19,11 @@
 // with ffmpeg into a single clip -- genuinely code-switched audio, not one
 // voice reading a sentence that merely contains foreign-origin words.
 //
+// The same one-voice-per-line mechanism produces the multi-speaker fixtures
+// the diarization feature needs: each line is a turn, and giving consecutive
+// lines different voices makes a real conversation rather than one voice
+// pretending to be several.
+//
 // Usage: node scripts/make-fixtures.mjs
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -34,14 +39,42 @@ const fixturesDir = join(root, 'fixtures');
  */
 
 /**
- * One voice per line of the fixture's .txt file, in order. en-short and
- * ru-short have one line each; mixed-short has two, so it gets two voices.
+ * The speaker rotation for a fixture: line `i` of its .txt is spoken by
+ * `voices[i % voices.length]`. A one-voice fixture is a monologue; two
+ * voices alternate; three take turns in a cycle.
+ *
+ * Cycling rather than one-voice-per-line keeps a twelve-turn conversation
+ * configured as two names instead of twelve, and means lengthening a
+ * fixture is purely a matter of adding lines to its .txt.
  * @type {Fixture[]}
  */
 const FIXTURES = [
   { name: 'en-short', voices: ['Samantha'] },
   { name: 'ru-short', voices: ['Milena'] },
   { name: 'mixed-short', voices: ['Samantha', 'Milena'] },
+  // Diarization fixtures. Voices are picked for CONTRAST, not variety: a
+  // speaker-embedding model separates two voices by how different they
+  // sound, so a female/male pair is a fair test of the feature while two
+  // similar voices would mostly test the model's limits. mixed-short above
+  // does technically hold two speakers, but both its voices are female,
+  // which is why it is not the fixture to diarize against.
+  { name: 'two-speakers-en', voices: ['Samantha', 'Daniel'] },
+  // Three, because the design spike found speaker-count discovery is the
+  // weak spot: two speakers were correct across a wide threshold band,
+  // four only inside a narrow one. Three is where that starts to bite.
+  { name: 'three-speakers-en', voices: ['Samantha', 'Daniel', 'Fred'] },
+  // Two speakers AND two languages, with a male/female contrast. This is
+  // the only fixture that exercises --diarize together with
+  // --multilingual, which is the composition the diarization design claims
+  // works because the two features are independent axes joined by time.
+  //
+  // Daniel (male) reads the English and Milena (female) the Russian, rather
+  // than the other way round, because Milena is the ONLY working ru_RU voice
+  // installed. `say -v Yuri` accepts the flag and produces a file, but does
+  // not actually speak Russian -- it reads the Cyrillic out as Unicode
+  // character names, which transcribed as "Cyrillic letter Ja ..." and made
+  // the first version of this fixture useless. Verified by running it.
+  { name: 'two-speakers-mixed', voices: ['Daniel', 'Milena'] },
 ];
 
 // Generous, not tight: these clips are a few seconds of speech each, but a
@@ -116,16 +149,27 @@ function main() {
         .trim()
         .split('\n')
         .map((line) => line.trim());
-      if (lines.length !== fixture.voices.length) {
+      // Not an equality check: voices cycle. But every configured voice must
+      // actually speak, or a typo in the rotation would silently drop a
+      // speaker and the fixture would quietly stop testing what it claims to.
+      if (lines.length < fixture.voices.length) {
         throw new Error(
-          `${fixture.name}.txt has ${lines.length} line(s) but ${fixture.voices.length} ` +
-            'voice(s) are configured for it -- keep them in step.',
+          `${fixture.name}.txt has only ${lines.length} line(s) but ${fixture.voices.length} ` +
+            'voice(s) are configured, so at least one voice would never speak.',
         );
       }
 
-      console.log(`generating ${fixture.name} (voices: ${fixture.voices.join(', ')})`);
+      console.log(
+        `generating ${fixture.name} (${lines.length} turn(s), voices: ` +
+          `${fixture.voices.join(', ')})`,
+      );
       const clauseWavs = lines.map((line, i) =>
-        synthesizeClause(scratch, `${fixture.name}-${i}`, fixture.voices[i], line),
+        synthesizeClause(
+          scratch,
+          `${fixture.name}-${i}`,
+          fixture.voices[i % fixture.voices.length],
+          line,
+        ),
       );
       const wav = join(fixturesDir, `${fixture.name}.wav`);
       concatenate(clauseWavs, wav);
