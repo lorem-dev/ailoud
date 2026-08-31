@@ -244,6 +244,18 @@ export class SqliteStore implements ManagedRecordingStore {
     return rows.map(toSegment);
   }
 
+  async findRecordingsByIdPrefix(prefix: string): Promise<Recording[]> {
+    // The caller validates the prefix against the ULID alphabet before we
+    // get here, which is also what makes this LIKE safe: Crockford base32
+    // contains neither % nor _, so no input that reaches this line can carry
+    // a wildcard. Left as a belt: an empty prefix would match everything.
+    if (prefix === '') return [];
+    const rows = this.db
+      .prepare(`SELECT * FROM recording WHERE id LIKE ? || '%' ORDER BY id`)
+      .all(prefix) as unknown as RecordingRow[];
+    return rows.map(toRecording);
+  }
+
   async deleteRecording(id: string): Promise<boolean> {
     // One statement: transcript and segment rows go through ON DELETE
     // CASCADE, which works because open() sets PRAGMA foreign_keys = ON.

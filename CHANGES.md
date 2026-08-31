@@ -64,6 +64,17 @@
   machine that never transcribes code-switched audio no longer carries a
   permanently failing `doctor` over it. `transcribe --multilingual` still
   exits 3 with an actionable message when the VAD model is not configured.
+- Recording ids can be abbreviated, as in docker: any prefix of at least two
+  characters that picks out exactly one recording works wherever a full id
+  does -- `show`, `transcribe` and `rm`. Case and surrounding whitespace do
+  not matter.
+- An ambiguous prefix is the ordinary case rather than the exception, because
+  a ULID begins with a timestamp and recordings imported minutes apart agree
+  for eight characters or more. So the error says how many matched, lists the
+  first three with their source, and counts the rest -- enough to choose a
+  longer prefix without going back to `laud ls`.
+- Commands taking several ids resolve all of them before acting on any. A
+  typo in the third of three cannot leave the first two already deleted.
 - Recordings carry the date the audio was recorded, read from the container's
   own metadata (`creation_time`, which mp4 and mov usually have and wav
   usually does not). It is stored separately from the import timestamp rather

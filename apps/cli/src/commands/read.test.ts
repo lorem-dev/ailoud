@@ -196,9 +196,12 @@ describe('laud show', () => {
   });
 
   it('fails with a clear message for an unknown id', async () => {
+    // Wording changed with prefix resolution: an id is now a prefix, so the
+    // honest statement is that nothing MATCHES it, not that no recording has
+    // exactly that id.
     const ctx = await contextWithTranscript();
     await expect(buildProgram(ctx).parseAsync(['node', 'laud', 'show', 'NOPE'])).rejects.toThrow(
-      /No recording with id NOPE/,
+      /No recording matches "NOPE"/,
     );
   });
 

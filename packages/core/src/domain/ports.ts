@@ -142,6 +142,17 @@ export interface RecordingStore {
    */
   deleteRecording(id: string): Promise<boolean>;
   /**
+   * Every recording whose id starts with `prefix`, in id order.
+   *
+   * Ids are ULIDs and begin with a timestamp, so recordings imported near
+   * each other share long prefixes -- a short prefix matching several is the
+   * ordinary case, not an edge one. Returns them all rather than just the
+   * first: the caller has to say how many it found, and showing "several"
+   * without a number is the kind of error message that makes people run the
+   * command again to learn nothing new.
+   */
+  findRecordingsByIdPrefix(prefix: string): Promise<Recording[]>;
+  /**
    * The languages each of these transcripts is spoken in, most-spoken first.
    *
    * Batched deliberately. `ls` renders a language per row, and asking for the

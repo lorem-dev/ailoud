@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
-import { FailureError, summarizeLanguages, transcribeRecording, UsageError } from '@laud/core';
+import { summarizeLanguages, transcribeRecording, UsageError } from '@laud/core';
 import type { CliContext } from '../wiring.js';
+import { resolveRecordings } from '../resolveId.js';
 
 interface TranscribeOptions {
   readonly lang?: string;
@@ -67,7 +68,10 @@ function parseSpeakerCount(raw: string): number {
 export function registerTranscribe(program: Command, context: CliContext): void {
   program
     .command('transcribe')
-    .argument('[ids...]', 'recording ids; defaults to everything not yet transcribed')
+    .argument(
+      '[ids...]',
+      'recording ids, or enough of each start to be unambiguous; defaults to everything not yet transcribed',
+    )
     .option(
       '--lang <codes>',
       'spoken language, or several comma-separated ("ru,en"), or "auto" to detect. Naming two ' +
@@ -101,22 +105,13 @@ export function registerTranscribe(program: Command, context: CliContext): void 
         }
         const speakers =
           options.speakers === undefined ? undefined : parseSpeakerCount(options.speakers);
+        // Given ids, each may be a prefix; resolveRecordings refuses the whole
+        // set unless every one picks out exactly one recording. Given none,
+        // the default selector still means "everything not yet transcribed".
         const recordings =
           ids.length > 0
-            ? await context.store.listRecordings({ ids })
+            ? await resolveRecordings(context.store, ids)
             : await context.store.listRecordings({ withoutTranscript: true });
-
-        if (ids.length > 0) {
-          const found = new Set(recordings.map((recording) => recording.id));
-          const missing = ids.filter((id) => !found.has(id));
-          if (missing.length > 0) {
-            throw new FailureError(
-              missing.length === 1
-                ? `No recording with id ${missing[0]}.`
-                : `No recordings with ids ${missing.join(', ')}.`,
-            );
-          }
-        }
 
         if (recordings.length === 0) {
           // Only reachable via the default selector: with explicit ids, an

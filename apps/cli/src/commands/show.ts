@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import { FailureError, toPlainText, toSrt, toVtt, UsageError } from '@laud/core';
 import type { Transcript } from '@laud/core';
 import type { CliContext } from '../wiring.js';
+import { resolveRecording } from '../resolveId.js';
 
 const FORMATS = ['text', 'json', 'srt', 'vtt'] as const;
 type Format = (typeof FORMATS)[number];
@@ -9,7 +10,7 @@ type Format = (typeof FORMATS)[number];
 export function registerShow(program: Command, context: CliContext): void {
   program
     .command('show')
-    .argument('<id>', 'recording id')
+    .argument('<id>', 'recording id, or enough of its start to be unambiguous')
     .option('--format <format>', `one of ${FORMATS.join(', ')}`, 'text')
     .option('--transcript <id>', 'a specific transcript instead of the newest')
     .description('Print a transcript')
@@ -24,8 +25,9 @@ export function registerShow(program: Command, context: CliContext): void {
             `Unknown format "${options.format}". Use one of: ${FORMATS.join(', ')}.`,
           );
         }
-        const recording = await context.store.getRecording(id);
-        if (recording === null) throw new FailureError(`No recording with id ${id}.`);
+        // A prefix will do, as in docker; resolveRecording explains itself
+        // when one matches nothing or several things.
+        const recording = await resolveRecording(context.store, id);
 
         let transcript: Transcript | null;
         if (options.transcript === undefined) {

@@ -254,6 +254,13 @@ export class InMemoryStore implements ManagedRecordingStore {
     // by idx before storing, this just keeps the contract explicit here too.
     return [...(this.segments.get(transcriptId) ?? [])].sort((a, b) => a.idx - b.idx);
   }
+  async findRecordingsByIdPrefix(prefix: string): Promise<Recording[]> {
+    if (prefix === '') return [];
+    return [...this.recordings.values()]
+      .filter((recording) => recording.id.startsWith(prefix))
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
   async deleteRecording(id: string): Promise<boolean> {
     if (!this.recordings.has(id)) return false;
     this.recordings.delete(id);

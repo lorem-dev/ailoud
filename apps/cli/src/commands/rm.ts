@@ -1,8 +1,8 @@
 import type { Command } from 'commander';
-import { FailureError } from '@laud/core';
 import type { Recording } from '@laud/core';
 import type { CliContext } from '../wiring.js';
 import { isInteractive, requireConsent } from './setup.js';
+import { resolveRecordings } from '../resolveId.js';
 
 interface RmOptions {
   readonly force?: boolean;
@@ -38,20 +38,10 @@ export function registerRm(program: Command, context: CliContext): void {
     .description("Delete recordings from the library, with laud's copy of their audio")
     .action(async (ids: string[], options: RmOptions) => {
       await context.ui.frame('Deleting recordings', async () => {
-        const recordings = await context.store.listRecordings({ ids });
-
-        // Every id is checked before anything is deleted. A typo in the third
-        // of three ids must not leave the first two gone and the work half
-        // done -- there is no undo to fall back on.
-        const found = new Set(recordings.map((recording) => recording.id));
-        const missing = ids.filter((id) => !found.has(id));
-        if (missing.length > 0) {
-          throw new FailureError(
-            missing.length === 1
-              ? `No recording with id ${missing[0]}. Nothing was deleted.`
-              : `No recordings with ids ${missing.join(', ')}. Nothing was deleted.`,
-          );
-        }
+        // Resolves prefixes, and throws unless every one of them picks out
+        // exactly one recording. All-or-nothing: a typo in the third of three
+        // ids must not leave the first two gone, and there is no undo.
+        const recordings = await resolveRecordings(context.store, ids);
 
         for (const line of describeDeletion(recordings)) context.write(line);
 
