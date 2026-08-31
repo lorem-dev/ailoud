@@ -46,6 +46,19 @@ describe('checkVadModel', () => {
     expect(check.ok).toBe(false);
     expect(check.detail).toBe(`missing: ${missing}`);
   });
+
+  // --multilingual is opt-in exactly the way --diarize is (see the module
+  // comment on checkVadModel), so every branch must carry `optional: true`
+  // the same way checkSegmentationModel/checkEmbeddingModel do -- passing,
+  // "not configured", and "missing" alike.
+  it('is optional on every branch: passing, not configured, and missing', async () => {
+    const passing = await checkVadModel('/c', process.execPath);
+    const notConfigured = await checkVadModel('/c', null);
+    const missing = await checkVadModel('/c', join(dir, 'no-such-vad-model.bin'));
+    expect(passing.optional).toBe(true);
+    expect(notConfigured.optional).toBe(true);
+    expect(missing.optional).toBe(true);
+  });
 });
 
 describe('checkVadBinary', () => {
@@ -68,6 +81,18 @@ describe('checkVadBinary', () => {
     const linux = await checkVadBinary('/c', missing, 'linux');
     expect(darwin.fix).not.toBe(linux.fix);
     expect(linux.fix).not.toContain('brew');
+  });
+
+  // Mirrors checkVadModel's optional-on-every-branch test: the
+  // configured-path-missing branch never reaches checkBinary, so it needs
+  // its own assertion rather than relying on the passing-binary case below.
+  it('is optional on every branch: passing, not on PATH, and configured path missing', async () => {
+    const passing = await checkVadBinary('/c', process.execPath);
+    const notOnPath = await checkVadBinary('/c', 'laud-doctor-test-no-such-binary');
+    const missingPath = await checkVadBinary('/c', join(dir, 'no-such-vad-binary'));
+    expect(passing.optional).toBe(true);
+    expect(notOnPath.optional).toBe(true);
+    expect(missingPath.optional).toBe(true);
   });
 });
 
@@ -244,6 +269,25 @@ describe('runChecks', () => {
         kind: 'download-diarization-model',
         slot: 'embedding',
       });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('reports the vad binary and vad model as optional, each with the right remedy', async () => {
+    // testContext.ts's default context() leaves the VAD pair unconfigured
+    // (schema defaults), so both checks fail here -- same shape as the
+    // diarizer test above, now that --multilingual gets the same treatment
+    // --diarize does.
+    vi.stubEnv('PATH', '');
+    try {
+      const checks = await runChecks(context(), 'linux');
+      const vadBinary = checks.find((c) => c.name === 'vad binary');
+      const vadModel = checks.find((c) => c.name === 'vad model');
+      expect(vadBinary?.optional).toBe(true);
+      expect(vadBinary?.remedy).toEqual({ kind: 'install-whisper' });
+      expect(vadModel?.optional).toBe(true);
+      expect(vadModel?.remedy).toEqual({ kind: 'download-model', slot: 'vad' });
     } finally {
       vi.unstubAllEnvs();
     }

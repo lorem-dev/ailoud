@@ -13,11 +13,29 @@ export interface LanguageRun {
 }
 
 /**
- * Below this, a span disagreeing with identical neighbours is treated as a
- * mis-detection rather than a real switch. A starting value, not a measured
- * one: long enough that detection had a full phrase to judge, short enough
- * that a genuine one-sentence switch survives. One constant, so measuring it
- * later changes one line.
+ * Serves two distinct purposes, which is worth knowing before changing it.
+ *
+ * In `subdivideSpans` it is a FLOOR on window length: equal division may not
+ * produce a window shorter than this, because a very short window's
+ * detection is worthless. That use wants a small number.
+ *
+ * In `mergeRuns` it is a NOISE THRESHOLD: a run shorter than this, sitting
+ * between neighbours that agree with each other, is treated as a
+ * mis-detection and absorbed. That use wants a number near one window.
+ *
+ * At the old 2000ms window the two coincided well enough at 1500. At the
+ * current 5000ms window they no longer do, and the floor is the use that
+ * must win: raising this to five seconds would leave
+ * `floor(duration / 1500)` at one for most spans and stop subdivision from
+ * happening at all, disabling the whole feature.
+ *
+ * The honest consequence, stated rather than hidden: with a 5000ms window,
+ * every single-window run is 5000ms, so the `mergeRuns` absorption can now
+ * only fire on a final partial window. The duration heuristic is no longer
+ * the primary defence against a mis-detection --
+ * `resolveDeclaredLanguages` is, whenever the caller declares which
+ * languages are present. Absorption remains as a backstop for the
+ * undeclared case.
  */
 export const MIN_RUN_DURATION_MS = 1500;
 
@@ -37,12 +55,30 @@ export const MIN_RUN_DURATION_MS = 1500;
  * single-window switch survives; at 1000ms it would not. `merge.test.ts`
  * pins this relationship with an assertion, not just this comment.
  *
- * 2000ms: half of the ~3.46s bilingual fixture this feature was built to
- * fix, matching the window an earlier probe used when it detected each
- * half's language correctly. One constant, so measuring it later changes
- * one line -- but check the constraint above before lowering it.
+ * 5000ms, and this one IS measured. The previous value, 2000ms, was chosen
+ * as half of the 3.46-second fixture the feature was built against -- a
+ * number fitted to a toy, which is exactly how it went wrong. Running
+ * whisper's detector over spans of a real 32-second Russian/English
+ * conversation:
+ *
+ *   entirely Russian span:  1s -> en, 2s -> pl, 3s -> pl, 4s -> pl,
+ *                           5s -> ru, 6s -> ru
+ *   span starting English:  2s -> en, 3s -> en, 5s -> ru
+ *
+ * Detection needs about five seconds of homogeneous speech to be right. At
+ * 2000ms it reported Russian as Polish, and the run was then transcribed AS
+ * Polish -- "Lucse kupi zaranee, utrom" came back as "Lutrzy kupi zaranie".
+ *
+ * The trade this buys is real and worth stating: conversational turns run
+ * two to four seconds, so a five-second window frequently straddles two of
+ * them -- which is what the last measurement above shows, an English span
+ * reading as Russian once the window reached into the next turn. A wider
+ * window is more reliable on homogeneous speech and less able to localise a
+ * fast switch. `resolveDeclaredLanguages` exists because neither end of that
+ * trade is good enough alone: when the caller knows which languages are
+ * present, an out-of-set answer is knowably wrong regardless of window size.
  */
-export const MAX_DETECTION_WINDOW_MS = 2000;
+export const MAX_DETECTION_WINDOW_MS = 5000;
 
 /**
  * Splits any span longer than `windowMs` into windows of at most that
@@ -75,12 +111,29 @@ export function subdivideSpans(
   const result: SpeechSpan[] = [];
   for (const span of spans) {
     const duration = span.endMs - span.startMs;
-    if (duration <= windowMs) {
+
+    // The widest window that still gives this span more than one detection.
+    //
+    // A fixed window is wrong at both ends. Too narrow and detection is
+    // unreliable -- the measurements on MAX_DETECTION_WINDOW_MS. Too wide
+    // and a short recording yields a single window, one detection, and the
+    // feature silently does nothing: at a flat 5000ms the 3.46-second
+    // bilingual clip this was built for stopped being split at all, and its
+    // second language would have been lost again.
+    //
+    // So: prefer the widest reliable window, but never let it swallow a span
+    // whole when that span is long enough to hold two runs. Halving is the
+    // least assuming way to get two detections out of a short span; spans
+    // too short to hold two runs still pass through untouched, because
+    // splitting below the floor would only produce detections worth less
+    // than the one it replaced.
+    const effectiveWindowMs = Math.min(windowMs, Math.max(MIN_RUN_DURATION_MS, duration / 2));
+    if (duration <= effectiveWindowMs) {
       result.push(span);
       continue;
     }
 
-    const idealWindowCount = Math.ceil(duration / windowMs);
+    const idealWindowCount = Math.ceil(duration / effectiveWindowMs);
     // Any more windows than this and equal division would drop below
     // MIN_RUN_DURATION_MS; at least one window regardless.
     const maxWindowCount = Math.floor(duration / MIN_RUN_DURATION_MS);
@@ -97,6 +150,74 @@ export function subdivideSpans(
     }
   }
   return result;
+}
+
+/**
+ * Replaces detections that fall outside the languages the caller declared.
+ *
+ * whisper's detector always answers with exactly one language and cannot be
+ * restricted to a candidate set, so a caller who knows the recording holds
+ * only Russian and English has no way to say so up front. The constraint has
+ * to be applied to the answer instead. When it reports Polish for a span of a
+ * Russian/English conversation, that is not a discovery -- it is a
+ * mis-detection, and a knowable one.
+ *
+ * A window whose language is out of set takes the language of the nearest
+ * window that is in set, preferring the earlier one when both sides are
+ * equally close: a speaker who has been talking usually keeps talking, and
+ * ties must break the same way every run so the result does not depend on
+ * which neighbour happened to be scanned first.
+ *
+ * If no window anywhere detected an in-set language the whole recording is
+ * un-anchored, and the first declared language is used. That is a guess, but
+ * a declared guess beats transcribing everything in a language the caller
+ * has said is not present.
+ *
+ * Pure, and separate from `mergeRuns`, because the two answer different
+ * questions: this one asks "is this answer even possible", using knowledge
+ * only the caller has, while `mergeRuns` asks "is this answer plausible
+ * given its neighbours", using duration. An empty declared set means the
+ * caller declared nothing and every detection passes through untouched.
+ */
+export function resolveDeclaredLanguages(
+  spans: readonly DetectedSpan[],
+  declared: readonly string[],
+): DetectedSpan[] {
+  if (declared.length === 0) return [...spans];
+  const allowed = new Set(declared);
+  const inSet = spans.map((span) => allowed.has(span.language));
+  if (!inSet.includes(true)) {
+    const fallback = declared[0] ?? '';
+    return spans.map((span) => ({ ...span, language: fallback }));
+  }
+
+  return spans.map((span, index) => {
+    if (inSet[index] === true) return span;
+    let before = -1;
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (inSet[i] === true) {
+        before = i;
+        break;
+      }
+    }
+    let after = -1;
+    for (let i = index + 1; i < spans.length; i += 1) {
+      if (inSet[i] === true) {
+        after = i;
+        break;
+      }
+    }
+    // Ties go to the earlier neighbour; see the doc comment.
+    const nearest =
+      before === -1
+        ? after
+        : after === -1
+          ? before
+          : index - before <= after - index
+            ? before
+            : after;
+    return { ...span, language: spans[nearest]?.language ?? declared[0] ?? span.language };
+  });
 }
 
 interface IntermediateRun {

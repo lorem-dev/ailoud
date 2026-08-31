@@ -83,13 +83,10 @@ export async function checkModel(
  * different problems with different fixes, and folding this into checkModel
  * would blur the config key and fix text the message names.
  *
- * NOT marked `optional` (see Check.optional and the diarization checks
- * below), even though --multilingual is opt-in the same way --diarize is,
- * and there is a real argument this check should get the same treatment.
- * Left as mandatory deliberately: it is what plain `doctor` has always
- * reported, and changing behaviour people already live with is out of
- * scope for the change that introduced `optional`. Recorded here as a
- * follow-up, not silently done in passing.
+ * `optional: true` throughout: see checkVadBinary's comment on the same
+ * flag. --multilingual is opt-in exactly the way --diarize is, so a machine
+ * that never transcribes code-switched audio should not carry a permanently
+ * failing `doctor` over a feature nobody has asked for.
  */
 export async function checkVadModel(
   configFile: string,
@@ -101,13 +98,13 @@ export async function checkVadModel(
     `Set "stt.whisperCpp.vadModel" in ${configFile} to the path of a whisper VAD model ` +
     'file (e.g. ggml-silero-v5.1.2.bin).';
   if (vadModelPath === null) {
-    return { name, ok: false, detail: 'not configured', fix, remedy };
+    return { name, ok: false, detail: 'not configured', fix, remedy, optional: true };
   }
   try {
     await access(vadModelPath, constants.F_OK);
-    return { name, ok: true, detail: vadModelPath };
+    return { name, ok: true, detail: vadModelPath, optional: true };
   } catch {
-    return { name, ok: false, detail: `missing: ${vadModelPath}`, fix, remedy };
+    return { name, ok: false, detail: `missing: ${vadModelPath}`, fix, remedy, optional: true };
   }
 }
 
@@ -119,6 +116,15 @@ export async function checkVadModel(
  * checkBinary alone cannot tell those apart -- spawn() reports ENOENT for
  * both -- so a configured path (one containing a separator) is checked
  * against the filesystem first.
+ *
+ * `optional: true` on every branch, mirroring checkDiarizerBinary:
+ * --multilingual is opt-in (per transcribe run) exactly the way --diarize
+ * is, so this binary being missing means one feature is unavailable, not
+ * that laud cannot run -- see `Check.optional`'s doc comment. checkBinary
+ * itself does not know about `optional` (ffmpeg/whisper share it and stay
+ * mandatory, while vad/diarizer share it and are both optional here), so
+ * its result is merged with the flag rather than threaded through as a
+ * parameter every other caller would have to pass `undefined` for.
  */
 export async function checkVadBinary(
   configFile: string,
@@ -141,10 +147,12 @@ export async function checkVadBinary(
         detail: `configured path does not exist: ${vadBinary}`,
         fix,
         remedy,
+        optional: true,
       };
     }
   }
-  return checkBinary(name, vadBinary, ['--help'], fix, vadBinary, remedy);
+  const result = await checkBinary(name, vadBinary, ['--help'], fix, vadBinary, remedy);
+  return { ...result, optional: true };
 }
 
 /**
@@ -178,10 +186,10 @@ export async function checkVadBinary(
  * `optional: true` on every branch: diarization is opt-in (`--diarize`), so
  * this binary being missing means one feature is unavailable, not that laud
  * cannot run -- see `Check.optional`'s doc comment. checkBinary itself does
- * not know about `optional` (ffmpeg/whisper/vad share it and are all
- * mandatory), so its result is merged with the flag rather than threaded
- * through as a parameter every other caller would have to pass `undefined`
- * for.
+ * not know about `optional` (ffmpeg/whisper share it and stay mandatory,
+ * while vad/diarizer share it and are both optional here), so its result is
+ * merged with the flag rather than threaded through as a parameter every
+ * other caller would have to pass `undefined` for.
  */
 export async function checkDiarizerBinary(
   configFile: string,

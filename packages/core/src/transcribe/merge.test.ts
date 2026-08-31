@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { MIN_RUN_DURATION_MS, mergeRuns, subdivideSpans } from './merge.js';
+import {
+  MIN_RUN_DURATION_MS,
+  mergeRuns,
+  resolveDeclaredLanguages,
+  subdivideSpans,
+} from './merge.js';
+import type { DetectedSpan } from './merge.js';
 
 const span = (startMs: number, endMs: number, language: string) => ({
   startMs,
@@ -167,14 +173,39 @@ describe('mergeRuns', () => {
 });
 
 describe('subdivideSpans', () => {
-  it('passes a span shorter than the window through untouched', () => {
-    const spans = [{ startMs: 100, endMs: 4000 }];
+  it('passes a span too short to split through untouched', () => {
+    // Untouched now means "cannot be halved without both halves falling
+    // below MIN_RUN_DURATION_MS", not "shorter than the window". The window
+    // is a ceiling on width, not a threshold for splitting: a span wide
+    // enough for two runs must yield two detections, or the feature reduces
+    // to one detection for the whole recording and does nothing.
+    const spans = [{ startMs: 100, endMs: 2600 }];
     expect(subdivideSpans(spans, 5000)).toEqual(spans);
   });
 
-  it('does not split a span exactly the window length', () => {
-    const spans = [{ startMs: 0, endMs: 5000 }];
-    expect(subdivideSpans(spans, 5000)).toEqual(spans);
+  it('splits a span exactly the window length rather than detecting it once', () => {
+    // At a flat window this passed through whole. That is what silently
+    // disabled the feature for short recordings: a 3.46-second bilingual
+    // clip under a 5000ms window became one span, one detection, and one
+    // language -- losing the second one, which is the bug the feature
+    // exists to fix.
+    const windows = subdivideSpans([{ startMs: 0, endMs: 5000 }], 5000);
+    expect(windows).toEqual([
+      { startMs: 0, endMs: 2500 },
+      { startMs: 2500, endMs: 5000 },
+    ]);
+  });
+
+  it('keeps windows as wide as the cap allows on a long span', () => {
+    // The reliability half of the trade: detection needs about five seconds
+    // of homogeneous speech, so a long recording must not be chopped into
+    // two-second slivers the way a flat 2000ms window chopped it.
+    const windows = subdivideSpans([{ startMs: 0, endMs: 32_000 }], 5000);
+    expect(windows.length).toBe(7);
+    for (const window of windows) {
+      expect(window.endMs - window.startMs).toBeGreaterThan(4000);
+      expect(window.endMs - window.startMs).toBeLessThanOrEqual(5000);
+    }
   });
 
   it('splits a span slightly longer than the window into two', () => {
@@ -211,12 +242,15 @@ describe('subdivideSpans', () => {
   it('leaves multiple spans independent', () => {
     const windows = subdivideSpans(
       [
-        { startMs: 0, endMs: 4000 },
+        { startMs: 0, endMs: 2600 },
         { startMs: 5000, endMs: 16_000 },
       ],
       5000,
     );
-    expect(windows[0]).toEqual({ startMs: 0, endMs: 4000 });
+    // The short span is indivisible and passes through; the long one is cut
+    // into cap-width windows. Neither span's division reaches across the
+    // silence between them.
+    expect(windows[0]).toEqual({ startMs: 0, endMs: 2600 });
     expect(windows.length).toBe(4);
     expect(windows[1]!.startMs).toBe(5000);
     expect(windows.at(-1)!.endMs).toBe(16_000);
@@ -284,5 +318,80 @@ describe('subdivideSpans', () => {
         expect(windowDuration >= MIN_RUN_DURATION_MS || isWholeSpanPassedThrough).toBe(true);
       }
     }
+  });
+});
+
+describe('resolveDeclaredLanguages', () => {
+  const at = (startMs: number, endMs: number, language: string): DetectedSpan => ({
+    startMs,
+    endMs,
+    language,
+  });
+
+  it('passes everything through when nothing was declared', () => {
+    const spans = [at(0, 1000, 'ru'), at(1000, 2000, 'pl')];
+    expect(resolveDeclaredLanguages(spans, [])).toEqual(spans);
+  });
+
+  it('leaves in-set detections alone', () => {
+    const spans = [at(0, 1000, 'ru'), at(1000, 2000, 'en')];
+    expect(resolveDeclaredLanguages(spans, ['ru', 'en'])).toEqual(spans);
+  });
+
+  it('replaces an out-of-set window between two agreeing neighbours', () => {
+    // The real case: a Russian span detected as Polish at a short window.
+    const spans = [at(0, 1000, 'ru'), at(1000, 2000, 'pl'), at(2000, 3000, 'ru')];
+    expect(resolveDeclaredLanguages(spans, ['ru', 'en']).map((s) => s.language)).toEqual([
+      'ru',
+      'ru',
+      'ru',
+    ]);
+  });
+
+  it('breaks a tie between disagreeing neighbours toward the earlier one', () => {
+    const spans = [at(0, 1000, 'ru'), at(1000, 2000, 'pl'), at(2000, 3000, 'en')];
+    expect(resolveDeclaredLanguages(spans, ['ru', 'en'])[1]?.language).toBe('ru');
+  });
+
+  it('resolves an out-of-set window at the very start from the one after it', () => {
+    const spans = [at(0, 1000, 'pl'), at(1000, 2000, 'en')];
+    expect(resolveDeclaredLanguages(spans, ['ru', 'en'])[0]?.language).toBe('en');
+  });
+
+  it('resolves an out-of-set window at the very end from the one before it', () => {
+    const spans = [at(0, 1000, 'en'), at(1000, 2000, 'pl')];
+    expect(resolveDeclaredLanguages(spans, ['ru', 'en'])[1]?.language).toBe('en');
+  });
+
+  it('resolves a chain of consecutive out-of-set windows', () => {
+    const spans = [
+      at(0, 1000, 'ru'),
+      at(1000, 2000, 'pl'),
+      at(2000, 3000, 'uk'),
+      at(3000, 4000, 'en'),
+    ];
+    // The first bad one is nearer the Russian start, the second nearer the
+    // English end.
+    expect(resolveDeclaredLanguages(spans, ['ru', 'en']).map((s) => s.language)).toEqual([
+      'ru',
+      'ru',
+      'en',
+      'en',
+    ]);
+  });
+
+  it('falls back to the first declared language when nothing anchors the recording', () => {
+    const spans = [at(0, 1000, 'pl'), at(1000, 2000, 'uk')];
+    expect(resolveDeclaredLanguages(spans, ['ru', 'en']).map((s) => s.language)).toEqual([
+      'ru',
+      'ru',
+    ]);
+  });
+
+  it('does not mutate its input', () => {
+    const spans = [at(0, 1000, 'pl'), at(1000, 2000, 'ru')];
+    const copy = structuredClone(spans);
+    resolveDeclaredLanguages(spans, ['ru']);
+    expect(spans).toEqual(copy);
   });
 });

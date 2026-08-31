@@ -973,8 +973,15 @@ describe('runProvisioning', () => {
   });
 
   it('still writes the config updates that did succeed, still re-checks, and still throws on a partial failure', async () => {
-    providers.downloadFile.mockImplementation(async (_url: string, target: string) => {
-      if (target.includes('silero')) throw new Error('network down');
+    // The MANDATORY download is the one that fails here. It used to be the
+    // VAD model, but the VAD checks are optional now -- a failing optional
+    // check does not mean laud cannot run, so it can no longer stand in for
+    // "the run as a whole failed". The whisper model is genuinely required,
+    // so it is what this case turns on.
+    providers.downloadFile.mockImplementation(async (url: string, target: string) => {
+      if (url.includes('ggml-small') || url.includes('ggml-base')) {
+        throw new Error('network down');
+      }
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, 'dummy-model-bytes');
     });
@@ -988,11 +995,10 @@ describe('runProvisioning', () => {
       EnvironmentError,
     );
 
-    // The transcription model succeeded and must be on disk in the config
-    // even though the run, as a whole, still failed.
+    // The VAD model succeeded and must be recorded in the config even though
+    // the run, as a whole, still failed on the mandatory one.
     const written = await readFile(paths.configFile, 'utf8');
-    expect(written).toMatch(/model:/);
-    expect(written).not.toMatch(/vadModel:/);
+    expect(written).toMatch(/vadModel:/);
   });
 
   it('prompts nothing, writes nothing, and returns cleanly on an already-healthy machine', async () => {

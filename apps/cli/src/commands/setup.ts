@@ -25,6 +25,7 @@ import {
 import type { PackageManager } from '@laud/providers';
 import { executePlan } from '../provisionRunner.js';
 import { writeConfigUpdates } from '../configWrite.js';
+import { withProvisioningLock } from '../setupLock.js';
 import { parseConfig } from '../config.js';
 import type { LaudConfig } from '../config.js';
 import { NOT_READY_MESSAGE, runChecks } from './doctor.js';
@@ -458,41 +459,54 @@ export async function runProvisioning(
     throw new EnvironmentError(NOT_READY_MESSAGE);
   }
 
-  const result = await executePlan(actions, {
-    platform,
-    arch: process.arch,
-    dataDir: context.paths.dataDir,
-    manager,
-    interactive,
-    onStep: (message) => context.write(message),
-    // Coarse-grained on purpose: a line per percent would flood plain output,
-    // and no spinner is used here (see provisionRunner.ts) so there is never
-    // a live display for this to update instead.
-    onProgress: (file, percent) => {
-      if (percent % 20 === 0) context.write(`  ${file}: ${percent}%`);
-    },
+  // The lock starts HERE, at the first thing that changes the machine.
+  //
+  // Everything above only reports or asks: the Windows refusal, the
+  // nothing-to-fix return, the un-fixable listing, the printed plan and the
+  // consent prompt all write nothing and touch no shared scratch. Two runs
+  // racing to print a plan is harmless; two racing to download into the same
+  // path is the bug. Locking earlier also made an unwritable data directory
+  // break the refusal paths, so a diagnostic depended on the very thing it
+  // was there to diagnose.
+  //
+  // From here down the run downloads, extracts, and rewrites config.
+  return withProvisioningLock(context.paths.dataDir, async () => {
+    const result = await executePlan(actions, {
+      platform,
+      arch: process.arch,
+      dataDir: context.paths.dataDir,
+      manager,
+      interactive,
+      onStep: (message) => context.write(message),
+      // Coarse-grained on purpose: a line per percent would flood plain output,
+      // and no spinner is used here (see provisionRunner.ts) so there is never
+      // a live display for this to update instead.
+      onProgress: (file, percent) => {
+        if (percent % 20 === 0) context.write(`  ${file}: ${percent}%`);
+      },
+    });
+
+    for (const outcome of result.outcomes) {
+      const status = outcome.ok ? 'ok' : 'FAILED';
+      context.write(`${status}  ${describeAction(outcome.action)} -- ${outcome.detail}`);
+    }
+
+    const updatedKeys = Object.keys(result.updates);
+    if (updatedKeys.length > 0) {
+      await writeConfigUpdates(context.paths.configFile, result.updates);
+      context.write(`Updated ${context.paths.configFile}: ${updatedKeys.join(', ')}`);
+    }
+
+    // Re-read unconditionally, even when result.updates was empty: an action
+    // can change what the checks see (e.g. installing a binary onto PATH)
+    // without writing anything back to the config file.
+    const freshConfig = await readCurrentConfig(context.paths.configFile);
+    const finalChecks = await runChecks({ ...context, config: freshConfig }, platform);
+    context.ui.checks(finalChecks);
+    if (finalChecks.some(blocksReadiness)) {
+      throw new EnvironmentError('laud is still not ready: see the failing checks above.');
+    }
   });
-
-  for (const outcome of result.outcomes) {
-    const status = outcome.ok ? 'ok' : 'FAILED';
-    context.write(`${status}  ${describeAction(outcome.action)} -- ${outcome.detail}`);
-  }
-
-  const updatedKeys = Object.keys(result.updates);
-  if (updatedKeys.length > 0) {
-    await writeConfigUpdates(context.paths.configFile, result.updates);
-    context.write(`Updated ${context.paths.configFile}: ${updatedKeys.join(', ')}`);
-  }
-
-  // Re-read unconditionally, even when result.updates was empty: an action
-  // can change what the checks see (e.g. installing a binary onto PATH)
-  // without writing anything back to the config file.
-  const freshConfig = await readCurrentConfig(context.paths.configFile);
-  const finalChecks = await runChecks({ ...context, config: freshConfig }, platform);
-  context.ui.checks(finalChecks);
-  if (finalChecks.some(blocksReadiness)) {
-    throw new EnvironmentError('laud is still not ready: see the failing checks above.');
-  }
 }
 
 /**

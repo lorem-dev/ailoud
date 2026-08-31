@@ -28,6 +28,7 @@ export {
   MIN_RUN_DURATION_MS,
   MAX_DETECTION_WINDOW_MS,
   mergeRuns,
+  resolveDeclaredLanguages,
   subdivideSpans,
 } from './transcribe/merge.js';
 

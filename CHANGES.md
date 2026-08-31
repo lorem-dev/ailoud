@@ -59,3 +59,15 @@
   machine), for an Intel Mac, or for Windows, so on those platforms
   diarization needs sherpa-onnx built from source with
   `stt.diarization.binary` pointed at it.
+- `laud doctor`'s `vad binary` and `vad model` checks are optional now, the
+  same way the diarization checks are: `--multilingual` is opt-in, so a
+  machine that never transcribes code-switched audio no longer carries a
+  permanently failing `doctor` over it. `transcribe --multilingual` still
+  exits 3 with an actionable message when the VAD model is not configured.
+- `laud setup` and `laud doctor --fix` take an exclusive lock on the data
+  directory before provisioning, so two concurrent runs cannot delete or
+  truncate scratch files out from under each other. A live lock is refused
+  immediately, naming the other process's pid and when it started, rather
+  than waiting -- provisioning can sit on a consent prompt for minutes. A
+  stale lock (holder no longer running, or an empty/corrupt lock file left
+  by a crash) is taken over automatically.

@@ -218,11 +218,10 @@ twelve checks -- `ffmpeg` presence, `ffprobe` presence, the whisper binary,
 the whisper model file, the VAD binary, the VAD model file, the diarizer
 binary, the two diarization model files, the config file, the database path
 and its integrity, and the media root -- with a fix for each failing check.
-The VAD checks only matter for `--multilingual`, but `doctor` reports them
-either way, and a failing one still leaves `doctor` non-zero. The three
-diarization checks are different: because `--diarize` is opt-in the same
-way, they report their state, but a failing diarization check never makes
-`doctor` exit non-zero by itself -- only checks unrelated to diarization do.
+The VAD checks and the three diarization checks are both optional the same
+way: because `--multilingual` and `--diarize` are opt-in, a failing VAD or
+diarization check still reports its state, but never makes `doctor` exit
+non-zero by itself -- only checks unrelated to those two features do.
 See section 12 of the design doc for the exit code convention `doctor`
 failures use. Add `--fix` to have it install or download whatever failed,
 using the same engine `laud setup` uses -- see "First run: `laud setup`"
@@ -237,8 +236,10 @@ under "External tools" below.
 - **`whisper-vad-speech-segments`** (also from whisper.cpp) and a **VAD model
   file** -- speech detection for `transcribe --multilingual` only; the
   single-language default does not need either. Configured at
-  `stt.whisperCpp.vadBinary` and `stt.whisperCpp.vadModel`, and checked by
-  `laud doctor`.
+  `stt.whisperCpp.vadBinary` and `stt.whisperCpp.vadModel`. Checked by `laud
+doctor`, but because `--multilingual` is opt-in, a failing VAD check is
+  reported as `n/a` rather than `FAIL` and never makes `doctor` exit
+  non-zero on its own -- see "CLI quick start" above.
 - **`whisper-cli`** (whisper.cpp) and a **model file** -- local speech to
   text. The binary and model path are set in the config file, described
   below, and checked by `laud doctor`.
