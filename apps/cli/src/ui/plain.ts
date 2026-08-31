@@ -27,6 +27,10 @@ export class PlainUi implements Ui {
     return task();
   }
 
+  public note(message: string): void {
+    this.write(message);
+  }
+
   public content(text: string): void {
     // Verbatim. PlainUi is what runs whenever stdout is not a terminal, so
     // this is the path a redirect or a pipe takes, and a single added

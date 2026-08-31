@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { EnvironmentError, UsageError, planProvisioning } from '@laud/core';
 import { buildProgram, exitCodeFor } from '../program.js';
+import { parseConfig } from '../config.js';
 import type { CliContext } from '../wiring.js';
 import { context } from './testContext.js';
 import {
@@ -363,6 +364,7 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
             threads: 4,
           },
         },
+        llm: parseConfig(null).llm,
       },
     };
   }
@@ -420,6 +422,7 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
               threads: 4,
             },
           },
+          llm: parseConfig(null).llm,
         },
       };
       const checks = await runChecks(unconfiguredDiarizer, 'linux');
@@ -490,6 +493,7 @@ describe('doctor: an unconfigured optional feature does not mean "not ready"', (
             threads: 4,
           },
         },
+        llm: parseConfig(null).llm,
       },
     };
   }
@@ -629,6 +633,7 @@ describe('a corrupt database: every entry point must refuse', () => {
             threads: 4,
           },
         },
+        llm: parseConfig(null).llm,
       },
     };
   }

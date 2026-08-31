@@ -7,6 +7,7 @@ import { registerSetup } from './commands/setup.js';
 import { registerShow } from './commands/show.js';
 import { registerRm } from './commands/rm.js';
 import { registerAnnotate } from './commands/annotate.js';
+import { registerSummarize } from './commands/summarize.js';
 import { registerTranscribe } from './commands/transcribe.js';
 import type { CliContext } from './wiring.js';
 
@@ -65,6 +66,7 @@ export function buildProgram(context: CliContext): Command {
   registerShow(program, context);
   registerRm(program, context);
   registerAnnotate(program, context);
+  registerSummarize(program, context);
   registerDoctor(program, context);
   registerSetup(program, context);
   return program;

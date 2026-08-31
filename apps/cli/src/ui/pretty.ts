@@ -81,6 +81,10 @@ export class PrettyUi implements Ui {
     return ` in ${formatDuration(elapsedMs)}`;
   }
 
+  public note(message: string): void {
+    log.info(this.wrap(message));
+  }
+
   public content(text: string): void {
     // Inside the frame, wrapped to the terminal's width: an unwrapped
     // transcript line longer than the terminal tears through the frame's

@@ -46,6 +46,24 @@ describe('parseConfig', () => {
           threads: 4,
         },
       },
+      llm: {
+        // Local by default: the same choice the rest of laud makes, and the
+        // one that needs no key and sends nothing off the machine.
+        provider: 'llama-cpp',
+        llamaCpp: {
+          binary: 'llama-cli',
+          model: null,
+          contextTokens: 8192,
+          maxOutputTokens: 1024,
+          threads: 4,
+        },
+        openaiCompatible: {
+          baseUrl: 'https://api.openai.com/v1',
+          model: 'gpt-4o-mini',
+          contextTokens: 128_000,
+          maxOutputTokens: 1024,
+        },
+      },
     });
   });
 

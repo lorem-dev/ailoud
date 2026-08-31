@@ -32,6 +32,7 @@ import type { LaudConfig, LaudPaths } from '../config.js';
 import type { CliContext } from '../wiring.js';
 import type { Check } from '../ui/index.js';
 import { context } from './testContext.js';
+import { parseConfig } from '../config.js';
 import { Command } from 'commander';
 import { registerSetup } from './setup.js';
 
@@ -897,6 +898,7 @@ describe('runProvisioning', () => {
         threads: 4,
       },
     },
+    llm: parseConfig(null).llm,
   };
 
   /** A failing check carrying `remedy`, shaped the way runChecks would emit it. */

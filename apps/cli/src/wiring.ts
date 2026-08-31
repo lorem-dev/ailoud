@@ -7,12 +7,15 @@ import type {
   Ids,
   ManagedRecordingStore,
   SpeechSegmenter,
+  Summarizer,
   TranscriptionProvider,
 } from '@laud/core';
 import { EnvironmentError } from '@laud/core';
 import {
   FfmpegAudioTool,
+  LlamaCppSummarizer,
   NodeFs,
+  OpenAiCompatibleSummarizer,
   SherpaDiarizer,
   SystemClock,
   UlidIds,
@@ -63,6 +66,12 @@ export interface CliContext {
    */
   createSegmenter(): SpeechSegmenter;
   /**
+   * The configured large language model. Throws an EnvironmentError naming
+   * what is missing rather than returning null, so a command need not decide
+   * how to explain a half-configured engine.
+   */
+  createSummarizer(): Summarizer;
+  /**
    * Builds the speaker diarizer on demand, for the same reason `createStt`
    * and `createSegmenter` do: `createContext` runs before every command,
    * including `doctor`, whose job is to report missing diarization models
@@ -110,6 +119,46 @@ export async function createContext(
       }
       return new WhisperCppProvider({ binary: config.stt.whisperCpp.binary, modelPath: model });
     },
+    createSummarizer(): Summarizer {
+      const llm = config.llm;
+      if (llm.provider === 'openai-compatible') {
+        const settings = llm.openaiCompatible;
+        // From the environment, never the config file: a config file gets
+        // pasted into issues and committed by accident. LAUD_LLM_API_KEY
+        // first so a laud-specific key can override a shared one.
+        const apiKey = env['LAUD_LLM_API_KEY'] ?? env['OPENAI_API_KEY'];
+        if (settings.baseUrl.startsWith('https://api.openai.com') && apiKey === undefined) {
+          throw new EnvironmentError(
+            'No API key for the language model. Set LAUD_LLM_API_KEY (or OPENAI_API_KEY) in ' +
+              'your environment. It is read from the environment on purpose and never from ' +
+              `${paths.configFile}.`,
+          );
+        }
+        return new OpenAiCompatibleSummarizer({
+          baseUrl: settings.baseUrl,
+          model: settings.model,
+          contextTokens: settings.contextTokens,
+          maxOutputTokens: settings.maxOutputTokens,
+          ...(apiKey === undefined ? {} : { apiKey }),
+        });
+      }
+
+      const settings = llm.llamaCpp;
+      if (settings.model === null) {
+        throw new EnvironmentError(
+          `The language model is not configured. Set "llm.llamaCpp.model" in ${paths.configFile} ` +
+            'to the path of a GGUF model file; run "laud doctor" for details.',
+        );
+      }
+      return new LlamaCppSummarizer({
+        binary: settings.binary,
+        modelPath: settings.model,
+        contextTokens: settings.contextTokens,
+        maxOutputTokens: settings.maxOutputTokens,
+        threads: settings.threads,
+      });
+    },
+
     createSegmenter(): SpeechSegmenter {
       const vadModel = config.stt.whisperCpp.vadModel;
       if (vadModel === null) {

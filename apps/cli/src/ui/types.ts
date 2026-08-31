@@ -107,6 +107,13 @@ export interface Ui {
    */
   content(text: string): void;
 
+  /**
+   * A passing remark about how the work is going -- not an outcome, not
+   * payload. Used when a command is about to do something slow enough that
+   * silence would look like a hang.
+   */
+  note(message: string): void;
+
   transcribed(
     recording: Recording,
     transcript: Transcript,

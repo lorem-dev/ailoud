@@ -1,4 +1,5 @@
-import type { Diarizer, SpeechSegmenter, TranscriptionProvider } from '@laud/core';
+import type { Diarizer, SpeechSegmenter, Summarizer, TranscriptionProvider } from '@laud/core';
+import { parseConfig } from '../config.js';
 import {
   FakeAudioTool,
   FakeClock,
@@ -27,11 +28,13 @@ export function context(): CliContext & {
   sttInstances: FakeStt[];
   segmenterInstances: FakeSegmenter[];
   diarizerInstances: FakeDiarizer[];
+  summarizerPrompts: string[];
 } {
   const lines: string[] = [];
   const sttInstances: FakeStt[] = [];
   const segmenterInstances: FakeSegmenter[] = [];
   const diarizerInstances: FakeDiarizer[] = [];
+  const summarizerPrompts: string[] = [];
   const write = (line: string): void => {
     lines.push(line);
   };
@@ -40,6 +43,7 @@ export function context(): CliContext & {
     sttInstances,
     segmenterInstances,
     diarizerInstances,
+    summarizerPrompts,
     paths: { configFile: '/c', dataDir: '/d', dbFile: '/d/laud.db', mediaRoot: '/d/media' },
     config: {
       stt: {
@@ -56,6 +60,7 @@ export function context(): CliContext & {
           threads: 4,
         },
       },
+      llm: parseConfig(null).llm,
     },
     store: new InMemoryStore(),
     fs: new MemFs({ [FIXTURE_PATH]: 'AUDIO' }),
@@ -85,6 +90,20 @@ export function context(): CliContext & {
       const diarizer = new FakeDiarizer([{ startMs: 0, endMs: 1500, speaker: 'speaker_00' }]);
       diarizerInstances.push(diarizer);
       return diarizer;
+    },
+    createSummarizer: (): Summarizer => {
+      // Echoes back what it was asked, so a test can assert on the prompt the
+      // pipeline built without needing a model. Specs that care about the
+      // summary itself override this.
+      const summarizer: Summarizer = {
+        name: 'fake',
+        contextTokens: 8192,
+        complete: async (prompt: string) => {
+          summarizerPrompts.push(prompt);
+          return 'a summary';
+        },
+      };
+      return summarizer;
     },
   };
 }

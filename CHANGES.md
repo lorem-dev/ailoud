@@ -64,6 +64,28 @@
   machine that never transcribes code-switched audio no longer carries a
   permanently failing `doctor` over it. `transcribe --multilingual` still
   exits 3 with an actionable message when the VAD model is not configured.
+- `laud summarize <ids...>` and `laud summarize --tag <tag>` summarise one
+  recording or a group with a language model. A group is summarised together
+  rather than one at a time and stapled: "what came out of these
+  conversations" is a different question from three separate answers, and the
+  second is already available by running the command three times.
+- Two engines behind one port. `llm.provider: llama-cpp` runs a local GGUF
+  model the way whisper.cpp is run -- a binary, spawned per request, nothing
+  leaving the machine. `llm.provider: openai-compatible` speaks the
+  chat-completions shape, which covers OpenAI, most hosted alternatives, and
+  local servers like llama-server, Ollama and LM Studio.
+- The API key is read from `LAUD_LLM_API_KEY` or `OPENAI_API_KEY` in the
+  environment, never from the config file: a config file gets pasted into
+  issues and committed by accident.
+- A transcript too long for the model is summarised in parts and the parts
+  combined, split on segment boundaries so no sentence is cut in half. The
+  split is decided from the model's own context size.
+- The prompt tells the model to answer in the transcript's language, and feeds
+  it the speaker names set through `annotate`, so points are attributed to a
+  person rather than to `speaker_00`.
+- `summarize` has no default selection, unlike `transcribe`: summarising a
+  whole library by accident costs minutes of local inference or real money on
+  a hosted model.
 - Recordings can be tagged, to group them: `annotate --tag standup` and
   `transcribe --tag standup`, repeatable, and `ls --tag standup` to see the
   group. Several tags narrow rather than widen -- a recording must carry all

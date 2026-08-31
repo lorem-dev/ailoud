@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { parseConfig } from './config.js';
 import { EnvironmentError, FailureError, UsageError } from '@laud/core';
 import {
   FakeAudioTool,
@@ -125,6 +126,7 @@ describe('buildProgram', () => {
             threads: 4,
           },
         },
+        llm: parseConfig(null).llm,
       },
       store,
       fs: new MemFs(),
@@ -136,6 +138,7 @@ describe('buildProgram', () => {
       createStt: () => new FakeStt({ language: 'en', model: 'fake', segments: [] }),
       createSegmenter: () => new FakeSegmenter([{ startMs: 0, endMs: 1000 }]),
       createDiarizer: () => new FakeDiarizer([]),
+      createSummarizer: () => ({ name: 'fake', contextTokens: 8192, complete: async () => 'x' }),
     };
   }
 

@@ -41,6 +41,28 @@ const ConfigSchema = z.object({
         .prefault({}),
     })
     .prefault({}),
+  llm: z
+    .object({
+      provider: z.enum(['llama-cpp', 'openai-compatible']).default('llama-cpp'),
+      llamaCpp: z
+        .object({
+          binary: z.string().default('llama-cli'),
+          model: z.string().nullable().default(null),
+          contextTokens: z.number().int().min(512).default(8192),
+          maxOutputTokens: z.number().int().min(64).default(1024),
+          threads: z.number().int().min(1).default(4),
+        })
+        .prefault({}),
+      openaiCompatible: z
+        .object({
+          baseUrl: z.string().default('https://api.openai.com/v1'),
+          model: z.string().default('gpt-4o-mini'),
+          contextTokens: z.number().int().min(512).default(128_000),
+          maxOutputTokens: z.number().int().min(64).default(1024),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
 });
 
 export type LaudConfig = z.infer<typeof ConfigSchema>;
