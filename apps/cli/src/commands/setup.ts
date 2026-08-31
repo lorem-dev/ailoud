@@ -71,7 +71,7 @@ async function readCurrentConfig(configFile: string): Promise<LaudConfig> {
  * half the time it is reached -- exactly the drift the shared engine exists
  * to prevent, just relocated into the copy instead of the logic.
  */
-export type CommandName = 'setup' | 'doctor';
+export type CommandName = 'setup' | 'doctor' | 'rm';
 
 export interface ModelNameOptions {
   readonly model?: string;
@@ -136,6 +136,19 @@ export interface ConsentOptions {
   readonly interactive: boolean;
   readonly confirmImpl?: (message: string) => Promise<boolean>;
   readonly commandName?: CommandName;
+  /**
+   * What the user is being asked to allow, as a verb phrase: "installing
+   * software", "deleting recordings".
+   *
+   * Parameterised because this guard is shared, and the message is not. It
+   * told a `laud rm` user that the command "needs confirmation before
+   * installing software" -- the same class of wrong-thing-named bug that had
+   * already been fixed twice in the provisioning messages, arriving here the
+   * moment a second kind of command reused the guard.
+   */
+  readonly action?: string;
+  /** The flag that grants consent in advance. `setup` has --yes; `rm` has --force. */
+  readonly consentFlag?: string;
 }
 
 /**
@@ -151,9 +164,11 @@ export async function requireConsent(options: ConsentOptions): Promise<boolean> 
   if (options.yes) return true;
   if (!options.interactive) {
     const commandName = options.commandName ?? 'setup';
+    const action = options.action ?? 'installing software';
+    const flag = options.consentFlag ?? '--yes';
     throw new UsageError(
-      `laud ${commandName} needs confirmation before installing software, but there is no ` +
-        'terminal to ask on. Re-run with --yes to confirm in advance.',
+      `laud ${commandName} needs confirmation before ${action}, but there is no terminal to ` +
+        `ask on. Re-run with ${flag} to confirm in advance.`,
     );
   }
   const confirmImpl =

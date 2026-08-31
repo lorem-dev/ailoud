@@ -164,6 +164,11 @@ export class PrettyUi implements Ui {
     );
   }
 
+  public deleted(recording: Recording, mediaRemoved: boolean): void {
+    const note = mediaRemoved ? 'deleted' : 'deleted (audio was already gone)';
+    log.success(this.wrap(`${recording.id}  ${note}  ${recording.sourcePath}`));
+  }
+
   public skipped(recording: Recording): void {
     log.warn(this.wrap(`${recording.id}  already transcribed (use --force)`));
   }

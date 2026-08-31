@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { DatabaseSync } from 'node:sqlite';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Recording, Segment, Transcript } from '@laud/core';
 import { SCHEMA_VERSION } from '@laud/core';
 import { openStore } from './sqliteStore.js';
@@ -219,5 +223,68 @@ describe('SqliteStore', () => {
     const pending = await store.listRecordings({ withoutTranscript: true });
     expect(pending.map((r) => r.id)).toEqual(['R2']);
     store.close();
+  });
+});
+
+describe('SqliteStore.deleteRecording', () => {
+  it('removes the recording and reports it', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    expect(await store.deleteRecording('R1')).toBe(true);
+    expect(await store.getRecording('R1')).toBeNull();
+    store.close();
+  });
+
+  it('reports false for a recording that was never there', async () => {
+    const store = openStore(':memory:');
+    // Lets a caller tell "deleted" from "was not there" instead of guessing.
+    expect(await store.deleteRecording('nope')).toBe(false);
+    store.close();
+  });
+
+  it('takes transcripts and segments with it, through ON DELETE CASCADE', async () => {
+    const store = openStore(':memory:');
+    await store.insertRecording(recording);
+    await store.insertTranscript(transcript, segments);
+    await store.deleteRecording('R1');
+    expect(await store.latestTranscript('R1')).toBeNull();
+    expect(await store.getTranscript('T1')).toBeNull();
+    expect(await store.listSegments('T1')).toEqual([]);
+    store.close();
+  });
+
+  it('keeps the full-text index in step with a cascaded delete', async () => {
+    // The subtle one, and the reason this test exists. segment_fts is a
+    // separate virtual table kept in sync by AFTER INSERT/DELETE triggers on
+    // segment. Rows removed by a foreign-key CASCADE rather than by a direct
+    // DELETE still have to fire those triggers -- if they do not, the index
+    // keeps pointing at rows that no longer exist and a search starts
+    // returning deleted transcripts, silently, with no error anywhere.
+    //
+    // A file-backed database and a second raw connection, rather than a
+    // helper on the store: this asserts an internal invariant, and adding a
+    // production method to reach it would widen the store's surface for a
+    // test's convenience.
+    const dir = await mkdtemp(join(tmpdir(), 'laud-fts-'));
+    const dbFile = join(dir, 'laud.db');
+    const store = openStore(dbFile);
+    await store.insertRecording(recording);
+    await store.insertTranscript(transcript, segments);
+
+    const inspector = new DatabaseSync(dbFile);
+    const before = inspector.prepare('SELECT count(*) AS n FROM segment_fts').get() as {
+      n: number;
+    };
+    expect(Number(before.n)).toBe(segments.length);
+
+    await store.deleteRecording('R1');
+    const after = inspector.prepare('SELECT count(*) AS n FROM segment_fts').get() as {
+      n: number;
+    };
+    expect(Number(after.n)).toBe(0);
+
+    inspector.close();
+    store.close();
+    await rm(dir, { recursive: true, force: true });
   });
 });

@@ -240,6 +240,17 @@ export class SqliteStore implements ManagedRecordingStore {
     return rows.map(toSegment);
   }
 
+  async deleteRecording(id: string): Promise<boolean> {
+    // One statement: transcript and segment rows go through ON DELETE
+    // CASCADE, which works because open() sets PRAGMA foreign_keys = ON.
+    // The segment_fts index is kept in step by the AFTER DELETE trigger on
+    // segment, which a cascade fires like any other delete -- there is a
+    // test for exactly that, because a stale search index would corrupt
+    // results silently rather than failing.
+    const result = this.db.prepare('DELETE FROM recording WHERE id = ?').run(id);
+    return Number(result.changes) > 0;
+  }
+
   async languagesByTranscript(
     transcriptIds: readonly string[],
   ): Promise<Map<string, readonly string[]>> {

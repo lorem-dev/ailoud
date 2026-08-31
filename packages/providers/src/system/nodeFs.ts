@@ -34,6 +34,12 @@ export class NodeFs implements Fs {
   async copyFile(source: string, destination: string): Promise<void> {
     await copyFile(source, destination);
   }
+  async removeFile(path: string): Promise<void> {
+    // force: a file already gone is the outcome the caller asked for, and
+    // failing on it would make deletion non-idempotent for no gain.
+    await rm(path, { force: true });
+  }
+
   async listFiles(directory: string): Promise<string[]> {
     const entries = await readdir(directory, { withFileTypes: true });
     return entries

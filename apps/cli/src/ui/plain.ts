@@ -58,6 +58,11 @@ export class PlainUi implements Ui {
     );
   }
 
+  public deleted(recording: Recording, mediaRemoved: boolean): void {
+    const note = mediaRemoved ? 'deleted' : 'deleted (audio was already gone)';
+    this.write(`${recording.id}  ${note}  ${recording.sourcePath}`);
+  }
+
   public skipped(recording: Recording): void {
     this.write(`${recording.id}  already transcribed (use --force)`);
   }

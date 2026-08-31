@@ -27,6 +27,12 @@ export interface Fs {
   sha256(path: string): Promise<string>;
   copyFile(source: string, destination: string): Promise<void>;
   listFiles(directory: string): Promise<string[]>;
+  /**
+   * Deletes a file. Absent is success: the caller wanted it gone, and it is.
+   * Callers delete laud's own copy of a recording, never the file the user
+   * imported from.
+   */
+  removeFile(path: string): Promise<void>;
   isDirectory(path: string): Promise<boolean>;
   tempFile(extension: string): Promise<TempFile>;
 }
@@ -119,6 +125,15 @@ export interface RecordingStore {
   /** Looks up a transcript by its own id, regardless of which recording it belongs to. */
   getTranscript(id: string): Promise<Transcript | null>;
   listSegments(transcriptId: string): Promise<Segment[]>;
+  /**
+   * Deletes a recording and everything hanging off it.
+   *
+   * Transcripts and segments go with it through ON DELETE CASCADE, which the
+   * store enables with `PRAGMA foreign_keys = ON`. Returns false when no
+   * such recording existed, so a caller can tell "deleted" from "was not
+   * there" instead of guessing.
+   */
+  deleteRecording(id: string): Promise<boolean>;
   /**
    * The languages each of these transcripts is spoken in, most-spoken first.
    *

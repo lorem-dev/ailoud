@@ -117,6 +117,14 @@ export interface Ui {
   /** A recording already had a transcript and was left alone (no `--force`). */
   skipped(recording: Recording): void;
 
+  /**
+   * A recording removed from the library. `mediaRemoved` is false when
+   * laud's copy of the audio was already gone -- worth saying, because the
+   * difference between "deleted it" and "it was not there" is the difference
+   * between a tidy library and a puzzle later.
+   */
+  deleted(recording: Recording, mediaRemoved: boolean): void;
+
   /** `transcribe` was asked to do something, and there was nothing to do. */
   nothingToTranscribe(): void;
 

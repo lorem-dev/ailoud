@@ -59,6 +59,10 @@ export class MemFs implements Fs {
     if (content === undefined) throw new Error(`no such file: ${source}`);
     this.files.set(destination, content);
   }
+  async removeFile(path: string): Promise<void> {
+    this.files.delete(path);
+  }
+
   async listFiles(directory: string): Promise<string[]> {
     const prefix = directory.endsWith('/') ? directory : `${directory}/`;
     // Direct children only, like readdir(): a path one level deeper (a
@@ -244,6 +248,21 @@ export class InMemoryStore implements ManagedRecordingStore {
     // by idx before storing, this just keeps the contract explicit here too.
     return [...(this.segments.get(transcriptId) ?? [])].sort((a, b) => a.idx - b.idx);
   }
+  async deleteRecording(id: string): Promise<boolean> {
+    if (!this.recordings.has(id)) return false;
+    this.recordings.delete(id);
+    // Mirrors ON DELETE CASCADE in the real schema: a transcript cannot
+    // outlive its recording, nor a segment its transcript. A fake that kept
+    // them would let a test pass against behaviour the real store does not
+    // have.
+    for (const [transcriptId, transcript] of [...this.transcripts]) {
+      if (transcript.recordingId !== id) continue;
+      this.transcripts.delete(transcriptId);
+      this.segments.delete(transcriptId);
+    }
+    return true;
+  }
+
   async languagesByTranscript(
     transcriptIds: readonly string[],
   ): Promise<Map<string, readonly string[]>> {

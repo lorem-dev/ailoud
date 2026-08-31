@@ -64,6 +64,14 @@
   machine that never transcribes code-switched audio no longer carries a
   permanently failing `doctor` over it. `transcribe --multilingual` still
   exits 3 with an actionable message when the VAD model is not configured.
+- `laud rm <ids...>` deletes recordings from the library, with their
+  transcripts and segments, and with laud's own copy of the audio. The file
+  you imported from is never touched -- `import` copies into laud's storage
+  and leaves the original where it is, and the confirmation says so. Deletion
+  asks first; `--force` answers in advance, and with no terminal to ask on it
+  refuses rather than assuming consent.
+- Every id is checked before anything is deleted, so a typo in the third of
+  three ids cannot leave the first two gone.
 - Multilingual mode detects language per SPEAKER TURN when `--diarize` is on,
   instead of per fixed-size window, and decides each speaker's language from
   all of their turns pooled. Turns are the boundaries language actually

@@ -5,6 +5,7 @@ import { registerImport } from './commands/import.js';
 import { registerLs } from './commands/ls.js';
 import { registerSetup } from './commands/setup.js';
 import { registerShow } from './commands/show.js';
+import { registerRm } from './commands/rm.js';
 import { registerTranscribe } from './commands/transcribe.js';
 import type { CliContext } from './wiring.js';
 
@@ -61,6 +62,7 @@ export function buildProgram(context: CliContext): Command {
   registerTranscribe(program, context);
   registerLs(program, context);
   registerShow(program, context);
+  registerRm(program, context);
   registerDoctor(program, context);
   registerSetup(program, context);
   return program;
