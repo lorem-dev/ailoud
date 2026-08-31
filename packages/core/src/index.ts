@@ -23,7 +23,11 @@ export { orderLanguages, summarizeLanguages } from './transcribe/languages.js';
 export type { LanguageTotal } from './transcribe/languages.js';
 
 export { assignSpeakers } from './diarize/assign.js';
-export { normalizeRecordedAt, recordedOrImportedAt } from './domain/recordedAt.js';
+export {
+  formatRecordedAt,
+  normalizeRecordedAt,
+  recordedOrImportedAt,
+} from './domain/recordedAt.js';
 export { resolveBySpeaker } from './transcribe/bySpeaker.js';
 export {
   segmentsOfSpeaker,

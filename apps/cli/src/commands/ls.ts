@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import type { CliContext } from '../wiring.js';
 import type { RecordingRow } from '../ui/index.js';
 import { languageLabel } from '../ui/cells.js';
+import { collectTag, parseTags } from '../tags.js';
 import { truncateSample } from '@laud/core';
 
 /** Characters of transcript text shown in the human-readable preview column. */
@@ -9,6 +10,7 @@ const PREVIEW_LENGTH = 60;
 
 interface LsOptions {
   readonly json?: boolean;
+  readonly tag?: string[];
 }
 
 interface LsRow {
@@ -26,10 +28,12 @@ export function registerLs(program: Command, context: CliContext): void {
   program
     .command('ls')
     .option('--json', 'print one JSON array of rows instead of a table')
+    .option('--tag <tag>', 'only recordings carrying this tag; repeatable', collectTag)
     .description('List recordings in the library')
     .action(async (options: LsOptions) => {
       await context.ui.frame('Library', async () => {
-        const recordings = await context.store.listRecordings({});
+        const tags = parseTags(options.tag ?? []);
+        const recordings = await context.store.listRecordings(tags.length === 0 ? {} : { tags });
 
         if (recordings.length === 0) {
           if (options.json === true) {

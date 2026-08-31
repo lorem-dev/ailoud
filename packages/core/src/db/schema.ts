@@ -79,6 +79,21 @@ export const MIGRATIONS: readonly Migration[] = [
        )`,
     ],
   },
+  {
+    version: 4,
+    statements: [
+      // Free-form labels for grouping recordings. A table rather than a
+      // column of comma-separated text, so "everything tagged standup" is a
+      // query rather than a scan-and-split, and so a tag containing a comma
+      // is not a parsing problem waiting to happen.
+      `CREATE TABLE tag (
+         recording_id TEXT NOT NULL REFERENCES recording(id) ON DELETE CASCADE,
+         tag TEXT NOT NULL,
+         PRIMARY KEY (recording_id, tag)
+       )`,
+      `CREATE INDEX tag_by_name ON tag(tag)`,
+    ],
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

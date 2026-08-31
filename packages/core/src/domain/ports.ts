@@ -117,6 +117,8 @@ export interface Diarizer {
 }
 
 export interface RecordingListFilter {
+  /** Only recordings carrying every one of these tags. */
+  readonly tags?: readonly string[];
   readonly ids?: readonly string[];
   readonly withoutTranscript?: boolean;
 }
@@ -145,6 +147,12 @@ export interface RecordingStore {
   setSpeakerName(recordingId: string, label: string, name: string): Promise<void>;
   /** Every named speaker of a recording, in label order. */
   listSpeakerNames(recordingId: string): Promise<SpeakerName[]>;
+  /** Adds tags to a recording. Adding one it already has is a no-op, not an error. */
+  addTags(recordingId: string, tags: readonly string[]): Promise<void>;
+  /** A recording's tags, alphabetically. */
+  listTags(recordingId: string): Promise<string[]>;
+  /** Every tag in the library with how many recordings carry it, most-used first. */
+  listAllTags(): Promise<{ tag: string; count: number }[]>;
   /** Sets the recording's title or notes. Undefined fields are left as they are. */
   annotateRecording(
     id: string,

@@ -2,12 +2,25 @@ import type { Command } from 'commander';
 import { UsageError } from '@laud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecording } from '../resolveId.js';
+import { collectTag, parseTags } from '../tags.js';
 
 interface AnnotateOptions {
   readonly title?: string;
   readonly notes?: string;
   readonly speaker?: string[];
+  readonly tag?: string[];
 }
+
+/**
+ * The longest a speaker's name may be.
+ *
+ * A name is printed in front of every line the person says, so a long one
+ * pushes the transcript off the right of the screen on every single line.
+ * Thirty-two is comfortably more than a name -- "Dr Anna Petrova-Smith" is
+ * twenty-one -- and short enough that the text still has room. Anything
+ * longer is a description, and descriptions belong in --notes.
+ */
+export const MAX_SPEAKER_NAME_LENGTH = 32;
 
 /**
  * Parses one `--speaker label=name` pair.
@@ -27,6 +40,11 @@ export function parseSpeakerAssignment(raw: string): { label: string; name: stri
   const name = raw.slice(at + 1).trim();
   if (label === '') throw new UsageError(`--speaker has an empty label, in "${raw}".`);
   if (name === '') throw new UsageError(`--speaker has an empty name, in "${raw}".`);
+  if (name.length > MAX_SPEAKER_NAME_LENGTH) {
+    throw new UsageError(
+      `--speaker name is ${name.length} characters, over the ${MAX_SPEAKER_NAME_LENGTH} allowed: "${name}".`,
+    );
+  }
   return { label, name };
 }
 
@@ -56,20 +74,23 @@ export function registerAnnotate(program: Command, context: CliContext): void {
       'a real name for one diarizer label, e.g. speaker_00=Ann; repeatable',
       (value: string, previous: string[] = []) => [...previous, value],
     )
-    .description('Add context to a recording: a title, notes, and real speaker names')
+    .option('--tag <tag>', 'group this recording under a tag; repeatable', collectTag)
+    .description('Add context to a recording: a title, notes, tags, and real speaker names')
     .action(async (id: string, options: AnnotateOptions) => {
       await context.ui.frame('Annotating', async () => {
         const assignments = parseSpeakerAssignments(options.speaker ?? []);
+        const tags = parseTags(options.tag ?? []);
         if (
           options.title === undefined &&
           options.notes === undefined &&
-          assignments.length === 0
+          assignments.length === 0 &&
+          tags.length === 0
         ) {
           // A command that succeeded having done nothing is indistinguishable
           // from one that worked, which is the wrong thing to be ambiguous
           // about.
           throw new UsageError(
-            'annotate needs something to set: --title, --notes, or --speaker label=name.',
+            'annotate needs something to set: --title, --notes, --tag, or --speaker label=name.',
           );
         }
 
@@ -90,10 +111,12 @@ export function registerAnnotate(program: Command, context: CliContext): void {
         for (const { label, name } of assignments) {
           await context.store.setSpeakerName(recording.id, label, name);
         }
+        if (tags.length > 0) await context.store.addTags(recording.id, tags);
 
         const parts = [
           ...(options.title === undefined ? [] : ['title']),
           ...(options.notes === undefined ? [] : ['notes']),
+          ...(tags.length === 0 ? [] : [`${tags.length} tag${tags.length === 1 ? '' : 's'}`]),
           ...(assignments.length === 0
             ? []
             : [`${assignments.length} speaker name${assignments.length === 1 ? '' : 's'}`]),

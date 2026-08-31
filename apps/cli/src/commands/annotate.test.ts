@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { UsageError } from '@laud/core';
 import { buildProgram } from '../program.js';
 import { context, contextWithTranscript } from './testContext.js';
-import { parseSpeakerAssignment, parseSpeakerAssignments } from './annotate.js';
+import {
+  MAX_SPEAKER_NAME_LENGTH,
+  parseSpeakerAssignment,
+  parseSpeakerAssignments,
+} from './annotate.js';
 
 describe('parseSpeakerAssignment', () => {
   it('splits a label from a name', () => {
@@ -151,5 +155,26 @@ describe('laud annotate', () => {
     const ctx = await contextWithTranscript();
     await buildProgram(ctx).parseAsync(['node', 'laud', 'annotate', 'ID0', '--title', 'T']);
     expect((await ctx.store.getRecording('ID001'))?.title).toBe('T');
+  });
+});
+
+describe('the speaker name length limit', () => {
+  it('accepts a realistic name', () => {
+    // "Dr Anna Petrova-Smith" is 21 characters; the limit has to clear real
+    // names comfortably or it is just an obstacle.
+    expect(parseSpeakerAssignment('a=Dr Anna Petrova-Smith').name).toBe('Dr Anna Petrova-Smith');
+  });
+
+  it('accepts exactly the limit', () => {
+    const name = 'x'.repeat(MAX_SPEAKER_NAME_LENGTH);
+    expect(parseSpeakerAssignment(`a=${name}`).name).toBe(name);
+  });
+
+  it('refuses one character over, saying how long it was', () => {
+    // A name prints in front of every line the person says, so a long one
+    // pushes the transcript off the screen on every single line.
+    const name = 'x'.repeat(MAX_SPEAKER_NAME_LENGTH + 1);
+    expect(() => parseSpeakerAssignment(`a=${name}`)).toThrow(UsageError);
+    expect(() => parseSpeakerAssignment(`a=${name}`)).toThrow(/33 characters/);
   });
 });

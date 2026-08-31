@@ -47,3 +47,21 @@ export function normalizeRecordedAt(raw: string | null | undefined): string | nu
   if (time <= 0) return null;
   return parsed.toISOString();
 }
+
+/**
+ * The recording's date as a person reads it: `2024.03.15 10:23`.
+ *
+ * Local time, not UTC, and no seconds: this answers "which recording is
+ * this" for someone who was in the room, and the second it started is not
+ * how anyone remembers a meeting. An ISO instant is still what gets stored
+ * and what `--format json` emits; this is only for the header.
+ */
+export function formatRecordedAt(iso: string): string {
+  const at = new Date(iso);
+  if (!Number.isFinite(at.getTime())) return iso;
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return (
+    `${at.getFullYear()}.${pad(at.getMonth() + 1)}.${pad(at.getDate())} ` +
+    `${pad(at.getHours())}:${pad(at.getMinutes())}`
+  );
+}

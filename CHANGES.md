@@ -64,6 +64,25 @@
   machine that never transcribes code-switched audio no longer carries a
   permanently failing `doctor` over it. `transcribe --multilingual` still
   exits 3 with an actionable message when the VAD model is not configured.
+- Recordings can be tagged, to group them: `annotate --tag standup` and
+  `transcribe --tag standup`, repeatable, and `ls --tag standup` to see the
+  group. Several tags narrow rather than widen -- a recording must carry all
+  of them.
+- `show` heads its output with `Transcript of 2026.08.31 07:01`, taken from
+  the recording's own date where it has one and the import date otherwise.
+  The heading lives in the frame, not the transcript, so a redirected file
+  still holds only the transcript.
+- A transcript longer than 30 lines opens in the system pager, where up, down
+  and q already work the way they do in git and man. Never when output is
+  redirected or piped.
+- Speaker names are coloured, and only the names. Colours come from a
+  hand-picked palette of mid-luminance shades so they are legible on a light
+  terminal and a dark one, and are assigned per recording so two speakers can
+  never share one. Colour is applied only when writing to a terminal.
+- Text is padded after the speaker's name so every line begins in the same
+  column.
+- A speaker name is capped at 32 characters: it prints in front of every line
+  that person says, and a description belongs in --notes.
 - `laud annotate <id>` adds context to a recording: `--title`, `--notes`, and
   `--speaker label=name` (repeatable) to give a diarizer's `speaker_00` a real
   name. Named speakers feed the summaries planned for the next milestone, and

@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import { summarizeLanguages, transcribeRecording, UsageError } from '@laud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecordings } from '../resolveId.js';
+import { collectTag, parseTags } from '../tags.js';
 
 interface TranscribeOptions {
   readonly lang?: string;
@@ -10,6 +11,7 @@ interface TranscribeOptions {
   readonly multilingual?: boolean;
   readonly diarize?: boolean;
   readonly speakers?: string;
+  readonly tag?: string[];
 }
 
 /**
@@ -85,6 +87,7 @@ export function registerTranscribe(program: Command, context: CliContext): void 
     )
     .option('--diarize', 'attribute segments to speakers by running speaker diarization')
     .option('--speakers <n>', 'known number of speakers, to help the diarizer')
+    .option('--tag <tag>', 'group these recordings under a tag; repeatable', collectTag)
     .description('Turn recordings into transcripts')
     .action(async (ids: string[], options: TranscribeOptions) => {
       await context.ui.frame('Transcribing', async () => {
@@ -105,6 +108,9 @@ export function registerTranscribe(program: Command, context: CliContext): void 
         }
         const speakers =
           options.speakers === undefined ? undefined : parseSpeakerCount(options.speakers);
+        // Parsed before any transcription starts: a bad tag should cost a
+        // usage error, not an hour of whisper followed by one.
+        const tags = parseTags(options.tag ?? []);
         // Given ids, each may be a prefix; resolveRecordings refuses the whole
         // set unless every one picks out exactly one recording. Given none,
         // the default selector still means "everything not yet transcribed".
@@ -162,6 +168,7 @@ export function registerTranscribe(program: Command, context: CliContext): void 
               },
             ),
           );
+          if (tags.length > 0) await context.store.addTags(recording.id, tags);
           const segments = await context.store.listSegments(transcript.id);
           context.ui.transcribed(
             recording,

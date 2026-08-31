@@ -228,6 +228,15 @@ export class InMemoryStore implements ManagedRecordingStore {
       const done = new Set([...this.transcripts.values()].map((t) => t.recordingId));
       all = all.filter((r) => !done.has(r.id));
     }
+    if (filter.tags && filter.tags.length > 0) {
+      // Every tag, not any: mirrors the real store, where a second tag
+      // narrows rather than widens.
+      const wanted = filter.tags;
+      all = all.filter((r) => {
+        const have = this.tags.get(r.id) ?? new Set<string>();
+        return wanted.every((tag) => have.has(tag));
+      });
+    }
     // Mirrors SqliteStore's `ORDER BY imported_at, id`: imported_at is not
     // unique, so id is the deterministic tie-break.
     return all.sort((a, b) => a.importedAt.localeCompare(b.importedAt) || a.id.localeCompare(b.id));
@@ -270,6 +279,28 @@ export class InMemoryStore implements ManagedRecordingStore {
 
   readonly speakerNames = new Map<string, Map<string, string>>();
 
+  readonly tags = new Map<string, Set<string>>();
+
+  async addTags(recordingId: string, tags: readonly string[]): Promise<void> {
+    const existing = this.tags.get(recordingId) ?? new Set<string>();
+    for (const tag of tags) existing.add(tag);
+    this.tags.set(recordingId, existing);
+  }
+
+  async listTags(recordingId: string): Promise<string[]> {
+    return [...(this.tags.get(recordingId) ?? [])].sort();
+  }
+
+  async listAllTags(): Promise<{ tag: string; count: number }[]> {
+    const counts = new Map<string, number>();
+    for (const tags of this.tags.values()) {
+      for (const tag of tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  }
+
   async setSpeakerName(recordingId: string, label: string, name: string): Promise<void> {
     const byLabel = this.speakerNames.get(recordingId) ?? new Map<string, string>();
     byLabel.set(label, name);
@@ -302,6 +333,7 @@ export class InMemoryStore implements ManagedRecordingStore {
     this.recordings.delete(id);
     // Mirrors the speaker table's ON DELETE CASCADE.
     this.speakerNames.delete(id);
+    this.tags.delete(id);
     // Mirrors ON DELETE CASCADE in the real schema: a transcript cannot
     // outlive its recording, nor a segment its transcript. A fake that kept
     // them would let a test pass against behaviour the real store does not

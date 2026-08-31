@@ -172,6 +172,17 @@ export class SqliteStore implements ManagedRecordingStore {
     if (filter.withoutTranscript === true) {
       where.push('NOT EXISTS (SELECT 1 FROM transcript t WHERE t.recording_id = recording.id)');
     }
+    if (filter.tags && filter.tags.length > 0) {
+      // One EXISTS per tag, so several tags mean "carries all of them"
+      // rather than "carries any". Narrowing is what a second tag is for; a
+      // filter that widened as you added terms would be a surprise.
+      for (const tag of filter.tags) {
+        where.push(
+          'EXISTS (SELECT 1 FROM tag g WHERE g.recording_id = recording.id AND g.tag = ?)',
+        );
+        params.push(tag);
+      }
+    }
     const clause = where.length > 0 ? ` WHERE ${where.join(' AND ')}` : '';
     // node:sqlite types .all() as Record<string, SQLOutputValue>[], an index
     // signature type the compiler will not cast directly to our named-field
@@ -263,6 +274,27 @@ export class SqliteStore implements ManagedRecordingStore {
       .prepare(`SELECT * FROM transcript WHERE id LIKE ? || '%' ORDER BY id`)
       .all(prefix) as unknown as TranscriptRow[];
     return rows.map(toTranscript);
+  }
+
+  async addTags(recordingId: string, tags: readonly string[]): Promise<void> {
+    // OR IGNORE: re-tagging is how a user makes sure a tag is there, not an
+    // error to report at them.
+    const insert = this.db.prepare('INSERT OR IGNORE INTO tag (recording_id, tag) VALUES (?, ?)');
+    for (const tag of tags) insert.run(recordingId, tag);
+  }
+
+  async listTags(recordingId: string): Promise<string[]> {
+    const rows = this.db
+      .prepare('SELECT tag FROM tag WHERE recording_id = ? ORDER BY tag')
+      .all(recordingId) as unknown as { tag: string }[];
+    return rows.map((row) => row.tag);
+  }
+
+  async listAllTags(): Promise<{ tag: string; count: number }[]> {
+    const rows = this.db
+      .prepare('SELECT tag, count(*) AS n FROM tag GROUP BY tag ORDER BY n DESC, tag')
+      .all() as unknown as { tag: string; n: number }[];
+    return rows.map((row) => ({ tag: row.tag, count: Number(row.n) }));
   }
 
   async setSpeakerName(recordingId: string, label: string, name: string): Promise<void> {

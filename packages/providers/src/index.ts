@@ -37,3 +37,5 @@ export type { WhisperVadOptions } from './vad/whisperVad.js';
 
 export { SherpaDiarizer, parseSpeakerTurns } from './diarize/sherpaDiarizer.js';
 export type { SherpaDiarizerOptions } from './diarize/sherpaDiarizer.js';
+
+export { PAGER_LINE_THRESHOLD, page, shouldPage } from './process/pager.js';
