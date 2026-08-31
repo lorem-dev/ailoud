@@ -101,16 +101,52 @@ export class PrettyUi implements Ui {
     }
   }
 
+  /**
+   * Trims a spinner line to one terminal row, keeping the END of `tail`.
+   *
+   * A spinner is the one place `wrap()` must NOT be used. clack redraws it
+   * with ESC[1G ESC[J -- go to column one, erase forward -- which clears
+   * exactly one visual row. A message wider than the terminal wraps onto
+   * several rows, the redraw then clears only the last of them, and every
+   * frame leaves its predecessor behind: the animation turns into a column
+   * of identical lines. That is what an unbounded `id + full source path`
+   * did on a 75-column terminal, where the line measured 155 characters.
+   *
+   * The tail is what survives, not the head: `tail` is a path, and a
+   * filename identifies a recording to a person far better than the leading
+   * directories do.
+   */
+  private fitSpinnerLine(head: string, tail: string): string {
+    if (!Number.isFinite(this.textWidth)) return `${head}  ${tail}`;
+    // clack prints its own glyph and two spaces ahead of the message, the
+    // same shape as the gutter, so the budget is the gutter's width again.
+    const budget = this.textWidth - GUTTER_WIDTH - stringWidth(`${head}  `);
+    if (budget <= 0) return head;
+    if (stringWidth(tail) <= budget) return `${head}  ${tail}`;
+    const ellipsis = '...';
+    const keep = Math.max(0, budget - ellipsis.length);
+    const characters = Array.from(tail);
+    let trimmed = '';
+    // Walk backwards so the filename survives, measuring as we go: a path
+    // can hold wide characters, for which one code point is two columns.
+    for (let i = characters.length - 1; i >= 0; i -= 1) {
+      const next = `${characters[i] ?? ''}${trimmed}`;
+      if (stringWidth(next) > keep) break;
+      trimmed = next;
+    }
+    return `${head}  ${ellipsis}${trimmed}`;
+  }
+
   public async transcribing<T>(recording: Recording, task: () => Promise<T>): Promise<T> {
     const label = recording.title ?? recording.sourcePath;
     const s = spinner();
-    s.start(`Transcribing ${recording.id}  ${label}`);
+    s.start(this.fitSpinnerLine(`Transcribing ${recording.id}`, label));
     try {
       const result = await task();
-      s.stop(`Transcribed ${recording.id}  ${label}`);
+      s.stop(this.fitSpinnerLine(`Transcribed ${recording.id}`, label));
       return result;
     } catch (error) {
-      s.error(`Failed to transcribe ${recording.id}  ${label}`);
+      s.error(this.fitSpinnerLine(`Failed to transcribe ${recording.id}`, label));
       throw error;
     }
   }

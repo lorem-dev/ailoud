@@ -159,6 +159,41 @@ describe('PrettyUi.frame', () => {
     }
   });
 
+  it('keeps a spinner line inside one terminal row, however long the path', async () => {
+    spinnerHandle.start.mockClear();
+    // The regression this pins: clack redraws a spinner with ESC[1G ESC[J,
+    // which clears exactly one visual row. A message wider than the
+    // terminal wraps, the redraw then clears only the last row, and every
+    // frame leaves its predecessor on screen -- the animation becomes a
+    // column of identical lines. An unbounded id-plus-source-path did that
+    // on a 75-column terminal at 155 characters wide.
+    const ui = new PrettyUi(75);
+    await ui.transcribing(
+      {
+        id: '01M1B32H12MK2QZ4MFERJXSH74',
+        title: null,
+        sourcePath: '/Users/someone/a/deeply/nested/set/of/directories/two-speakers-mixed.wav',
+      } as never,
+      async () => undefined,
+    );
+    const message = spinnerHandle.start.mock.calls[0]?.[0] as string;
+    // clack prints its own glyph plus two spaces ahead of the message.
+    expect(stringWidth(message)).toBeLessThanOrEqual(75 - 3);
+    // The filename survives; the leading directories are what get dropped.
+    expect(message).toContain('two-speakers-mixed.wav');
+    expect(message).toContain('01M1B32H12MK2QZ4MFERJXSH74');
+  });
+
+  it('leaves a spinner line that already fits completely alone', async () => {
+    spinnerHandle.start.mockClear();
+    const ui = new PrettyUi(120);
+    await ui.transcribing(
+      { id: 'ID001', title: null, sourcePath: '/in/a.wav' } as never,
+      async () => undefined,
+    );
+    expect(spinnerHandle.start.mock.calls[0]?.[0]).toBe('Transcribing ID001  /in/a.wav');
+  });
+
   it('sends the frame to stderr, not stdout', async () => {
     intro.mockClear();
     outro.mockClear();
