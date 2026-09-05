@@ -18,6 +18,7 @@
     "zod": "4.4.3"
   },
   "scripts": {
+    "prepack": "node -e \"require('node:fs').copyFileSync('../../README.md','README.md')\"",
     "build": "tsc -b tsconfig.build.json && chmod +x dist/bin/ailoud.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

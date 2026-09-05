@@ -26,3 +26,7 @@ docs/superpowers/**/scratch/
 RELEASE_NOTES.md
 # npm tarballs built by the publish workflow
 dist-npm/
+
+# Copied from the repository root by apps/cli prepack, so the npm page for
+# `ailoud` shows the real README without a second copy in git.
+apps/cli/README.md

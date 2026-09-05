@@ -40,6 +40,11 @@
 
 ## Development
 
+### Fixed
+
+- Each published package carries a README, so its page on npm describes what it
+  is instead of saying it has none.
+
 ## Version 1.0.0-dev.1
 
 ### Added

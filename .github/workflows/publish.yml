@@ -184,7 +184,16 @@ jobs:
               echo "::error::$tarball ships tests; check the \`files\` field."
               exit 1
             fi
-            echo "licence present, no source, no tests"
+            # 1.0.0-dev.1 went out with no README, so all three npm pages read
+            # "This package does not have a README" -- the first thing anyone
+            # arriving from a search sees. The libraries hold their own; the
+            # CLI's is the repository's, copied in by its prepack script, which
+            # is the part that could silently stop working.
+            if ! grep -qiE '^package/README' <<< "$contents"; then
+              echo "::error::$tarball has no README."
+              exit 1
+            fi
+            echo "licence, readme, no source, no tests"
           done
 
       - name: Publish, dependencies first
