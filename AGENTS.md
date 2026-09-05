@@ -327,16 +327,16 @@ not on tags.
 
 ## Publishing
 
-Nothing long-lived is stored. Both halves of a release -- publishing the
-packages and retiring the snapshots it supersedes -- authenticate by exchanging
-the CI job's OIDC identity for a short-lived, per-package npm token.
+Nothing long-lived is stored. Publishing authenticates by exchanging the CI
+job's OIDC identity for a short-lived, per-package npm token. Retiring the
+snapshots a release supersedes does NOT -- see below; it is a manual step.
 
 ### How the exchange works
 
-`npm publish` does this for itself. Because trusted publishing is defined for
-_publishing_, `npm deprecate` and `npm dist-tag` have nothing to authenticate
-with, so `scripts/lib/npmOidc.mjs` makes the same two calls (read out of npm's
-`lib/utils/oidc.js`):
+`npm publish` does this for itself, and `scripts/lib/npmOidc.mjs` makes the
+same two calls (read out of npm's `lib/utils/oidc.js`) so that
+`preflight-npm-auth.mjs` can establish before publishing that npm will accept
+every package:
 
 ```
 GET  $ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm:registry.npmjs.org
@@ -349,12 +349,15 @@ Three consequences worth knowing before changing any of this:
 
 - **`id-token: write` is required**, or GitHub mints no identity and the first
   call is skipped entirely.
-- **A trusted publisher is bound to a workflow FILE.** A run entered through
-  `retire.yml` is a different identity from one entered through `publish.yml`,
-  and the exchange answers
-  `404 OIDC token exchange error - package not found`. That is why nothing but
-  `publish.yml` may be the entry point, and why `retire.yml` is
-  `workflow_call` only.
+- **The token it returns authenticates `npm publish` and nothing else.** It is
+  publish-scoped and spent: `npm deprecate` with it answered `E404 ... or you
+do not have permission`, then `E401 ... token is invalid` on every call
+  after. Measured on the 1.0.0 release. So the exchange can answer "will npm
+  accept us", and cannot be used to do anything but publish.
+- **A trusted publisher is bound to a workflow FILE.** Entering through a
+  reusable workflow leaves `workflow_ref` pointing at the caller and
+  `job_workflow_ref` at the callee; npm matches the caller, which the 1.0.0
+  release also confirmed.
 - **The token never reaches a command line or a log.** It goes into a
   temporary 0600 `.npmrc` removed in a `finally`; `withNpmToken` is tested
   both for the normal path and for a body that throws. The id token's claims
@@ -409,9 +412,11 @@ node scripts/retire-prereleases.mjs 1.0.0          # prints the plan
 node scripts/retire-prereleases.mjs 1.0.0 --yes    # carries it out
 ```
 
-In CI that is `publish.yml` calling `retire.yml` for a final tag, with `--yes`
-unconditionally: tagging the release was the consent. The plan-first default is
-for a laptop, where nothing has been decided yet.
+This is a manual step, run under `npm login`. Automating it was tried and
+removed: the OIDC token cannot deprecate (above). If the npm side does not
+complete, the script leaves the tags alone and exits non-zero -- the tags are
+what name which pre-releases to retire, so deleting them after a failed
+deprecation would destroy the only record of what was missed.
 
 It deprecates every `1.0.0-dev.*` of all three packages, drops the `dev`
 dist-tag, and deletes the tags. Two things it deliberately does not do:
@@ -434,7 +439,8 @@ None of these can be worked around, so design around them:
   pre-release answers `npm install <name>` with it until a final version
   exists.
 - **`npm publish` is the only thing trusted publishing authenticates.**
-  Everything else needs the exchange above, or a token.
+  `deprecate` and `dist-tag` need a real credential, which in practice means a
+  human at a terminal.
 
 ---
 

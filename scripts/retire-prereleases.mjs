@@ -3,12 +3,16 @@
 //
 // Usage: node scripts/retire-prereleases.mjs <version> [--yes]
 //
-// Authenticates by exchanging the CI OIDC identity for a per-package npm token
-// when it runs in GitHub Actions with `id-token: write`, and otherwise leaves
-// npm to its ambient login -- so this needs no stored credential in CI and
-// still works from a laptop. Without --yes it exchanges nothing but reports
-// whether it could, which makes the dry run a real check of the credential
-// path rather than a guess about it.
+// Run from a laptop, under `npm login`. NOT from CI, and not because nobody
+// wired it up: trusted publishing authenticates `npm publish` and nothing
+// else. Exchanging the OIDC identity for a token does work -- npm's own client
+// does it -- but the token it returns cannot deprecate. Measured on the 1.0.0
+// release, where the first call answered
+//   E404 ... or you do not have permission
+// and every call after it
+//   E401 ... token is invalid
+// so the token is publish-scoped and spent. This file said so before the
+// automation was attempted; the release settled it.
 //
 // Prints the plan and changes nothing without --yes. Two of the three actions
 // cannot be undone, so consent is explicit here for the same reason it is in
@@ -31,7 +35,6 @@
 // left alone.
 import { spawnSync } from 'node:child_process';
 import { PACKAGES, fail, planRetirement, versionFromTag, warn } from './lib/changelog.mjs';
-import { canExchange, tokenForPackage, withNpmToken } from './lib/npmOidc.mjs';
 
 const SCOPE = 'retire-prereleases';
 
@@ -76,28 +79,12 @@ for (const tag of kept) {
   );
 }
 
-/** A token for one package, or null to fall back on npm's ambient login. */
-async function credentialFor(pkg) {
-  if (!canExchange()) return null;
-  return tokenForPackage(pkg);
-}
-
-/** Runs npm with the exchanged token when there is one, plainly when not. */
-function npm(args, token) {
-  const run = (env) => spawnSync('npm', args, { encoding: 'utf8', stdio: 'inherit', env });
-  return token === null ? run(process.env) : withNpmToken(token, run);
+/** Runs npm under whatever credentials the machine already has. */
+function npm(args) {
+  return spawnSync('npm', args, { encoding: 'utf8', stdio: 'inherit' });
 }
 
 if (!confirmed) {
-  if (canExchange()) {
-    // Mints a token and uses it for nothing. The exchange is the step that
-    // fails when a trusted publisher is missing, so proving it works is worth
-    // more here than a message saying it should.
-    for (const pkg of PACKAGES) {
-      const token = await tokenForPackage(pkg);
-      console.log(`  credential for ${pkg}: ${token === null ? 'NOT AVAILABLE' : 'ok'}`);
-    }
-  }
   console.log(`${SCOPE}: nothing was changed. Re-run with --yes to carry this out.`);
   process.exit(0);
 }
@@ -108,13 +95,8 @@ if (!confirmed) {
 const problems = [];
 
 for (const pkg of PACKAGES) {
-  const token = await credentialFor(pkg);
-  if (token === null && canExchange()) {
-    problems.push(`no credential for ${pkg}; none of its versions were touched`);
-    continue;
-  }
   for (const prerelease of versions) {
-    const result = npm(['deprecate', `${pkg}@${prerelease}`, `superseded by ${version}`], token);
+    const result = npm(['deprecate', `${pkg}@${prerelease}`, `superseded by ${version}`]);
     if (result.status !== 0) problems.push(`could not deprecate ${pkg}@${prerelease}`);
   }
 }
@@ -122,10 +104,7 @@ for (const pkg of PACKAGES) {
 // The `dev` dist-tag still points at the last snapshot, so `npm install
 // ailoud@dev` would hand out something older than `latest`.
 const cli = PACKAGES.at(-1);
-const cliToken = await credentialFor(cli);
-if (cliToken === null && canExchange()) {
-  problems.push(`no credential for ${cli}; the "dev" dist-tag still points at a snapshot`);
-} else if (npm(['dist-tag', 'rm', cli, 'dev'], cliToken).status !== 0) {
+if (npm(['dist-tag', 'rm', cli, 'dev']).status !== 0) {
   problems.push('could not drop the "dev" dist-tag');
 }
 

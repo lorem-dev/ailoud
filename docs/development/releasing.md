@@ -129,17 +129,15 @@ and deletes the tags -- but only those whose commit is reachable from `main`,
 because the published provenance attests that commit. The rest are reported and
 left in place.
 
-`publish.yml` runs this itself after a final release, through
-`retire.yml`. That is the only way it runs in CI: npm binds a trusted publisher
-to a workflow file, so a run entered through `retire.yml` is a different
-identity and the exchange is refused.
+This is a manual step, run under `npm login`. Automating it was tried and does
+not work: trusted publishing authenticates `npm publish` and nothing else. The
+OIDC exchange succeeds, but the token it returns is refused by `npm deprecate`
+-- `E404 ... or you do not have permission`, then `E401 ... token is invalid`
+on every call after. Measured on the 1.0.0 release.
 
-No token is involved here either. Trusted publishing covers publishing, so
-`npm deprecate` has nothing to authenticate with; the script performs the same
-exchange `npm publish` does for itself -- a GitHub id token with audience
-`npm:registry.npmjs.org`, posted to
-`/-/npm/v1/oidc/token/exchange/package/<name>` -- and uses the short-lived
-token it returns.
+If the npm side does not complete, the script leaves the tags alone and exits
+non-zero. The tags are what name which pre-releases to retire, so deleting them
+after a failed deprecation would destroy the only record of what was missed.
 
 ## What a tag triggers
 
