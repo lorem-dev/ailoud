@@ -47,6 +47,15 @@ ailoud doctor
 
 See [Getting Started](https://lorem-dev.github.io/ailoud/latest/getting-started/).
 
+## Update
+
+```shell
+ailoud self check
+ailoud self update
+```
+
+A snapshot moves only to a newer snapshot of the same version, or to a release.
+
 ---
 
 ## CLI quick start

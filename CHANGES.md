@@ -40,6 +40,11 @@
 
 ## Development
 
+### Added
+
+- `ailoud self update` checks for a newer version, installs it, and refreshes
+  the rules block in every registered project.
+
 ## Version 1.0.0
 
 ### Added

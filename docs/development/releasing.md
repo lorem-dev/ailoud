@@ -68,6 +68,16 @@ v1.2.3` writes them to `RELEASE_NOTES.md`. The release itself does not need
    publishes the site. Retiring the superseded snapshots is the one step left
    to a human -- see below.
 
+5. Retire the snapshots this release supersedes, by hand:
+
+   ```
+   pnpm retire 1.2.3                             # prints the plan
+   NPM_TOKEN=npm_... pnpm retire 1.2.3 --yes     # carries it out
+   ```
+
+   Deprecates every `1.2.3-dev.*`, moves the `dev` dist-tag onto the release,
+   and deletes the tags. See "Retiring pre-releases" below.
+
 ## Publishing to npm
 
 Pushing a final tag also runs

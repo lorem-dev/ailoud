@@ -49,6 +49,7 @@ nav:
       - Summaries: usage/summaries.md
       - Templates: usage/templates.md
       - Configuration: usage/configuration.md
+      - Updating: usage/updating.md
       - CLI Reference: usage/cli.md
   - MCP: mcp.md
   - Development:

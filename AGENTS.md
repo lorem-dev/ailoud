@@ -28,6 +28,7 @@ The commands, grouped by the noun they act on:
 | `template ls\|new`                                         | what shape a summary of a kind takes      |
 | `mcp` and `mcp install\|uninstall\|update`                 | serve the library to an agent             |
 | `doctor`, `setup`                                          | check and provision the machine           |
+| `self check\|update\|sync`                                 | this installation of ailoud               |
 
 The verbs also answer at the top level (`ailoud search`, `ailoud transcribe`),
 and each second-level verb has a one-letter alias.
