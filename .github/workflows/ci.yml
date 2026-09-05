@@ -157,10 +157,18 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Provision ffmpeg, whisper.cpp and the models
-        # The same command a user runs, which makes this a test of `setup` as
-        # well as a prerequisite for the suite. --llm skip because no spec here
-        # summarises, and it would otherwise download another 2.1 GB.
+      - name: Install ffmpeg
+        # Installed with apt rather than left to `setup`, which correctly
+        # refuses to run `sudo apt-get` with no terminal to answer a password
+        # prompt on -- it reports the exact command instead of hanging. There
+        # is no terminal on a runner, so the sudo step is ours to do.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Provision whisper.cpp and the models
+        # Everything that needs no sudo: the whisper release and the model
+        # files. Still the command a user runs, so this remains a test of
+        # `setup` and not only a prerequisite for the suite. --llm skip because
+        # no spec here summarises, and it would otherwise fetch another 2.1 GB.
         run: node apps/cli/dist/bin/ailoud.js setup --yes --llm skip
 
       - name: Report what the machine now has

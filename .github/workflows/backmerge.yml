@@ -34,6 +34,14 @@ jobs:
       - name: Skip if develop already contains main
         id: check
         run: |
+          set -uo pipefail
+          # Said plainly rather than dying on `fatal: Not a valid object name`,
+          # which is what the first run did before develop existed.
+          if ! git rev-parse --verify --quiet origin/develop >/dev/null; then
+            echo "needs_pr=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::there is no develop branch, so there is nothing to back-merge into."
+            exit 0
+          fi
           if git merge-base --is-ancestor origin/main origin/develop; then
             echo "needs_pr=false" >> "$GITHUB_OUTPUT"
             echo "develop already contains main; nothing to do."
