@@ -117,6 +117,13 @@ export class MemFs implements Fs {
       throw Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' });
     return content;
   }
+  async rename(from: string, to: string): Promise<void> {
+    const content = this.files.get(from);
+    if (content === undefined)
+      throw Object.assign(new Error(`ENOENT: ${from}`), { code: 'ENOENT' });
+    this.files.set(to, content);
+    this.files.delete(from);
+  }
 }
 
 export class FakeAudioTool implements AudioTool {

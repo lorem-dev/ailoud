@@ -62,6 +62,12 @@ export interface Fs {
   writeTextFile(path: string, content: string): Promise<void>;
   /** Reads text. Rejects when the file is not there -- callers check `exists` first. */
   readTextFile(path: string): Promise<string>;
+  /**
+   * Renames within one filesystem, replacing the target. Atomic, which is why
+   * it exists: callers write a temporary file beside the real one and rename it
+   * over the top, so a reader never sees half a file.
+   */
+  rename(from: string, to: string): Promise<void>;
 }
 
 export interface AudioTool {
