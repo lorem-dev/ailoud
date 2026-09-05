@@ -11,12 +11,6 @@
 name: Set up Node.js and pnpm
 description: Activate the pinned pnpm, then Node 24 with the pnpm store cached.
 
-inputs:
-  registry-url:
-    description: The npm registry to authenticate against. Only publishing needs it.
-    required: false
-    default: ''
-
 runs:
   using: composite
   steps:
@@ -42,4 +36,3 @@ runs:
       with:
         node-version: '24'
         cache: pnpm
-        registry-url: ${{ inputs.registry-url }}

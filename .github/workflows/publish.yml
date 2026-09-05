@@ -71,9 +71,14 @@ jobs:
           lfs: true
 
       - name: Set up Node.js 24 and pnpm
+        # Deliberately WITHOUT setup-node's registry-url. Given one, it writes
+        # an .npmrc containing `_authToken=${NODE_AUTH_TOKEN}`; with no token
+        # secret to fill it, npm still saw credentials, sent an empty one, and
+        # never attempted the OIDC exchange -- the registry answered 404 on the
+        # PUT and the log said nothing about trusted publishing at all. With no
+        # .npmrc, npm finds it has no credentials and does the exchange. The
+        # default registry is registry.npmjs.org either way.
         uses: ./.github/actions/setup-node-pnpm
-        with:
-          registry-url: 'https://registry.npmjs.org'
 
       - name: Require an npm that can do trusted publishing
         # Trusted publishing landed in npm 11.5.1. An older npm fails by asking
