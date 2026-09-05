@@ -85,6 +85,52 @@ const FIXTURES = [
   { name: 'two-speakers-mixed', voices: ['Daniel', 'Milena'] },
 ];
 
+/**
+ * The video containers to wrap an audio fixture in.
+ *
+ * `ailoud audio import` accepts video because a meeting recording usually is
+ * one, and only the audio track matters -- so these need no picture worth
+ * looking at. 32x32 of black at 5 fps keeps each file under 15 kB while still
+ * being a real, decodable video stream rather than a container with a stub in
+ * it. Each gets the codec pair it actually carries in the wild: H.264 with AAC
+ * in mp4 and mov, VP9 with Opus in webm, H.264 with Opus in mkv.
+ * @type {{container: string, args: string[]}[]}
+ */
+const VIDEO_CONTAINERS = [
+  {
+    container: 'mp4',
+    args: ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '51', '-c:a', 'aac', '-b:a', '32k'],
+  },
+  {
+    container: 'mov',
+    args: ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '51', '-c:a', 'aac', '-b:a', '32k'],
+  },
+  {
+    container: 'mkv',
+    args: [
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-crf',
+      '51',
+      '-c:a',
+      'libopus',
+      '-b:a',
+      '24k',
+    ],
+  },
+  {
+    // No -preset: libvpx-vp9 does not take one, and -b:v 0 is what makes
+    // -crf the only thing deciding the size.
+    container: 'webm',
+    args: ['-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '63', '-c:a', 'libopus', '-b:a', '24k'],
+  },
+];
+
+/** Which audio fixture the video fixtures wrap. Its .txt is their reference too. */
+const VIDEO_SOURCE = 'en-short';
+
 // Generous, not tight: these clips are a few seconds of speech each, but a
 // loaded machine (or a cold-start speech-synthesis voice download) can take
 // a while, and a hang here should still end the script rather than run
@@ -173,6 +219,56 @@ function concatenate(clauseWavs, outputWav) {
   ]);
 }
 
+/** The duration of a media file in seconds, as ffprobe reports it. */
+function durationOf(path) {
+  const seconds = execFileSync(
+    'ffprobe',
+    ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path],
+    { encoding: 'utf8', timeout: COMMAND_TIMEOUT_MS },
+  ).trim();
+  if (!/^[0-9]+(\.[0-9]+)?$/.test(seconds)) {
+    throw new Error(`ffprobe gave no duration for ${path}: ${seconds}`);
+  }
+  return seconds;
+}
+
+/**
+ * Wraps a WAV fixture in each video container.
+ *
+ * The video length is taken from the audio rather than left to `-shortest`,
+ * which produced an 18-second mp4 from a 2.5-second source: the muxer wrote
+ * its own idea of the duration and the fixture no longer matched the clip it
+ * came from.
+ */
+function makeVideos(wav) {
+  const seconds = durationOf(wav);
+  for (const { container, args } of VIDEO_CONTAINERS) {
+    const output = join(fixturesDir, `${VIDEO_SOURCE}.${container}`);
+    console.log(`generating ${VIDEO_SOURCE}.${container} (${seconds}s)`);
+    run('ffmpeg', [
+      '-v',
+      'error',
+      '-y',
+      '-f',
+      'lavfi',
+      '-i',
+      `color=c=black:s=32x32:r=5:d=${seconds}`,
+      '-i',
+      wav,
+      '-t',
+      seconds,
+      '-map',
+      '0:v',
+      '-map',
+      '1:a',
+      '-pix_fmt',
+      'yuv420p',
+      ...args,
+      output,
+    ]);
+  }
+}
+
 function main() {
   const scratch = mkdtempSync(join(tmpdir(), 'ailoud-fixtures-'));
   try {
@@ -207,10 +303,11 @@ function main() {
       const wav = join(fixturesDir, `${fixture.name}.wav`);
       concatenate(clauseWavs, wav);
     }
+    makeVideos(join(fixturesDir, `${VIDEO_SOURCE}.wav`));
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
-  console.log('done. Review fixtures/*.wav and commit them (they go through Git LFS).');
+  console.log('done. Review the fixtures and commit them (they go through Git LFS).');
 }
 
 main();
