@@ -130,18 +130,23 @@ token it returns.
 
 ## What a tag triggers
 
-Pushing a final tag runs
-[`.github/workflows/docs.yml`](https://github.com/lorem-dev/ailoud/blob/main/.github/workflows/docs.yml),
-which publishes the documentation for that version to the `gh-pages` branch
-with [mike](https://github.com/jimporter/mike) and moves the `latest` alias
-that the site root redirects to.
+Pushing a tag runs `publish.yml`. When it succeeds,
+[`.github/workflows/docs.yml`](https://github.com/lorem-dev/ailoud/blob/main/.github/workflows/docs.yml)
+runs on its completion and publishes the documentation for that version to the
+`gh-pages` branch with [mike](https://github.com/jimporter/mike), moving the
+`latest` alias that the site root redirects to. `publish.yml` also creates the
+GitHub release, with the body taken from the `## Version <version>` section of
+CHANGES.md by `scripts/release-notes.mjs`.
+
+The order matters: the two used to start together on the tag push, so a publish
+that then refused left the site advertising a version npm did not have.
 
 Nothing else publishes documentation. A push to a branch publishes nothing, so
 what is online always describes a version someone can install.
 
-A pre-release tag (`v1.2.3-rc.1`, or any tag with a `-` qualifier) publishes
-nothing either. The workflow refuses it twice: the tag filter never starts it,
-and the job checks again in case `workflow_dispatch` was pointed at one.
+A pre-release publishes nothing either. It reaches docs.yml -- `publish.yml`
+runs for pre-releases too -- and the job stops once it reads the version from
+the published commit's manifest and finds a `-` in it.
 
 ## One-time repository setup
 

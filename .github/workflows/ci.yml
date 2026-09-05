@@ -136,6 +136,24 @@ jobs:
           path: ~/.local/share/ailoud/models
           key: ailoud-models-${{ runner.os }}-${{ hashFiles('packages/core/src/provision/catalogue.ts') }}
 
+      - name: Dependency age (advisory)
+        # Reports, never blocks. Dependabot's version updates already respect
+        # the same 14 days through `cooldown` in .github/dependabot.yml, so the
+        # two do not argue -- but a Dependabot SECURITY update deliberately
+        # ignores cooldown, and a fresh version that closes an advisory is the
+        # one case where taking it beats waiting. Failing the build there would
+        # make the rule an obstacle to the thing it exists to protect.
+        #
+        # Not run on tags: ci.yml does not trigger on them, and the release
+        # path asks the question through the check-dependencies skill instead.
+        run: |
+          if ! node scripts/check-dependency-age.mjs; then
+            echo "::warning::A direct dependency is younger than 14 days, or its age could not be"
+            echo "::warning::checked. If it closes a critical advisory, record it in"
+            echo "::warning::scripts/dependency-age-exceptions.json with the advisory ID; otherwise"
+            echo "::warning::pin the previous version. See .agents/skills/check-dependencies."
+          fi
+
       - name: Build
         run: pnpm build
 

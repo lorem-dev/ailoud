@@ -29,12 +29,13 @@
 name: Docs
 
 on:
-  push:
-    tags:
-      # Final releases only: the negative pattern excludes any pre-release tag
-      # (a `-` qualifier), so an RC never starts this workflow at all.
-      - 'v*'
-      - '!v*-*'
+  # After a successful publish, not beside it. On the tag push both workflows
+  # started at once, so a publish that then refused -- or failed halfway
+  # through its three packages -- left the site advertising a version npm did
+  # not have. `workflow_run` waits for the answer.
+  workflow_run:
+    workflows: [Publish]
+    types: [completed]
   workflow_dispatch:
 
 # mike pushes commits to the gh-pages branch.
@@ -50,11 +51,22 @@ jobs:
   deploy:
     name: Build and deploy versioned docs
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # A publish that failed publishes no documentation. Whether the commit is a
+    # final release is decided in the job, from the manifest in the commit
+    # itself -- `head_branch` on a workflow_run is documented as a branch, and
+    # a release must not rest on what it happens to hold for a tag.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success' }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout the commit that was published
         uses: actions/checkout@v7
         with:
+          # The SHA, which is unambiguous. Without a ref this would check out
+          # the default branch, which is not necessarily what was published.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
           # mike needs full history plus the gh-pages branch it maintains.
           fetch-depth: 0
 
@@ -73,15 +85,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
-            echo "::error::Docs publish only from a release tag; ${GITHUB_REF_NAME} is not one."
-            exit 1
-          fi
-
-          version="${GITHUB_REF_NAME#v}"
-          # The tag filter already keeps pre-releases out, but
-          # workflow_dispatch can be pointed at any ref -- so refuse here too
-          # rather than trusting the trigger alone.
+          # The version of the thing that was published, from the commit that
+          # was published. publish.yml refuses a tag that disagrees with any
+          # manifest, so this and the tag are the same number by then.
+          version="$(node -p "require('./package.json').version")"
+          # publish.yml runs for pre-release tags too, so this workflow starts
+          # for them and stops here. A pre-release must not move the site: the
+          # docs describe what `npm install ailoud` gives you.
           case "${version}" in
             *-*)
               echo "${version} is a pre-release; skipping docs publication."

@@ -339,6 +339,34 @@ jobs:
             npm publish "$tarball" --provenance --access public --tag "$dist_tag"
           done
 
+      - name: Create the GitHub release from CHANGES.md
+        # After the publish, so a release object never advertises a version the
+        # registry refused. `gh release create` rather than a third-party
+        # action: adding one to the release path would sit oddly beside a
+        # 14-day rule for everything else we depend on.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          # Writes RELEASE_NOTES.md from the `## Version <version>` section,
+          # and refuses if that section is missing, empty or over the limit.
+          node scripts/release-notes.mjs "$TAG"
+          prerelease=""
+          case "$version" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists; updating its notes"
+            gh release edit "$TAG" --notes-file RELEASE_NOTES.md
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file RELEASE_NOTES.md \
+              --verify-tag \
+              $prerelease
+          fi
+
       - name: Report what was published
         if: always()
         run: ls -l dist-npm || true
