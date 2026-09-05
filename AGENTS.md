@@ -276,30 +276,18 @@ The three required checks are the ones that run on a pull request. The
 provisioned end-to-end job is deliberately NOT required: it runs only on push,
 so requiring it would leave every PR waiting for a check that never arrives.
 
-| Tag            | Cut from   | npm dist-tag | Docs |
-| -------------- | ---------- | ------------ | ---- |
-| `v1.2.3-dev.1` | any branch | `dev`        | no   |
-| `v1.2.3-rc.1`  | `develop`  | `next`       | no   |
-| `v1.2.3`       | `main`     | `latest`     | yes  |
+| Tag            | Cut from   | npm dist-tag | Docs | Retires snapshots |
+| -------------- | ---------- | ------------ | ---- | ----------------- |
+| `v1.2.3-dev.1` | any branch | `dev`        | no   | no                |
+| `v1.2.3-rc.1`  | `develop`  | `next`       | no   | no                |
+| `v1.2.3`       | `main`     | `latest`     | yes  | yes               |
 
-Only a final tag moves `latest` and publishes the site, so `npm install ailoud`
-never picks up a pre-release and the site never describes a version nobody can
-install. `publish.yml` refuses a tag that disagrees with any manifest version.
-
-One exception, and it cannot be worked around: npm sets `latest` on a package's
-FIRST publish whatever `--tag` says, and `latest` can be moved but never
-removed. A package whose first release was a pre-release therefore answers
-`npm install <name>` with it until a final version exists.
+Only a final tag moves `latest`, publishes the site and retires what it
+supersedes. `publish.yml` refuses a tag that disagrees with any manifest
+version.
 
 Use the `dev-tag` skill for a snapshot; `bump-version` then `pre-release-check`
 for a release.
-
-Publishing is by trusted publishing (OIDC), with no stored credential. The one
-exception is a package's first version: a trusted publisher is attached to a
-package that already exists, so a token in the `NPM_TOKEN` secret has to
-introduce each package to the registry. `publish.yml` uses the secret when it
-is there and OIDC when it is not, warns on a pre-release published with the
-token, and REFUSES a final release while the secret is still set.
 
 Cutting a final tag folds its pre-release sections back into one:
 
@@ -308,42 +296,106 @@ node scripts/fold-prereleases.mjs 1.0.0   # merges 1.0.0-dev.* and Development
 node scripts/check-changelog.mjs v1.0.0   # refuses if anything is left over
 ```
 
-Once the final release is published, retire the pre-releases it supersedes:
+`publish.yml` runs that check on every tag before it builds anything. The
+limits live in `scripts/lib/changelog.mjs` and are quoted, not restated,
+everywhere else -- a limit that differs between the script that warns and the
+script that refuses is worse than no limit. The scripts have tests
+(`scripts/**/*.test.mjs`), which run in CI on branches and pull requests but
+not on tags.
+
+---
+
+## Publishing
+
+Nothing long-lived is stored. Both halves of a release -- publishing the
+packages and retiring the snapshots it supersedes -- authenticate by exchanging
+the CI job's OIDC identity for a short-lived, per-package npm token.
+
+### How the exchange works
+
+`npm publish` does this for itself. Because trusted publishing is defined for
+_publishing_, `npm deprecate` and `npm dist-tag` have nothing to authenticate
+with, so `scripts/lib/npmOidc.mjs` makes the same two calls (read out of npm's
+`lib/utils/oidc.js`):
+
+```
+GET  $ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm:registry.npmjs.org
+     Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN     -> { value }
+POST /-/npm/v1/oidc/token/exchange/package/<escaped name>
+     Authorization: Bearer <value>                             -> { token }
+```
+
+Three consequences worth knowing before changing any of this:
+
+- **`id-token: write` is required**, or GitHub mints no identity and the first
+  call is skipped entirely.
+- **A trusted publisher is bound to a workflow FILE.** A run entered through
+  `retire.yml` is a different identity from one entered through `publish.yml`,
+  and the exchange answers
+  `404 OIDC token exchange error - package not found`. That is why nothing but
+  `publish.yml` may be the entry point, and why `retire.yml` is
+  `workflow_call` only.
+- **The token never reaches a command line or a log.** It goes into a
+  temporary 0600 `.npmrc` removed in a `finally`; `withNpmToken` is tested
+  both for the normal path and for a body that throws. The id token's claims
+  ARE logged -- `sub`, `workflow_ref`, `job_workflow_ref` -- because a
+  rejection is otherwise indistinguishable from a missing package.
+
+### The bootstrap exception
+
+A trusted publisher is attached to a package that already exists, so the FIRST
+version of each package cannot use one: npm answers `ENEEDAUTH` however
+complete the setup is. A token in the `NPM_TOKEN` secret introduces the
+packages to the registry, and deleting the secret is the whole of the switch --
+`publish.yml` uses it when present and OIDC when not.
+
+The rule is enforced rather than remembered, because a token that keeps working
+is a token nobody removes:
+
+| Tag         | `NPM_TOKEN` set | Result                     |
+| ----------- | --------------- | -------------------------- |
+| pre-release | yes             | publishes, logs a warning  |
+| final       | yes             | **refuses**, names the fix |
+| any         | no              | OIDC exchange              |
+
+### Retiring superseded snapshots
+
+Only a production release retires anything, and it happens after the publish
+succeeds -- deprecating first would, if the publish then failed, leave every
+`-dev.N` pointing at a release that does not exist while `dev` is the only
+installable thing.
 
 ```
 node scripts/retire-prereleases.mjs 1.0.0          # prints the plan
 node scripts/retire-prereleases.mjs 1.0.0 --yes    # carries it out
 ```
 
-That deprecates each `1.0.0-dev.*` version on npm, drops the `dev` dist-tag,
-and deletes the tags. Two things it deliberately does not do:
+In CI that is `publish.yml` calling `retire.yml` for a final tag, with `--yes`
+unconditionally: tagging the release was the consent. The plan-first default is
+for a laptop, where nothing has been decided yet.
 
-- **Unpublish.** npm allows it for 72 hours, the version number can never be
-  reused after, and anyone who pinned the version has their install broken.
-  A deprecated version keeps working and prints a notice.
+It deprecates every `1.0.0-dev.*` of all three packages, drops the `dev`
+dist-tag, and deletes the tags. Two things it deliberately does not do:
+
+- **Unpublish.** Allowed for 72 hours only, the version number can never be
+  reused after, and anyone who pinned it has their install broken. A deprecated
+  version keeps working and prints a notice.
 - **Delete a tag whose commit is not on `origin/main`.** The published
-  provenance attests that commit; unreachable, it can be collected, leaving
-  the attestation pointing at nothing. Those tags are reported and kept.
+  provenance attests that commit; unreachable, it can be collected, leaving the
+  attestation pointing at nothing. Those tags are reported and kept.
 
-It runs by hand, or in CI as part of a production release and nowhere else:
-`publish.yml` calls `retire.yml` for a final tag. `retire.yml` is not
-dispatchable on its own, because npm binds a trusted publisher to a workflow
-file -- a run entered through `retire.yml` is a different identity from one
-entered through `publish.yml`, and the exchange is refused.
+### npm facts that constrain all of the above
 
-Neither needs a stored credential. Trusted publishing covers publishing, so
-`npm deprecate` has nothing to authenticate with; the script performs the same
-exchange `npm publish` does for itself -- a GitHub id token with audience
-`npm:registry.npmjs.org`, posted to
-`/-/npm/v1/oidc/token/exchange/package/<name>` -- and uses the short-lived
-token it returns.
+None of these can be worked around, so design around them:
 
-`publish.yml` runs the check on every tag before it builds anything. The limits
-live in `scripts/lib/changelog.mjs` and are quoted, not restated, everywhere
-else -- a limit that differs between the script that warns and the script that
-refuses is worse than no limit. The scripts have tests
-(`scripts/**/*.test.mjs`), which run in CI on branches and pull requests but
-not on tags.
+- **A version number is used up forever.** `1.0.0-dev.1` cannot be republished
+  even after an unpublish. A botched snapshot needs a new number, not a retry.
+- **`latest` is set on a package's first publish** whatever `--tag` says, and
+  `latest` can be moved but never removed. A package introduced by a
+  pre-release answers `npm install <name>` with it until a final version
+  exists.
+- **`npm publish` is the only thing trusted publishing authenticates.**
+  Everything else needs the exchange above, or a token.
 
 ---
 
