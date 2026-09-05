@@ -1,5 +1,5 @@
-import type { AudioTool } from '@laud/core';
-import { FailureError, normalizeRecordedAt } from '@laud/core';
+import type { AudioTool } from '@ailoud/core';
+import { FailureError, normalizeRecordedAt } from '@ailoud/core';
 import { run } from '../process/run.js';
 
 // Re-encoding audio re-reads the input and writes a new output. The time

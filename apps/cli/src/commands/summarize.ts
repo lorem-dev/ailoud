@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import type { Command } from 'commander';
-import { DEFAULT_TEMPLATE, FailureError, UsageError, buildSummaryRequest } from '@laud/core';
-import type { Recording, Summary, SummarySource, Summarizer } from '@laud/core';
-import { page, shouldPage } from '@laud/providers';
+import { DEFAULT_TEMPLATE, FailureError, UsageError, buildSummaryRequest } from '@ailoud/core';
+import type { Recording, Summary, SummarySource, Summarizer } from '@ailoud/core';
+import { page, shouldPage } from '@ailoud/providers';
 import type { CliContext } from '../wiring.js';
 import { resolveRecordings } from '../resolveId.js';
 import { collectTag, parseTags } from '../tags.js';
@@ -46,7 +46,7 @@ async function sourceFor(
   fresh: boolean,
 ): Promise<SummarySource> {
   // The stored summary is looked for first, because when one is being reused
-  // the transcript is not read at all -- and demanding one laud will not open
+  // the transcript is not read at all -- and demanding one ailoud will not open
   // would refuse a recording it can perfectly well summarise.
   const prior = fresh ? null : await context.store.latestSummaryOf(recording.id);
   const speakers = await context.store.listSpeakerNames(recording.id);
@@ -58,7 +58,7 @@ async function sourceFor(
   const transcript = await context.store.latestTranscript(recording.id);
   if (transcript === null) {
     throw new FailureError(
-      `${recording.id} has no transcript yet. Run "laud transcribe ${recording.id}" first.`,
+      `${recording.id} has no transcript yet. Run "ailoud transcribe ${recording.id}" first.`,
     );
   }
   return { recording, segments: await context.store.listSegments(transcript.id), speakers, tags };
@@ -75,7 +75,7 @@ export function registerSummarize(program: Command, context: CliContext): void {
     .option(
       '--template <name>',
       'what kind of conversation this is, which decides the headings; ' +
-        '"laud template ls" lists them',
+        '"ailoud template ls" lists them',
     )
     .option(
       '--context <text>',
@@ -204,7 +204,7 @@ export function registerSummarize(program: Command, context: CliContext): void {
           // already work the way they do in git and man. Only when there is a
           // terminal to page on: shouldPage says no for a redirect or a pipe,
           // which want the bytes and would hang waiting for a keypress nobody
-          // can give -- so "laud summarize ID > report.md" still writes a file.
+          // can give -- so "ailoud summarize ID > report.md" still writes a file.
           if (shouldPage(body, process.stdout.isTTY === true)) {
             await page(body, (chunk) => context.ui.content(chunk));
             return;

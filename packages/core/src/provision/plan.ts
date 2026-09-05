@@ -97,7 +97,7 @@ function resolve(remedy: Remedy, options: PlanOptions): Action {
     const model = findModel(options.modelName);
     if (model === undefined) {
       throw new UsageError(
-        `unknown model "${options.modelName}"; run "laud setup" without --model to choose one`,
+        `unknown model "${options.modelName}"; run "ailoud setup" without --model to choose one`,
       );
     }
     return { ...remedy, model };

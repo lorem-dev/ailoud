@@ -34,7 +34,7 @@ const realProbe: BinaryProbe = async (name) => {
 };
 
 /**
- * Which package manager laud may drive on this platform, or null.
+ * Which package manager ailoud may drive on this platform, or null.
  *
  * Only the managers this project has verified are listed: brew on macOS,
  * apt-get on Debian and Ubuntu. Adding dnf or pacman is a one-line change
@@ -54,13 +54,13 @@ export async function detectPackageManager(
 }
 
 /**
- * The exact commands laud would run to install ffmpeg, in order.
+ * The exact commands ailoud would run to install ffmpeg, in order.
  *
  * A list rather than a single command because apt needs two: on a
  * container-fresh Debian or Ubuntu `/var/lib/apt/lists` is empty, and
  * `apt-get install` there exits 100 with nothing a user could act on. The
  * refresh is part of the install, and being a separate command means it
- * also appears verbatim in the consent plan -- laud never runs a command
+ * also appears verbatim in the consent plan -- ailoud never runs a command
  * the user did not read first.
  *
  * brew deliberately refuses to run under sudo, and apt-get requires it.
@@ -79,9 +79,9 @@ export function ffmpegInstallCommands(manager: PackageManager): readonly Install
 }
 
 /**
- * The exact commands laud would run to install whisper.cpp through a package
+ * The exact commands ailoud would run to install whisper.cpp through a package
  * manager, which is only ever brew: there is no apt package for whisper.cpp,
- * so on Linux laud downloads the project's own prebuilt release tarball
+ * so on Linux ailoud downloads the project's own prebuilt release tarball
  * instead and this list is empty.
  */
 export function whisperInstallCommands(manager: PackageManager): readonly InstallCommand[] {

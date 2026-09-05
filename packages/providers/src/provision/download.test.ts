@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { downloadFile } from './download.js';
 
 async function tempDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), 'laud-download-'));
+  return mkdtemp(join(tmpdir(), 'ailoud-download-'));
 }
 
 function respond(body: string, headers: Record<string, string> = {}): typeof fetch {

@@ -3,8 +3,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Recording, Segment, Transcript } from '@laud/core';
-import { MIGRATIONS, SCHEMA_VERSION } from '@laud/core';
+import type { Recording, Segment, Transcript } from '@ailoud/core';
+import { MIGRATIONS, SCHEMA_VERSION } from '@ailoud/core';
 import { openStore } from './sqliteStore.js';
 
 const recording: Recording = {
@@ -266,8 +266,8 @@ describe('SqliteStore.deleteRecording', () => {
     // helper on the store: this asserts an internal invariant, and adding a
     // production method to reach it would widen the store's surface for a
     // test's convenience.
-    const dir = await mkdtemp(join(tmpdir(), 'laud-fts-'));
-    const dbFile = join(dir, 'laud.db');
+    const dir = await mkdtemp(join(tmpdir(), 'ailoud-fts-'));
+    const dbFile = join(dir, 'ailoud.db');
     const store = openStore(dbFile);
     await store.insertRecording(recording);
     await store.insertTranscript(transcript, segments);
@@ -311,8 +311,8 @@ describe('SqliteStore and the recording date', () => {
     // worse than one that failed outright, so this asserts the rows survive
     // and simply have no date of their own -- which is the truth: nothing
     // knows retroactively when they were recorded.
-    const dir = await mkdtemp(join(tmpdir(), 'laud-migrate-'));
-    const dbFile = join(dir, 'laud.db');
+    const dir = await mkdtemp(join(tmpdir(), 'ailoud-migrate-'));
+    const dbFile = join(dir, 'ailoud.db');
 
     const v1 = new DatabaseSync(dbFile);
     for (const statement of MIGRATIONS[0]!.statements) v1.exec(statement);

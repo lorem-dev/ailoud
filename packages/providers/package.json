@@ -1,5 +1,5 @@
 {
-  "name": "@laud/providers",
+  "name": "@ailoud/providers",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     }
   },
   "dependencies": {
-    "@laud/core": "workspace:*"
+    "@ailoud/core": "workspace:*"
   },
   "scripts": {
     "build": "tsc -b tsconfig.build.json",

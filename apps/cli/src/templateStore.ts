@@ -1,7 +1,7 @@
 import { basename, dirname, join } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { SUMMARY_TEMPLATES, UsageError } from '@laud/core';
-import type { Fs, SummaryTemplate } from '@laud/core';
+import { SUMMARY_TEMPLATES, UsageError } from '@ailoud/core';
+import type { Fs, SummaryTemplate } from '@ailoud/core';
 
 /** Where templates live, beside the config file rather than under the data dir. */
 export function templatesDir(configFile: string): string {

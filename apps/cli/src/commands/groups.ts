@@ -5,14 +5,14 @@ import type { CliContext } from '../wiring.js';
 export type Register = (parent: Command, context: CliContext) => void;
 
 /**
- * Creates a noun group -- `laud audio ...`, `laud report ...`.
+ * Creates a noun group -- `ailoud audio ...`, `ailoud report ...`.
  *
  * Singular canonical name with the plural as an alias, following the
  * convention every tool with groups already uses (`docker container ls`,
- * `gh pr list`, `kubectl get pod`): `laud report rm SUM0` reads as removing one
- * report, while `laud reports rm SUM0` reads as removing all of them.
+ * `gh pr list`, `kubectl get pod`): `ailoud report rm SUM0` reads as removing one
+ * report, while `ailoud reports rm SUM0` reads as removing all of them.
  *
- * `showHelpAfterError` and the help-on-empty behaviour matter here: `laud
+ * `showHelpAfterError` and the help-on-empty behaviour matter here: `ailoud
  * audio` on its own is someone who does not yet know the verbs, and printing
  * the list is the answer to that, where an error is not.
  */

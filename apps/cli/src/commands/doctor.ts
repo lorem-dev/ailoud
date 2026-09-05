@@ -1,11 +1,11 @@
 import { access, constants, stat } from 'node:fs/promises';
 import type { Command } from 'commander';
-import { EnvironmentError, installHint } from '@laud/core';
-import type { Remedy } from '@laud/core';
-import { run } from '@laud/providers';
+import { EnvironmentError, installHint } from '@ailoud/core';
+import type { Remedy } from '@ailoud/core';
+import { run } from '@ailoud/providers';
 import type { CliContext } from '../wiring.js';
 import type { Check } from '../ui/index.js';
-import type { LaudConfig } from '../config.js';
+import type { AiloudConfig } from '../config.js';
 import { apiKeyFrom } from '../apiKey.js';
 // Imported, not reimplemented: the whole point of this design is that
 // `setup` and `doctor --fix` share one provisioning path. Yes, this makes
@@ -22,11 +22,11 @@ export type { Check };
  * provisioning path when everything that failed is un-fixable. Shared so the
  * two cannot drift into reporting the same state differently.
  */
-export const NOT_READY_MESSAGE = 'laud is not ready to run: see the failing checks above.';
+export const NOT_READY_MESSAGE = 'ailoud is not ready to run: see the failing checks above.';
 
 /**
  * `run()` already turns a missing binary into an `EnvironmentError` whose
- * message points back at "laud doctor" for details -- useful advice from
+ * message points back at "ailoud doctor" for details -- useful advice from
  * every other caller, but circular when the caller already is doctor. This
  * trims that one case down to the fact that matters here; the `fix` field
  * on the check itself carries the actual remedy.
@@ -122,7 +122,7 @@ export async function checkVadModel(
  * `optional: true` on every branch, mirroring checkDiarizerBinary:
  * --multilingual is opt-in (per transcribe run) exactly the way --diarize
  * is, so this binary being missing means one feature is unavailable, not
- * that laud cannot run -- see `Check.optional`'s doc comment. checkBinary
+ * that ailoud cannot run -- see `Check.optional`'s doc comment. checkBinary
  * itself does not know about `optional` (ffmpeg/whisper share it and stay
  * mandatory, while vad/diarizer share it and are both optional here), so
  * its result is merged with the flag rather than threaded through as a
@@ -167,18 +167,18 @@ export async function checkVadBinary(
  * The fix text diverges from checkVadBinary's in one place: it does not
  * claim installing gets the binary "on PATH". installSherpa never puts it
  * there -- unlike whisper.cpp on macOS (brew), sherpa-onnx has no
- * package-manager route on any platform, so laud always records an absolute
+ * package-manager route on any platform, so ailoud always records an absolute
  * path into config instead (see provisionRunner.ts's install-diarizer
  * branch). Saying "on PATH" here would describe an outcome that never
  * happens.
  *
  * What it does NOT do is name a command alongside the hint. `installHint`
  * already answers "what do I run", per platform, and it deliberately does
- * not answer "laud setup" on win32 -- setup refuses to provision Windows,
+ * not answer "ailoud setup" on win32 -- setup refuses to provision Windows,
  * so sending a Windows user there is the circle installHint's own comment
- * warns about. Hardcoding "laud setup" here on top of the interpolated hint
+ * warns about. Hardcoding "ailoud setup" here on top of the interpolated hint
  * both re-created that circle and read as a contradiction on every other
- * platform ('run "laud setup" (laud setup)'). The hint alone, exactly as
+ * platform ('run "ailoud setup" (ailoud setup)'). The hint alone, exactly as
  * checkVadBinary uses it.
  *
  * NOT VERIFIED AGAINST A REAL BUILD: like the whisper-cli check above, this
@@ -186,7 +186,7 @@ export async function checkVadBinary(
  * such binary is available in this environment to confirm that.
  *
  * `optional: true` on every branch: diarization is opt-in (`--diarize`), so
- * this binary being missing means one feature is unavailable, not that laud
+ * this binary being missing means one feature is unavailable, not that ailoud
  * cannot run -- see `Check.optional`'s doc comment. checkBinary itself does
  * not know about `optional` (ffmpeg/whisper share it and stay mandatory,
  * while vad/diarizer share it and are both optional here), so its result is
@@ -304,7 +304,7 @@ export async function checkEmbeddingModel(
  */
 export async function checkLanguageModel(
   configFile: string,
-  llm: LaudConfig['llm'],
+  llm: AiloudConfig['llm'],
   env: NodeJS.ProcessEnv,
   platform: NodeJS.Platform = process.platform,
 ): Promise<Check> {
@@ -341,7 +341,7 @@ export async function checkLanguageModel(
         name,
         ok: false,
         detail: `${settings.model} at ${settings.baseUrl}, no API key`,
-        fix: `Set LAUD_LLM_API_KEY or ${variable} in your environment. Keys are read from the environment, never from ${configFile}.`,
+        fix: `Set AILOUD_LLM_API_KEY or ${variable} in your environment. Keys are read from the environment, never from ${configFile}.`,
         optional: true,
       };
     }
@@ -360,7 +360,7 @@ export async function checkLanguageModel(
       ok: false,
       detail: 'not configured',
       fix:
-        `Run "laud setup" to install a local model, or set "llm.llamaCpp.model" in ${configFile} ` +
+        `Run "ailoud setup" to install a local model, or set "llm.llamaCpp.model" in ${configFile} ` +
         `to a GGUF file. ${installHint('llm', platform)} installs the runner.`,
       remedy: { kind: 'download-llm-model' },
       optional: true,
@@ -373,7 +373,7 @@ export async function checkLanguageModel(
       name,
       ok: false,
       detail: `missing: ${settings.model}`,
-      fix: `Run "laud setup", or point "llm.llamaCpp.model" in ${configFile} at a GGUF file that exists.`,
+      fix: `Run "ailoud setup", or point "llm.llamaCpp.model" in ${configFile} at a GGUF file that exists.`,
       remedy: { kind: 'download-llm-model' },
       optional: true,
     };
@@ -429,13 +429,13 @@ function checkDatabase(context: CliContext): Check {
     name: 'database',
     ok: false,
     detail,
-    fix: `Back up ${dbFile}, then delete it to let laud recreate an empty library.`,
+    fix: `Back up ${dbFile}, then delete it to let ailoud recreate an empty library.`,
   };
 }
 
 async function checkMediaRoot(mediaRoot: string, remedy?: Remedy): Promise<Check> {
   const name = 'media root';
-  const fix = `Create ${mediaRoot} and make sure laud's user can write to it.`;
+  const fix = `Create ${mediaRoot} and make sure ailoud's user can write to it.`;
   try {
     const info = await stat(mediaRoot);
     if (!info.isDirectory()) {
@@ -570,7 +570,7 @@ export function registerDoctor(
       '--llm-model <id>',
       'model id for the chosen summariser (default: ask, or keep the configured one)',
     )
-    .description('Check that the binaries, model, database, and storage laud needs are ready')
+    .description('Check that the binaries, model, database, and storage ailoud needs are ready')
     .action(async (options: DoctorOptions) => {
       await context.ui.frame('Environment check', async () => {
         const checks = await runChecks(context, platform);

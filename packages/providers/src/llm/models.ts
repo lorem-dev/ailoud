@@ -1,4 +1,4 @@
-import { EnvironmentError, FailureError } from '@laud/core';
+import { EnvironmentError, FailureError } from '@ailoud/core';
 
 /** As elsewhere in this directory: a hosted call that has not answered in a minute is not going to. */
 const REQUEST_TIMEOUT_MS = 60_000;

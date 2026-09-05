@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Recording, Segment, Transcript } from '@laud/core';
+import type { Recording, Segment, Transcript } from '@ailoud/core';
 import { buildProgram } from '../program.js';
 import { context, contextWithTranscript } from './testContext.js';
 import type { CliContext } from '../wiring.js';
@@ -57,16 +57,16 @@ async function seedCodeSwitched(ctx: CliContext): Promise<void> {
   await ctx.store.insertTranscript(transcript, segments);
 }
 
-describe('laud ls', () => {
+describe('ailoud ls', () => {
   it('prints one line per recording with its state', async () => {
     const ctx = await contextWithTranscript();
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'ls']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'ls']);
     expect(ctx.lines.at(-1)).toBe('ID001  00:00:03  ru  "Privet."');
   });
 
   it('emits machine-readable rows with --json', async () => {
     const ctx = await contextWithTranscript();
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'ls', '--json']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'ls', '--json']);
     const rows = JSON.parse(ctx.lines.at(-1)!);
     expect(rows[0]).toMatchObject({ id: 'ID001', language: 'ru', durationMs: 3200 });
   });
@@ -74,7 +74,7 @@ describe('laud ls', () => {
   it('names every language of a code-switched recording, not just the dominant one', async () => {
     const ctx = await contextWithTranscript({ skipImport: true, clearLines: true });
     await seedCodeSwitched(ctx);
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'ls']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'ls']);
     // The transcript stores 'en' as its single dominant code; the row must
     // still say both, or it misreports a recording that is half Russian.
     expect(ctx.lines.at(-1)).toContain('en+ru');
@@ -83,7 +83,7 @@ describe('laud ls', () => {
   it('leaves --json carrying the single stored code, for machine consumers', async () => {
     const ctx = await contextWithTranscript({ skipImport: true, clearLines: true });
     await seedCodeSwitched(ctx);
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'ls', '--json']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'ls', '--json']);
     const rows: { language: string }[] = JSON.parse(ctx.lines.at(-1)!);
     expect(rows[0]?.language).toBe('en');
   });
@@ -92,31 +92,31 @@ describe('laud ls', () => {
     // The ordinary fixture records no per-segment language, which is the
     // normal case for a plain (non-multilingual) transcription.
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'ls']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'ls']);
     expect(ctx.lines.at(-1)).toBe('ID001  00:00:03  ru  "Privet."');
   });
 
   it('says the library is empty rather than printing nothing', async () => {
     const ctx = await contextWithTranscript({ skipImport: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'ls']);
-    expect(ctx.lines).toEqual(['The library is empty. Add something with "laud import".']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'ls']);
+    expect(ctx.lines).toEqual(['The library is empty. Add something with "ailoud import".']);
   });
 
   it('prints a valid empty JSON array with --json on an empty library', async () => {
     const ctx = await contextWithTranscript({ skipImport: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'ls', '--json']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'ls', '--json']);
     expect(JSON.parse(ctx.lines.at(-1)!)).toEqual([]);
   });
 
   it('still lists a recording that has not been transcribed yet', async () => {
     const ctx = await contextWithTranscript({ skipTranscribe: true, clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'ls']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'ls']);
     expect(ctx.lines).toEqual(['ID001  00:00:03']);
   });
 
   it('carries null language and transcriptId with --json for an untranscribed recording', async () => {
     const ctx = await contextWithTranscript({ skipTranscribe: true, clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'ls', '--json']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'ls', '--json']);
     const rows = JSON.parse(ctx.lines.at(-1)!);
     expect(rows[0]).toMatchObject({ id: 'ID001', language: null, transcriptId: null });
   });
@@ -159,7 +159,7 @@ describe('laud ls', () => {
     };
     await ctx.store.insertTranscript(transcript, [segment]);
 
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'ls']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'ls']);
     // 59 plain characters plus the whole (unsplit) emoji is 60 code points;
     // a naive UTF-16 slice would instead land mid-surrogate-pair here. The
     // text runs past 60, so the preview is marked as clipped, and the whole
@@ -169,28 +169,28 @@ describe('laud ls', () => {
   });
 });
 
-describe('laud show', () => {
+describe('ailoud show', () => {
   it('prints timestamped text by default', async () => {
     const ctx = await contextWithTranscript();
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'show', 'ID001']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'show', 'ID001']);
     expect(ctx.lines.at(-1)).toContain('[00:00:00] Privet.');
   });
 
   it('prints SRT with --format srt', async () => {
     const ctx = await contextWithTranscript();
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'show', 'ID001', '--format', 'srt']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'show', 'ID001', '--format', 'srt']);
     expect(ctx.lines.at(-1)).toContain('00:00:00,000 --> 00:00:01,500');
   });
 
   it('round-trips through JSON with the recording, transcript, and segments', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'show', 'ID001', '--format', 'json']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'show', 'ID001', '--format', 'json']);
     const parsed = JSON.parse(ctx.lines.at(-1)!);
     expect(parsed.recording.id).toBe('ID001');
     expect(parsed.transcript.recordingId).toBe('ID001');
     expect(parsed.segments).toHaveLength(1);
 
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'ls', '--json']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'ls', '--json']);
     const rows = JSON.parse(ctx.lines.at(-1)!);
     expect(rows[0].transcriptId).toBe(parsed.transcript.id);
   });
@@ -203,7 +203,7 @@ describe('laud show', () => {
     // existing test passed a full id, where prefix and id are the same
     // string, so nothing caught it.
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'show', 'ID0']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'show', 'ID0']);
     expect(ctx.lines.join('\n')).toContain('Privet.');
   });
 
@@ -236,7 +236,7 @@ describe('laud show', () => {
     await ctx.store.setSpeakerName('ID001', 'speaker_00', 'Ann');
     ctx.lines.length = 0;
 
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'show', 'ID001', '--speakers']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'show', 'ID001', '--speakers']);
     const out = ctx.lines.join('\n');
     expect(out).toContain('Ann');
     // The label stays visible beside the name: it is what a later --speaker
@@ -251,7 +251,7 @@ describe('laud show', () => {
     await expect(
       buildProgram(ctx).parseAsync([
         'node',
-        'laud',
+        'ailoud',
         'show',
         'ID001',
         '--speakers',
@@ -266,7 +266,7 @@ describe('laud show', () => {
     // front of them rather than another command away.
     const ctx = await contextWithTranscript({ clearLines: true });
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'show', 'ID001', '--speaker', 'nobody']),
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'show', 'ID001', '--speaker', 'nobody']),
     ).rejects.toThrow(/without --diarize|This recording has/);
   });
 
@@ -275,14 +275,14 @@ describe('laud show', () => {
     // honest statement is that nothing MATCHES it, not that no recording has
     // exactly that id.
     const ctx = await contextWithTranscript();
-    await expect(buildProgram(ctx).parseAsync(['node', 'laud', 'show', 'NOPE'])).rejects.toThrow(
+    await expect(buildProgram(ctx).parseAsync(['node', 'ailoud', 'show', 'NOPE'])).rejects.toThrow(
       /No recording matches "NOPE"/,
     );
   });
 
   it('fails when the recording has no transcript yet', async () => {
     const ctx = await contextWithTranscript({ skipTranscribe: true });
-    await expect(buildProgram(ctx).parseAsync(['node', 'laud', 'show', 'ID001'])).rejects.toThrow(
+    await expect(buildProgram(ctx).parseAsync(['node', 'ailoud', 'show', 'ID001'])).rejects.toThrow(
       /has no transcript/,
     );
   });
@@ -290,7 +290,7 @@ describe('laud show', () => {
   it('rejects an unknown format by listing the valid ones', async () => {
     const ctx = await contextWithTranscript();
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'show', 'ID001', '--format', 'pdf']),
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'show', 'ID001', '--format', 'pdf']),
     ).rejects.toThrow(/text, json, srt, vtt/);
   });
 
@@ -316,12 +316,12 @@ describe('laud show', () => {
     };
     await ctx.store.insertTranscript(newer, [newerSegment]);
 
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'show', 'ID001']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'show', 'ID001']);
     expect(ctx.lines.at(-1)).toContain('Hello.');
 
     await buildProgram(ctx).parseAsync([
       'node',
-      'laud',
+      'ailoud',
       'show',
       'ID001',
       '--transcript',
@@ -367,7 +367,7 @@ describe('laud show', () => {
     await ctx.store.insertTranscript(foreignTranscript, [foreignSegment]);
 
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'show', 'ID001', '--transcript', 'FOREIGN']),
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'show', 'ID001', '--transcript', 'FOREIGN']),
     ).rejects.toThrow(/not a transcript of recording ID001/);
   });
 });

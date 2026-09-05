@@ -3,7 +3,7 @@ import { createReadStream } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Fs, TempDir, TempFile } from '@laud/core';
+import type { Fs, TempDir, TempFile } from '@ailoud/core';
 
 /** True for the one stat failure that legitimately means "does not exist". */
 function isNotFound(error: unknown): boolean {
@@ -56,7 +56,7 @@ export class NodeFs implements Fs {
     }
   }
   async tempFile(extension: string): Promise<TempFile> {
-    const dir = await mkdtemp(join(tmpdir(), 'laud-'));
+    const dir = await mkdtemp(join(tmpdir(), 'ailoud-'));
     const path = join(dir, `audio${extension}`);
     return {
       path,
@@ -67,7 +67,7 @@ export class NodeFs implements Fs {
     };
   }
   async tempDir(): Promise<TempDir> {
-    const dir = await mkdtemp(join(tmpdir(), 'laud-'));
+    const dir = await mkdtemp(join(tmpdir(), 'ailoud-'));
     return { path: dir, remove: () => rm(dir, { force: true, recursive: true }) };
   }
   async writeTextFile(path: string, content: string): Promise<void> {

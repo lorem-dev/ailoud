@@ -10,7 +10,7 @@ import type { SummarySource } from './prompt.js';
  * is handed several of these at once: the file names are the first thing it
  * reads about them, and "record-20260824093000" already answers "which meeting
  * is this and when" before a single line is parsed. Local time, matching the
- * header and every other date laud prints -- an ISO instant with a Z would be
+ * header and every other date ailoud prints -- an ISO instant with a Z would be
  * a different time from the one the header shows, in the same directory.
  */
 export function transcriptFileStem(recording: Recording): string {

@@ -1,4 +1,4 @@
-import type { Diarizer, SpeechSegmenter, Summarizer, TranscriptionProvider } from '@laud/core';
+import type { Diarizer, SpeechSegmenter, Summarizer, TranscriptionProvider } from '@ailoud/core';
 import { parseConfig } from '../config.js';
 import {
   FakeAudioTool,
@@ -9,7 +9,7 @@ import {
   FakeStt,
   InMemoryStore,
   MemFs,
-} from '@laud/core/testing';
+} from '@ailoud/core/testing';
 import { buildProgram } from '../program.js';
 import type { CliContext } from '../wiring.js';
 import { PlainUi } from '../ui/plain.js';
@@ -44,7 +44,7 @@ export function context(): CliContext & {
     segmenterInstances,
     diarizerInstances,
     summarizerPrompts,
-    paths: { configFile: '/c', dataDir: '/d', dbFile: '/d/laud.db', mediaRoot: '/d/media' },
+    paths: { configFile: '/c', dataDir: '/d', dbFile: '/d/ailoud.db', mediaRoot: '/d/media' },
     config: {
       stt: {
         provider: 'whisper-cpp',
@@ -129,7 +129,7 @@ export interface ContextWithTranscriptOptions {
 }
 
 /**
- * A context that has already run `laud import` (and, by default, `laud
+ * A context that has already run `ailoud import` (and, by default, `ailoud
  * transcribe`) against the fixture recording, driven through the real
  * program so the fixtures stay in sync with whatever those commands
  * actually do. `skipImport` yields an empty library; `skipTranscribe`
@@ -148,8 +148,8 @@ export async function contextWithTranscript(
     return ctx;
   };
   if (opts.skipImport === true) return done();
-  await buildProgram(ctx).parseAsync(['node', 'laud', 'import', FIXTURE_PATH]);
+  await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', FIXTURE_PATH]);
   if (opts.skipTranscribe === true) return done();
-  await buildProgram(ctx).parseAsync(['node', 'laud', 'transcribe']);
+  await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe']);
   return done();
 }

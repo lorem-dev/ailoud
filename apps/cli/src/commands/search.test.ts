@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FailureError, UsageError } from '@laud/core';
+import { FailureError, UsageError } from '@ailoud/core';
 import { buildProgram } from '../program.js';
 import { contextWithTranscript } from './testContext.js';
 import { parseLimit } from './search.js';
@@ -20,10 +20,10 @@ describe('parseLimit', () => {
   });
 });
 
-describe('laud audio search', () => {
+describe('ailoud audio search', () => {
   it('finds a phrase and says where it was said', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'audio', 'search', 'Privet']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'audio', 'search', 'Privet']);
     const out = ctx.lines.join('\n');
     expect(out).toContain('ID001');
     expect(out).toContain('Privet.');
@@ -50,7 +50,7 @@ describe('laud audio search', () => {
       })),
     );
     ctx.lines.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'audio', 'search', 'needle']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'audio', 'search', 'needle']);
     const out = ctx.lines.join('\n');
     expect(out).toContain('the needle is here');
     expect(out).not.toContain('filler line 3');
@@ -77,11 +77,11 @@ describe('laud audio search', () => {
       ],
     );
     ctx.lines.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'audio', 'search', 'Privet']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'audio', 'search', 'Privet']);
     expect(ctx.lines.join('\n')).toContain('1 hit');
 
     ctx.lines.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'audio', 'search', 'Privet', '--all']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'audio', 'search', 'Privet', '--all']);
     expect(ctx.lines.join('\n')).toContain('2 hits');
   });
 
@@ -89,13 +89,13 @@ describe('laud audio search', () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await ctx.store.addTags('ID001', ['standup']);
     ctx.lines.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'audio', 'search', 'Privet']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'audio', 'search', 'Privet']);
     expect(ctx.lines.join('\n')).toContain('[standup]');
   });
 
   it('says "no tags" rather than an empty bracket', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'audio', 'search', 'Privet']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'audio', 'search', 'Privet']);
     expect(ctx.lines.join('\n')).toContain('[no tags]');
   });
 
@@ -105,7 +105,7 @@ describe('laud audio search', () => {
     ctx.lines.length = 0;
     await buildProgram(ctx).parseAsync([
       'node',
-      'laud',
+      'ailoud',
       'audio',
       'search',
       'Privet',
@@ -117,7 +117,7 @@ describe('laud audio search', () => {
     await expect(
       buildProgram(ctx).parseAsync([
         'node',
-        'laud',
+        'ailoud',
         'audio',
         'search',
         'Privet',
@@ -133,7 +133,7 @@ describe('laud audio search', () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await buildProgram(ctx).parseAsync([
       'node',
-      'laud',
+      'ailoud',
       'audio',
       'search',
       'Privet',
@@ -146,24 +146,24 @@ describe('laud audio search', () => {
   it('says so when nothing matches, naming what was looked for', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'audio', 'search', 'zebra']),
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'audio', 'search', 'zebra']),
     ).rejects.toThrow(/Nothing matches "zebra"/);
   });
 
   it('refuses a query with nothing in it', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'audio', 'search', '   ']),
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'audio', 'search', '   ']),
     ).rejects.toThrow(UsageError);
   });
 
   it('emits JSON for machines, empty array included', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'audio', 'search', 'zebra', '--json']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'audio', 'search', 'zebra', '--json']);
     expect(ctx.lines.join('')).toBe('[]');
 
     ctx.lines.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'audio', 'search', 'Privet', '--json']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'audio', 'search', 'Privet', '--json']);
     const parsed = JSON.parse(ctx.lines.join('')) as { text: string; startMs: number }[];
     expect(parsed[0]!.text).toContain('Privet');
     expect(typeof parsed[0]!.startMs).toBe('number');
@@ -175,7 +175,7 @@ describe('laud audio search', () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await buildProgram(ctx).parseAsync([
       'node',
-      'laud',
+      'ailoud',
       'audio',
       'search',
       'Privet',
@@ -187,7 +187,7 @@ describe('laud audio search', () => {
 
   it('answers to its letter', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'audio', 'f', 'Privet']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'audio', 'f', 'Privet']);
     expect(ctx.lines.join('\n')).toContain('ID001');
   });
 });

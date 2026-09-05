@@ -1,4 +1,4 @@
-# AGENTS.md -- laud
+# AGENTS.md -- ailoud
 
 This file is addressed to AI coding agents. Read it fully before touching code.
 
@@ -8,7 +8,7 @@ This file is addressed to AI coding agents. Read it fully before touching code.
 
 ## Project Overview
 
-`laud` is a command-line tool that turns audio and video files into
+`ailoud` is a command-line tool that turns audio and video files into
 transcripts, keeps those transcripts in a local library, and answers
 questions over one or many of them through a large language model. It has
 two strictly separate engine layers: speech-to-text (local whisper.cpp or a
@@ -33,14 +33,14 @@ A pnpm workspace of three packages, plus a fixture audio directory and the
 end-to-end suite:
 
 ```
-laud/
+ailoud/
   packages/
     core/         domain model, ports, db schema and migrations, pipelines,
                   transcript formatters (text, srt, vtt)
     providers/    port implementations: audio (ffmpeg), store (sqlite),
                   stt (whisper.cpp), system (fs, clock)
   apps/
-    cli/          commander command tree, binary `laud`
+    cli/          commander command tree, binary `ailoud`
   e2e/            Jest end-to-end suite, driving the built binary
   fixtures/       short audio samples with reference transcripts
   .agents/skills/ local development skills
@@ -86,11 +86,11 @@ All of these must pass before a pull request is ready. Run the full gate as a
 single step at the end of a change, not after every task; while iterating,
 run only the focused test or typecheck for what you changed.
 
-Two commands exist for driving the CLI while working on it. `pnpm laud <args>`
+Two commands exist for driving the CLI while working on it. `pnpm ailoud <args>`
 builds and runs in one step, forwarding its arguments; `pnpm watch` leaves
 `tsc -b` rebuilding on save. Both rely on the same incremental build as the
 gate, so neither recompiles a package whose inputs have not changed. The
-build progress line goes to stderr, so `pnpm laud ls --json` still pipes.
+build progress line goes to stderr, so `pnpm ailoud ls --json` still pipes.
 
 `pnpm test:e2e` (Jest, the built binary against `fixtures/`) is not part of
 this gate and is not wired into CI: it needs a real `ffmpeg`, a whisper.cpp
@@ -123,7 +123,7 @@ regression. See `check-fixtures` for how to read those failures.
 
 All source code and documentation are ASCII-only. No Unicode punctuation
 (curly quotes, em dashes, ellipsis characters) anywhere. This project has no
-translated interface to carve an exception for -- laud is English-only at
+translated interface to carve an exception for -- ailoud is English-only at
 the interface, so the rule has no exceptions there.
 
 The one exception is fixture data: `fixtures/*.txt` reference transcripts
@@ -193,7 +193,7 @@ calls for it:
 
 - Every subprocess (`ffmpeg`, the whisper binary, an agent CLI) is spawned
   with an argument array, never a shell string. This matters more here than
-  in most tools because file paths in `laud` come from user input.
+  in most tools because file paths in `ailoud` come from user input.
 - Every subprocess call carries a timeout.
 - Secrets (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or a Locksmith-backed
   alias) are read from the environment or from Locksmith. They never reach

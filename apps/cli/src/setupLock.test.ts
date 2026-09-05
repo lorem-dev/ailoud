@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { lockPath, withProvisioningLock } from './setupLock.js';
 
 async function dataDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), 'laud-lock-'));
+  return mkdtemp(join(tmpdir(), 'ailoud-lock-'));
 }
 
 async function exists(path: string): Promise<boolean> {

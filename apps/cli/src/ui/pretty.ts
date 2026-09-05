@@ -3,8 +3,8 @@ import Table from 'cli-table3';
 import stringWidth from 'string-width';
 import wrapAnsi from 'wrap-ansi';
 import { styleText } from 'node:util';
-import { formatDuration, formatTimestamp } from '@laud/core';
-import type { Recording, Transcript } from '@laud/core';
+import { formatDuration, formatTimestamp } from '@ailoud/core';
+import type { Recording, Transcript } from '@ailoud/core';
 import type { Check, RecordingRow, Ui } from './types.js';
 import { checkStatus, languageLabel, optionalNote, previewCell } from './cells.js';
 
@@ -66,7 +66,7 @@ export class PrettyUi implements Ui {
   /**
    * The elapsed-time suffix for a frame's closing line, or nothing.
    *
-   * Only commands that actually took a while report their runtime. `laud ls`
+   * Only commands that actually took a while report their runtime. `ailoud ls`
    * finishing in four milliseconds does not need a stopwatch reading, and
    * printing one on every command would turn a useful signal for
    * `transcribe` into noise everywhere else.
@@ -205,7 +205,7 @@ export class PrettyUi implements Ui {
   }
 
   public emptyLibrary(): void {
-    log.info(this.wrap('The library is empty. Add something with "laud import".'));
+    log.info(this.wrap('The library is empty. Add something with "ailoud import".'));
   }
 
   public recordings(rows: readonly RecordingRow[]): void {

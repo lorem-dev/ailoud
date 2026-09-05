@@ -174,7 +174,7 @@ function concatenate(clauseWavs, outputWav) {
 }
 
 function main() {
-  const scratch = mkdtempSync(join(tmpdir(), 'laud-fixtures-'));
+  const scratch = mkdtempSync(join(tmpdir(), 'ailoud-fixtures-'));
   try {
     for (const fixture of FIXTURES) {
       const txt = join(fixturesDir, `${fixture.name}.txt`);

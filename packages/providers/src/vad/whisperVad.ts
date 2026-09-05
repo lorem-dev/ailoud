@@ -1,5 +1,5 @@
-import type { SpeechSegmenter, SpeechSpan } from '@laud/core';
-import { FailureError } from '@laud/core';
+import type { SpeechSegmenter, SpeechSpan } from '@ailoud/core';
+import { FailureError } from '@ailoud/core';
 import { run as defaultRunner } from '../process/run.js';
 
 // Explicit, not left to fall through to the run helper's own default, even

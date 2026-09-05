@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Bump the laud version across every package.json and promote the
+// Bump the ailoud version across every package.json and promote the
 // CHANGES.md changelog. Requires a clean working tree so the bump is
 // reviewable as an isolated diff.
 // Usage: node scripts/bump-version.mjs <version>

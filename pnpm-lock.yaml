@@ -56,10 +56,10 @@ importers:
       '@clack/prompts':
         specifier: 1.7.0
         version: 1.7.0
-      '@laud/core':
+      '@ailoud/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@laud/providers':
+      '@ailoud/providers':
         specifier: workspace:*
         version: link:../../packages/providers
       '@modelcontextprotocol/sdk':
@@ -88,7 +88,7 @@ importers:
 
   packages/providers:
     dependencies:
-      '@laud/core':
+      '@ailoud/core':
         specifier: workspace:*
         version: link:../core
 

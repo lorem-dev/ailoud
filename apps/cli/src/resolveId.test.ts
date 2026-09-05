@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { FailureError, UsageError } from '@laud/core';
-import type { Recording } from '@laud/core';
-import { InMemoryStore } from '@laud/core/testing';
+import { FailureError, UsageError } from '@ailoud/core';
+import type { Recording } from '@ailoud/core';
+import { InMemoryStore } from '@ailoud/core/testing';
 import { resolveRecording, resolveRecordings, resolveTranscript } from './resolveId.js';
 
 function recording(id: string, sourcePath = `/in/${id}.mp3`): Recording {
@@ -47,7 +47,7 @@ describe('resolveRecording', () => {
   });
 
   it('refuses a single character as too short', async () => {
-    // The cost of a wrong match is asymmetric: `laud rm 0` hitting one
+    // The cost of a wrong match is asymmetric: `ailoud rm 0` hitting one
     // recording by luck deletes the wrong one, irreversibly.
     const store = await storeWith('01ABCDEF');
     await expect(resolveRecording(store, '0')).rejects.toThrow(UsageError);
@@ -71,7 +71,7 @@ describe('resolveRecording', () => {
     // The common case, not the exception: a ULID starts with a timestamp, so
     // recordings imported minutes apart share long prefixes. The message has
     // to be good enough to pick a longer prefix from, without going back to
-    // `laud ls`.
+    // `ailoud ls`.
     const store = await storeWith('01AA', '01AB', '01AC', '01AD', '01AE');
     const error: unknown = await resolveRecording(store, '01A').catch((e: unknown) => e);
     const message = error instanceof Error ? error.message : String(error);

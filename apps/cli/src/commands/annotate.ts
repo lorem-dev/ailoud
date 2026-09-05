@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { UsageError } from '@laud/core';
+import { UsageError } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecording } from '../resolveId.js';
 import { collectTag, parseTags } from '../tags.js';
@@ -105,7 +105,7 @@ export function registerAnnotate(program: Command, context: CliContext): void {
 
         // Labels are NOT checked against the segments on purpose. Annotating
         // before transcribing is a reasonable order to work in -- you know
-        // who is in the recording before laud does -- and refusing a label
+        // who is in the recording before ailoud does -- and refusing a label
         // that has no segments yet would forbid it. `show --speakers` lists
         // names with no matching segments, which is where a typo surfaces.
         for (const { label, name } of assignments) {

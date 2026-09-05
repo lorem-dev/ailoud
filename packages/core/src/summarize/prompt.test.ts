@@ -72,7 +72,7 @@ describe('languageName', () => {
 
 describe('instruction', () => {
   it('defaults to the transcript language, not English', () => {
-    // laud exists for recordings that are not in English; summarising a
+    // ailoud exists for recordings that are not in English; summarising a
     // Russian meeting into English is a translation nobody asked for.
     expect(instruction({ cap: 200 })).toContain('the language the transcript is in');
   });

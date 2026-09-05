@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { parseDocument } from 'yaml';
-import { UsageError } from '@laud/core';
+import { UsageError } from '@ailoud/core';
 
 export interface ConfigUpdates {
   readonly llmProvider?: string;
@@ -119,13 +119,13 @@ export function applyConfigUpdates(source: string | null, updates: ConfigUpdates
       throw new UsageError(
         `Cannot record the installed paths: the existing config is not valid YAML ` +
           `(${describeParseErrors(doc.errors)}). Fix the file by hand, then re-run -- ` +
-          'nothing already downloaded is lost, laud will skip it.',
+          'nothing already downloaded is lost, ailoud will skip it.',
       );
     }
     const message = error instanceof Error ? error.message : String(error);
     throw new UsageError(
       `Cannot record the installed paths: the config could not be serialized back to YAML ` +
-        `(${message}). Nothing already downloaded is lost, laud will skip it.`,
+        `(${message}). Nothing already downloaded is lost, ailoud will skip it.`,
     );
   }
 }

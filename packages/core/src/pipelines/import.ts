@@ -32,7 +32,7 @@ export async function importRecording(
   }
   const mime = mimeForPath(request.path);
   if (mime === null) {
-    throw new UsageError(`That is not a media file laud recognizes: ${request.path}`);
+    throw new UsageError(`That is not a media file ailoud recognizes: ${request.path}`);
   }
 
   const sha256 = await deps.fs.sha256(request.path);
@@ -54,7 +54,7 @@ export async function importRecording(
     mime,
     title: request.title ?? null,
     notes: request.notes ?? null,
-    // What the file says about itself, kept apart from when laud first saw
+    // What the file says about itself, kept apart from when ailoud first saw
     // it. Null is the common case; recordedOrImportedAt resolves the fallback
     // at the point of use, so the distinction survives in storage.
     recordedAt,

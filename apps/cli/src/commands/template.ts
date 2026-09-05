@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { Command } from 'commander';
-import { FailureError, UsageError } from '@laud/core';
+import { FailureError, UsageError } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import {
   loadTemplate,
@@ -117,7 +117,7 @@ export function registerTemplate(parent: Command, context: CliContext): void {
           }),
         );
         context.write(`Wrote ${path}`);
-        context.write(`Use it with: laud audio summarize <id> --template ${safe}`);
+        context.write(`Use it with: ailoud audio summarize <id> --template ${safe}`);
       });
     });
 }

@@ -9,8 +9,8 @@ import type {
   SpeechSegmenter,
   Summarizer,
   TranscriptionProvider,
-} from '@laud/core';
-import { EnvironmentError } from '@laud/core';
+} from '@ailoud/core';
+import { EnvironmentError } from '@ailoud/core';
 import {
   AnthropicSummarizer,
   ClaudeCliSummarizer,
@@ -24,16 +24,16 @@ import {
   WhisperCppProvider,
   WhisperVadSegmenter,
   openStore,
-} from '@laud/providers';
+} from '@ailoud/providers';
 import { parseConfig, resolvePaths } from './config.js';
-import type { LaudConfig, LaudPaths } from './config.js';
+import type { AiloudConfig, AiloudPaths } from './config.js';
 import { createUi } from './ui/index.js';
 import type { Ui } from './ui/index.js';
 import { apiKeyFrom } from './apiKey.js';
 
 export interface CliContext {
-  readonly paths: LaudPaths;
-  readonly config: LaudConfig;
+  readonly paths: AiloudPaths;
+  readonly config: AiloudConfig;
   readonly store: ManagedRecordingStore;
   readonly fs: Fs;
   readonly audio: AudioTool;
@@ -117,7 +117,7 @@ export async function createContext(
       if (model === null) {
         throw new EnvironmentError(
           `The whisper.cpp model is not configured. Set "stt.whisperCpp.model" in ` +
-            `${paths.configFile} to the path of a model file; run "laud doctor" for details.`,
+            `${paths.configFile} to the path of a model file; run "ailoud doctor" for details.`,
         );
       }
       return new WhisperCppProvider({ binary: config.stt.whisperCpp.binary, modelPath: model });
@@ -141,7 +141,7 @@ export async function createContext(
         const apiKey = apiKeyFrom(env, 'ANTHROPIC_API_KEY');
         if (apiKey === undefined) {
           throw new EnvironmentError(
-            'No API key for Claude. Set LAUD_LLM_API_KEY (or ANTHROPIC_API_KEY) in your ' +
+            'No API key for Claude. Set AILOUD_LLM_API_KEY (or ANTHROPIC_API_KEY) in your ' +
               'environment, or switch "llm.provider" to "claude-cli" to use a Claude ' +
               'subscription through the Claude Code CLI instead. Keys are read from the ' +
               `environment on purpose and never from ${paths.configFile}.`,
@@ -161,7 +161,7 @@ export async function createContext(
         const apiKey = apiKeyFrom(env, 'OPENAI_API_KEY');
         if (settings.baseUrl.startsWith('https://api.openai.com') && apiKey === undefined) {
           throw new EnvironmentError(
-            'No API key for the language model. Set LAUD_LLM_API_KEY (or OPENAI_API_KEY) in ' +
+            'No API key for the language model. Set AILOUD_LLM_API_KEY (or OPENAI_API_KEY) in ' +
               'your environment. It is read from the environment on purpose and never from ' +
               `${paths.configFile}.`,
           );
@@ -179,7 +179,7 @@ export async function createContext(
       if (settings.model === null) {
         throw new EnvironmentError(
           `The language model is not configured. Set "llm.llamaCpp.model" in ${paths.configFile} ` +
-            'to the path of a GGUF model file; run "laud doctor" for details.',
+            'to the path of a GGUF model file; run "ailoud doctor" for details.',
         );
       }
       return new LlamaCppSummarizer({
@@ -196,7 +196,7 @@ export async function createContext(
       if (vadModel === null) {
         throw new EnvironmentError(
           `The whisper VAD model is not configured. Set "stt.whisperCpp.vadModel" in ` +
-            `${paths.configFile} to the path of a VAD model file; run "laud doctor" for details.`,
+            `${paths.configFile} to the path of a VAD model file; run "ailoud doctor" for details.`,
         );
       }
       return new WhisperVadSegmenter({
@@ -210,7 +210,7 @@ export async function createContext(
         throw new EnvironmentError(
           `The diarization segmentation model is not configured. Set ` +
             `"stt.diarization.segmentationModel" in ${paths.configFile} to the path of the ` +
-            `sherpa-onnx pyannote segmentation model; run "laud doctor" for details.`,
+            `sherpa-onnx pyannote segmentation model; run "ailoud doctor" for details.`,
         );
       }
       const embeddingModel = config.stt.diarization.embeddingModel;
@@ -218,7 +218,7 @@ export async function createContext(
         throw new EnvironmentError(
           `The diarization embedding model is not configured. Set ` +
             `"stt.diarization.embeddingModel" in ${paths.configFile} to the path of the ` +
-            `sherpa-onnx speaker embedding model; run "laud doctor" for details.`,
+            `sherpa-onnx speaker embedding model; run "ailoud doctor" for details.`,
         );
       }
       return new SherpaDiarizer({

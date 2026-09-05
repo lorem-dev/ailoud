@@ -117,7 +117,7 @@ describe('the MCP surface', () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     const { client, close } = await connect(ctx);
     const uris = (await client.listResources()).resources.map((resource) => resource.uri);
-    expect(uris).toContain('laud://recording/ID001/transcript');
+    expect(uris).toContain('ailoud://recording/ID001/transcript');
     await close();
   });
 });

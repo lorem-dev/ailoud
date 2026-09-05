@@ -49,7 +49,7 @@ export interface Fs {
   listFiles(directory: string): Promise<string[]>;
   /**
    * Deletes a file. Absent is success: the caller wanted it gone, and it is.
-   * Callers delete laud's own copy of a recording, never the file the user
+   * Callers delete ailoud's own copy of a recording, never the file the user
    * imported from.
    */
   removeFile(path: string): Promise<void>;

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { EnvironmentError } from '@laud/core';
+import { EnvironmentError } from '@ailoud/core';
 import { createContext } from './wiring.js';
 
 describe('createContext', () => {
@@ -13,7 +13,7 @@ describe('createContext', () => {
   });
 
   async function tempHome(): Promise<string> {
-    const dir = await mkdtemp(join(tmpdir(), 'laud-wiring-'));
+    const dir = await mkdtemp(join(tmpdir(), 'ailoud-wiring-'));
     dirs.push(dir);
     return dir;
   }
@@ -86,9 +86,9 @@ describe('createContext', () => {
 
   it('builds a working segmenter once the vad model is configured', async () => {
     const home = await tempHome();
-    await mkdir(join(home, '.config', 'laud'), { recursive: true });
+    await mkdir(join(home, '.config', 'ailoud'), { recursive: true });
     await writeFile(
-      join(home, '.config', 'laud', 'config.yaml'),
+      join(home, '.config', 'ailoud', 'config.yaml'),
       'stt:\n  whisperCpp:\n    model: /models/base.bin\n    vadModel: /models/silero.bin\n',
     );
     const context = await createContext({ HOME: home }, () => {});
@@ -124,9 +124,9 @@ describe('createContext', () => {
 
   it('reports the missing embedding model once the segmentation model is configured', async () => {
     const home = await tempHome();
-    await mkdir(join(home, '.config', 'laud'), { recursive: true });
+    await mkdir(join(home, '.config', 'ailoud'), { recursive: true });
     await writeFile(
-      join(home, '.config', 'laud', 'config.yaml'),
+      join(home, '.config', 'ailoud', 'config.yaml'),
       'stt:\n  diarization:\n    segmentationModel: /models/segmentation.onnx\n',
     );
     const context = await createContext({ HOME: home }, () => {});
@@ -140,9 +140,9 @@ describe('createContext', () => {
 
   it('builds a working diarizer once both diarization models are configured', async () => {
     const home = await tempHome();
-    await mkdir(join(home, '.config', 'laud'), { recursive: true });
+    await mkdir(join(home, '.config', 'ailoud'), { recursive: true });
     await writeFile(
-      join(home, '.config', 'laud', 'config.yaml'),
+      join(home, '.config', 'ailoud', 'config.yaml'),
       'stt:\n  diarization:\n    segmentationModel: /models/segmentation.onnx\n' +
         '    embeddingModel: /models/embedding.onnx\n',
     );
@@ -167,9 +167,9 @@ describe('createContext', () => {
 
   it('builds a working whisper-cpp provider once the model is configured', async () => {
     const home = await tempHome();
-    await mkdir(join(home, '.config', 'laud'), { recursive: true });
+    await mkdir(join(home, '.config', 'ailoud'), { recursive: true });
     await writeFile(
-      join(home, '.config', 'laud', 'config.yaml'),
+      join(home, '.config', 'ailoud', 'config.yaml'),
       'stt:\n  whisperCpp:\n    model: /models/base.bin\n',
     );
     const context = await createContext({ HOME: home }, () => {});

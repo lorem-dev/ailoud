@@ -1,5 +1,5 @@
 /**
- * What the agent is told about laud before it calls anything.
+ * What the agent is told about ailoud before it calls anything.
  *
  * This is the single most valuable piece of text in the MCP surface. A tool
  * description explains one call; this explains the shape of the thing, which
@@ -10,7 +10,7 @@
  * that knows why a rule exists applies it to the case nobody wrote down.
  */
 export const SERVER_INSTRUCTIONS = `
-laud is a local library of audio and video recordings, their transcripts, and
+ailoud is a local library of audio and video recordings, their transcripts, and
 summaries ("reports") made from them. Everything is on this machine; nothing
 here calls out to a service unless a tool says it does.
 
@@ -58,7 +58,7 @@ Six rules, in the order they matter:
 
 5. CARRY THE CONTEXT YOURSELF. \`summarize\` takes a short \`context\` -- who
    these people are to each other, what the project is called, what happened
-   last week. laud does not remember it between calls. Keep whatever the user
+   last week. ailoud does not remember it between calls. Keep whatever the user
    told you and pass it again on the next summary of the same material; it is
    the one thing you know that the transcript does not say.
 

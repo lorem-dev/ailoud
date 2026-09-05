@@ -116,7 +116,7 @@ export function registerPrompts(server: McpServer): void {
               '2. list_reports for this material, in case a summary already exists. Reading one ' +
                 'is free; making one is not.',
               '3. summarize with that template, and pass the background above as `context`. ' +
-                'Keep the background in your own memory for later calls -- laud does not ' +
+                'Keep the background in your own memory for later calls -- ailoud does not ' +
                 'remember it.',
               '4. Tell me which template you chose and why.',
             ].join('\n'),

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { UsageError } from '@laud/core';
-import type { Summarizer } from '@laud/core';
+import { UsageError } from '@ailoud/core';
+import type { Summarizer } from '@ailoud/core';
 import { buildProgram } from '../program.js';
 import { contextWithTranscript } from './testContext.js';
-import type { MemFs } from '@laud/core/testing';
+import type { MemFs } from '@ailoud/core/testing';
 import { transcriptBudget } from './summarize.js';
 
 const summarizer = (contextTokens: number): Summarizer => ({
@@ -31,10 +31,10 @@ describe('transcriptBudget', () => {
   });
 });
 
-describe('laud summarize', () => {
+describe('ailoud summarize', () => {
   it('summarises a recording', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001']);
     expect(ctx.lines.join('\n')).toContain('a summary');
   });
 
@@ -42,7 +42,7 @@ describe('laud summarize', () => {
     // The reason annotate exists: the model should attribute points to a
     // person, not to "speaker_00".
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001']);
     const prompt = ctx.summarizerPrompts[0] ?? '';
     expect(prompt).toContain('Privet.');
     expect(prompt).toMatch(/language the transcript is in/);
@@ -52,10 +52,10 @@ describe('laud summarize', () => {
     // Minutes of local inference, or real money on a hosted model. Unlike
     // transcribe, there is deliberately no default selection.
     const ctx = await contextWithTranscript({ clearLines: true });
-    await expect(buildProgram(ctx).parseAsync(['node', 'laud', 'summarize'])).rejects.toThrow(
+    await expect(buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize'])).rejects.toThrow(
       UsageError,
     );
-    await expect(buildProgram(ctx).parseAsync(['node', 'laud', 'summarize'])).rejects.toThrow(
+    await expect(buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize'])).rejects.toThrow(
       /needs recording ids or --tag/,
     );
   });
@@ -63,21 +63,21 @@ describe('laud summarize', () => {
   it('refuses ids and --tag together', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001', '--tag', 'x']),
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--tag', 'x']),
     ).rejects.toThrow(/not both/);
   });
 
   it('says which recording has no transcript rather than summarising nothing', async () => {
     const ctx = await contextWithTranscript({ skipTranscribe: true, clearLines: true });
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001']),
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001']),
     ).rejects.toThrow(/has no transcript yet/);
   });
 
   it('says so when a tag matches nothing', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', '--tag', 'nothing']),
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', '--tag', 'nothing']),
     ).rejects.toThrow(/No recordings carry/);
   });
 
@@ -86,39 +86,39 @@ describe('laud summarize', () => {
     // three separate answers, which the user can already get by running the
     // command three times.
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'annotate', 'ID001', '--tag', 'standup']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'annotate', 'ID001', '--tag', 'standup']);
     ctx.summarizerPrompts.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', '--tag', 'standup']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', '--tag', 'standup']);
     expect(ctx.summarizerPrompts).toHaveLength(1);
   });
 
   it('takes an id prefix like every other command', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID0']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID0']);
     expect(ctx.lines.join('\n')).toContain('a summary');
   });
 });
 
-describe('laud summarize --lang', () => {
+describe('ailoud summarize --lang', () => {
   it('names the language, not the code, in the prompt', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001', '--lang', 'ru']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--lang', 'ru']);
     expect(ctx.summarizerPrompts[0]).toContain('Write in Russian.');
   });
 
   it('leaves the language to the transcript when not asked', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001']);
     expect(ctx.summarizerPrompts[0]).toContain('the language the transcript is in');
   });
 });
 
-describe('laud summarize: what it keeps', () => {
+describe('ailoud summarize: what it keeps', () => {
   it('stores the summary with what produced it', async () => {
     // The model and language are the point: a summary later reused as context
     // is worth less if nobody can tell what wrote it or in what language.
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001', '--lang', 'en']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--lang', 'en']);
     const stored = await ctx.store.listSummaries('ID001');
     expect(stored).toHaveLength(1);
     expect(stored[0]!.model).toBe('fake-model');
@@ -128,7 +128,7 @@ describe('laud summarize: what it keeps', () => {
 
   it('does not store anything with --no-save', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001', '--no-save']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--no-save']);
     expect(await ctx.store.listSummaries('ID001')).toEqual([]);
   });
 
@@ -137,9 +137,9 @@ describe('laud summarize: what it keeps', () => {
     // from what anybody actually said. Asking again about one recording, or
     // asking in another language, has to go back to the transcript.
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001']);
     ctx.summarizerPrompts.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001', '--lang', 'ru']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--lang', 'ru']);
     expect(ctx.summarizerPrompts[0]).toContain('Privet.');
     expect(ctx.summarizerPrompts[0]).not.toMatch(/earlier summary/i);
   });
@@ -166,7 +166,7 @@ describe('laud summarize: what it keeps', () => {
     }
     ctx.summarizerPrompts.length = 0;
     ctx.lines.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', '--tag', 'group']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', '--tag', 'group']);
     expect(ctx.summarizerPrompts[0]).toMatch(/earlier summary/i);
     expect(ctx.summarizerPrompts[0]).toContain('summary of ID001');
     expect(ctx.lines.join('\n')).toMatch(/Reusing \d+ stored/);
@@ -185,7 +185,7 @@ describe('laud summarize: what it keeps', () => {
       body: 'stored',
       recordingIds: ['ID001'],
     });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001', '--fresh']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--fresh']);
     expect(ctx.summarizerPrompts[0]).toContain('Privet.');
   });
 
@@ -209,7 +209,7 @@ describe('laud summarize: what it keeps', () => {
   });
 });
 
-describe('laud summarize: the transcript files', () => {
+describe('ailoud summarize: the transcript files', () => {
   it('writes one file per recording, named from its date, into a directory it then removes', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     const written: string[] = [];
@@ -218,7 +218,7 @@ describe('laud summarize: the transcript files', () => {
       written.push(path);
       return realWrite(path, content);
     };
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001', '--fresh']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--fresh']);
     // Templates are written out too, on first use; only the transcripts are
     // what this test is about.
     const transcripts = written.filter((path) => path.includes('record-'));
@@ -239,13 +239,13 @@ describe('laud summarize: the transcript files', () => {
       },
     });
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001']),
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001']),
     ).rejects.toThrow(/model exploded/);
     expect([...(ctx.fs as MemFs).files.keys()].filter((p) => p.includes('record-'))).toEqual([]);
   });
 });
 
-describe('laud summarize: progress', () => {
+describe('ailoud summarize: progress', () => {
   it('counts each portion and the combining pass', async () => {
     // The reduce pass is counted with the portions: a bar that reaches 100%
     // and then keeps spinning is worse than one that reaches 90%.
@@ -273,7 +273,7 @@ describe('laud summarize: progress', () => {
       contextTokens: 400,
       complete: async () => 'partial',
     });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001', '--fresh']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--fresh']);
     const progress = ctx.lines.filter((line) => /\(\d+%\)/.test(line));
     expect(progress.length).toBeGreaterThan(0);
     expect(progress.at(-1)).toMatch(/^Combining portions/);
@@ -283,17 +283,17 @@ describe('laud summarize: progress', () => {
 
   it('claims no percentage when there is only one request', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001', '--fresh']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--fresh']);
     expect(ctx.lines.filter((line) => /%\)/.test(line))).toEqual([]);
   });
 });
 
-describe('laud summarize --template / --context', () => {
+describe('ailoud summarize --template / --context', () => {
   it('shapes the headings by template', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await buildProgram(ctx).parseAsync([
       'node',
-      'laud',
+      'ailoud',
       'summarize',
       'ID001',
       '--template',
@@ -307,7 +307,7 @@ describe('laud summarize --template / --context', () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await buildProgram(ctx).parseAsync([
       'node',
-      'laud',
+      'ailoud',
       'summarize',
       'ID001',
       '--context',
@@ -324,7 +324,7 @@ describe('laud summarize --template / --context', () => {
     await expect(
       buildProgram(ctx).parseAsync([
         'node',
-        'laud',
+        'ailoud',
         'summarize',
         'ID001',
         '--template',
@@ -338,7 +338,7 @@ describe('laud summarize --template / --context', () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await buildProgram(ctx).parseAsync([
       'node',
-      'laud',
+      'ailoud',
       'summarize',
       'ID001',
       '--template',
@@ -353,7 +353,7 @@ describe('laud summarize --template / --context', () => {
 
   it('defaults to the meeting shape', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001']);
     expect(ctx.summarizerPrompts[0]).toContain('Decisions');
     expect((await ctx.store.listSummaries('ID001'))[0]!.template).toBe('meeting');
   });

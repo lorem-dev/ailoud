@@ -3,7 +3,7 @@ import type { CliContext } from '../wiring.js';
 import type { RecordingRow } from '../ui/index.js';
 import { languageLabel } from '../ui/cells.js';
 import { collectTag, parseTags } from '../tags.js';
-import { truncateSample } from '@laud/core';
+import { truncateSample } from '@ailoud/core';
 
 /** Characters of transcript text shown in the human-readable preview column. */
 const PREVIEW_LENGTH = 60;

@@ -1,6 +1,6 @@
 import { mkdir, open, readFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { FailureError } from '@laud/core';
+import { FailureError } from '@ailoud/core';
 
 /** What a held lock records, so a human can see who holds it. */
 interface LockHolder {
@@ -87,7 +87,7 @@ export async function withProvisioningLock<T>(dataDir: string, body: () => Promi
     const holder = await readHolder(path);
     if (holder !== null && isRunning(holder.pid)) {
       throw new FailureError(
-        `another laud provisioning run is already in progress (pid ${holder.pid}, started ` +
+        `another ailoud provisioning run is already in progress (pid ${holder.pid}, started ` +
           `${holder.startedAt}). Wait for it to finish, or stop it, then try again.`,
       );
     }

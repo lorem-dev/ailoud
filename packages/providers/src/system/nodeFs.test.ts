@@ -37,7 +37,7 @@ describe('NodeFs.tempFile', () => {
 describe('NodeFs.exists / isDirectory', () => {
   it('re-throws a stat error that is not "not found"', async () => {
     const fs = new NodeFs();
-    const dir = mkdtempSync(join(tmpdir(), 'laud-test-'));
+    const dir = mkdtempSync(join(tmpdir(), 'ailoud-test-'));
     const restricted = join(dir, 'no-access');
     writeFileSync(restricted, 'x');
     // Traversing through a file as if it were a directory is EN OTDIR, not
@@ -54,7 +54,7 @@ describe('NodeFs.exists / isDirectory', () => {
 
   it('exists() is false and isDirectory() is false for a path that is genuinely missing', async () => {
     const fs = new NodeFs();
-    const dir = mkdtempSync(join(tmpdir(), 'laud-test-'));
+    const dir = mkdtempSync(join(tmpdir(), 'ailoud-test-'));
     try {
       expect(await fs.exists(join(dir, 'missing'))).toBe(false);
       expect(await fs.isDirectory(join(dir, 'missing'))).toBe(false);

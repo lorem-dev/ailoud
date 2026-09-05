@@ -1,5 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { TempDir } from '@laud/core';
+import type { TempDir } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { Confirmations } from './confirm.js';
 import { SERVER_INSTRUCTIONS } from './instructions.js';
@@ -9,15 +9,15 @@ import { registerDeleteTools } from './toolsDelete.js';
 import { registerResources } from './resources.js';
 import { registerPrompts } from './prompts.js';
 
-export interface LaudMcpServer {
+export interface AiloudMcpServer {
   readonly server: McpServer;
   /** Removes the run's scratch directory, if one was ever created. */
   close(): Promise<void>;
 }
 
-export function buildMcpServer(context: CliContext, version: string): LaudMcpServer {
+export function buildMcpServer(context: CliContext, version: string): AiloudMcpServer {
   const server = new McpServer(
-    { name: 'laud', version },
+    { name: 'ailoud', version },
     {
       // The single most valuable text in this surface: it is what stops an
       // agent reading four transcripts to answer a question one search would

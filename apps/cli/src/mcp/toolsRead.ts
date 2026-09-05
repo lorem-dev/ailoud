@@ -9,7 +9,7 @@ import {
   toMatchExpression,
   transcriptFileHeader,
   transcriptLine,
-} from '@laud/core';
+} from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecording, resolveSummary } from '../resolveId.js';
 import { loadTemplates, templatesDir } from '../templateStore.js';

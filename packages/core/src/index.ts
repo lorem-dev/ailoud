@@ -59,7 +59,7 @@ export {
   subdivideSpans,
 } from './transcribe/merge.js';
 
-export { LaudError, FailureError, UsageError, EnvironmentError } from './domain/errors.js';
+export { AiloudError, FailureError, UsageError, EnvironmentError } from './domain/errors.js';
 
 export { encodeUlid } from './domain/ulid.js';
 

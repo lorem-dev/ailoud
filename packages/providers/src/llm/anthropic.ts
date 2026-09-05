@@ -1,5 +1,5 @@
-import type { Summarizer } from '@laud/core';
-import { EnvironmentError, FailureError } from '@laud/core';
+import type { Summarizer } from '@ailoud/core';
+import { EnvironmentError, FailureError } from '@ailoud/core';
 
 /** As for the OpenAI adapter: a hosted call that has not returned in five minutes is not going to. */
 const REQUEST_TIMEOUT_MS = 5 * 60_000;

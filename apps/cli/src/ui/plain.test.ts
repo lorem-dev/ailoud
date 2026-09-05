@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Recording, Transcript } from '@laud/core';
+import type { Recording, Transcript } from '@ailoud/core';
 import { PlainUi } from './plain.js';
 
 const RECORDING: Recording = {
@@ -118,12 +118,12 @@ describe('PlainUi', () => {
   it('reports an empty library exactly like the old context.out line', () => {
     const { ui: sink, lines } = ui();
     sink.emptyLibrary();
-    expect(lines).toEqual(['The library is empty. Add something with "laud import".']);
+    expect(lines).toEqual(['The library is empty. Add something with "ailoud import".']);
   });
 
   it('writes payload content verbatim, since this is the path a redirect takes', () => {
     const { ui: sink, lines } = ui();
-    // PlainUi runs whenever stdout is not a terminal, so `laud show ID
+    // PlainUi runs whenever stdout is not a terminal, so `ailoud show ID
     // --format srt > out.srt` comes through here. One added or removed
     // character would corrupt the subtitle file.
     sink.content('1\n00:00:00,000 --> 00:00:01,680\nHello.\n');
@@ -171,13 +171,13 @@ describe('PlainUi', () => {
         name: 'whisper model',
         ok: false,
         detail: 'not configured',
-        fix: 'set stt.whisperCpp.model in the laud config file to a model path',
+        fix: 'set stt.whisperCpp.model in the ailoud config file to a model path',
       },
     ]);
     expect(lines).toEqual([
       'ok    ffmpeg                version 9.0.1',
       'FAIL  whisper model         not configured',
-      '      fix: set stt.whisperCpp.model in the laud config file to a model path',
+      '      fix: set stt.whisperCpp.model in the ailoud config file to a model path',
     ]);
   });
 
@@ -201,7 +201,7 @@ describe('PlainUi', () => {
       'n/a   diarizer binary       not found on PATH',
       '      fix: install sherpa-onnx',
       'note: 1 optional check marked "n/a" above: an opt-in feature is unavailable until that ' +
-        'is fixed, but laud does not need it to run.',
+        'is fixed, but ailoud does not need it to run.',
     ]);
   });
 
@@ -243,7 +243,7 @@ describe('PlainUi.summarising', () => {
   });
 
   it('says nothing when there is one step, rather than writing "1/1 (0%)"', async () => {
-    // This path runs when stdout is a pipe: "laud summarize ID > out.md" must
+    // This path runs when stdout is a pipe: "ailoud summarize ID > out.md" must
     // not get progress chatter in the file.
     const lines: string[] = [];
     const sink = new PlainUi((line) => lines.push(line));

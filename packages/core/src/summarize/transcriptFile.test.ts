@@ -32,7 +32,7 @@ describe('transcriptFileStem', () => {
   it('carries the recording date, so the name answers "which meeting" on its own', () => {
     const at = new Date('2026-08-24T09:30:15.000Z');
     const pad = (n: number) => String(n).padStart(2, '0');
-    // Local time, matching the header and every other date laud prints.
+    // Local time, matching the header and every other date ailoud prints.
     const expected =
       `record-${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}` +
       `${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}`;

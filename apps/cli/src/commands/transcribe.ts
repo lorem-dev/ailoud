@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { summarizeLanguages, transcribeRecording, UsageError } from '@laud/core';
+import { summarizeLanguages, transcribeRecording, UsageError } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecordings } from '../resolveId.js';
 import { collectTag, parseTags } from '../tags.js';

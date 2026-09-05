@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { DEFAULT_TEMPLATE, buildSummaryRequest, transcribeRecording } from '@laud/core';
-import type { SummarySource } from '@laud/core';
+import { DEFAULT_TEMPLATE, buildSummaryRequest, transcribeRecording } from '@ailoud/core';
+import type { SummarySource } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecording, resolveRecordings } from '../resolveId.js';
 import { parseTags } from '../tags.js';
@@ -101,7 +101,7 @@ export function registerWriteTools(server: McpServer, context: CliContext, _deps
       },
     },
     async ({ paths, tags, title }) => {
-      const { importPath } = await import('@laud/core');
+      const { importPath } = await import('@ailoud/core');
       const parsed = parseTags(tags ?? []);
       const imported = [];
       for (const path of paths) {
@@ -219,7 +219,7 @@ export function registerWriteTools(server: McpServer, context: CliContext, _deps
         'questions differ -- a one-to-one is about agreements and concerns, a design decision ' +
         'about what was rejected. The default meeting shape answers those badly.\n\n' +
         'PASS CONTEXT. One or two sentences the transcript does not say: who these people are ' +
-        'to each other, what the project is called, what happened last week. laud does not ' +
+        'to each other, what the project is called, what happened last week. ailoud does not ' +
         'remember it between calls -- keep it in your own memory and pass it again next time.\n\n' +
         'Several recordings are summarised together into one report, which is a different ' +
         'answer from summarising each and stapling them.',

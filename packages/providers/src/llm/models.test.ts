@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { EnvironmentError, FailureError } from '@laud/core';
+import { EnvironmentError, FailureError } from '@ailoud/core';
 import { isChatModel, listAnthropicModels, listOpenAiModels } from './models.js';
 
 const json = (body: unknown) =>

@@ -1,5 +1,5 @@
-import type { Summarizer } from '@laud/core';
-import { EnvironmentError, FailureError } from '@laud/core';
+import type { Summarizer } from '@ailoud/core';
+import { EnvironmentError, FailureError } from '@ailoud/core';
 
 /**
  * A hosted model does not get the hour a local one does. If a request has not
@@ -42,7 +42,7 @@ export function extractCompletion(body: unknown): string {
  *
  * The key is never read from the config file. It comes from the environment,
  * because a config file is a thing people paste into issues and commit by
- * accident, and a leaked key is not a mistake laud should make easy.
+ * accident, and a leaked key is not a mistake ailoud should make easy.
  */
 export class OpenAiCompatibleSummarizer implements Summarizer {
   public readonly name = 'openai-compatible';

@@ -1,8 +1,8 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import type { Summarizer } from '@laud/core';
-import { FailureError } from '@laud/core';
+import type { Summarizer } from '@ailoud/core';
+import { FailureError } from '@ailoud/core';
 import { run as defaultRunner } from '../process/run.js';
 
 /**
@@ -63,7 +63,7 @@ export class LlamaCppSummarizer implements Summarizer {
   }
 
   public async complete(prompt: string): Promise<string> {
-    const dir = await mkdtemp(join(tmpdir(), 'laud-llm-'));
+    const dir = await mkdtemp(join(tmpdir(), 'ailoud-llm-'));
     const promptPath = join(dir, 'prompt.txt');
     try {
       return await this.completeFrom(prompt, promptPath);

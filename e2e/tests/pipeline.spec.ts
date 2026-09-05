@@ -1,4 +1,4 @@
-// End-to-end suite: drives the built binary (apps/cli/dist/bin/laud.js)
+// End-to-end suite: drives the built binary (apps/cli/dist/bin/ailoud.js)
 // against real audio fixtures through the sandbox in ../src/cli.ts. Every
 // `it` block below gets its own sandbox (own throwaway HOME/XDG dirs) and
 // tears it down afterward.
@@ -39,7 +39,7 @@ const GIT_STATUS_TIMEOUT_MS = 10_000;
  * what it produces, so a placeholder file will not do. There is no packaged
  * fixture model -- whisper.cpp models are hundreds of megabytes -- so this
  * points at the same manual-install location the maintainer's own
- * `~/.config/laud/config.yaml` uses: a `models/` directory under the real,
+ * `~/.config/ailoud/config.yaml` uses: a `models/` directory under the real,
  * unsandboxed XDG data dir. `process.env.HOME` here is deliberately the
  * *outer* test-runner process's HOME, not a sandbox's -- `makeSandbox()`
  * only overrides the child process's environment, never this file's own.
@@ -47,8 +47,8 @@ const GIT_STATUS_TIMEOUT_MS = 10_000;
  * configure `WHISPER_MODEL` alone.
  */
 const REAL_HOME = process.env['HOME'] ?? '';
-const WHISPER_MODEL = join(REAL_HOME, '.local', 'share', 'laud', 'models', 'ggml-small.bin');
-const VAD_MODEL = join(REAL_HOME, '.local', 'share', 'laud', 'models', 'ggml-silero-v5.1.2.bin');
+const WHISPER_MODEL = join(REAL_HOME, '.local', 'share', 'ailoud', 'models', 'ggml-small.bin');
+const VAD_MODEL = join(REAL_HOME, '.local', 'share', 'ailoud', 'models', 'ggml-silero-v5.1.2.bin');
 
 /** A distinctive word from the English clause of fixtures/mixed-short.txt. */
 const MIXED_EN_WORD = 'tomorrow';
@@ -104,14 +104,14 @@ function parseTranscribeLine(line: string): { id: string; language: string; coun
 }
 
 /**
- * Names of `laud-*` temp directories currently in `$TMPDIR`, excluding the
- * sandbox directories this suite itself creates (`laud-e2e-*`, from
+ * Names of `ailoud-*` temp directories currently in `$TMPDIR`, excluding the
+ * sandbox directories this suite itself creates (`ailoud-e2e-*`, from
  * `makeSandbox()`), so this only catches leaks from `Fs.tempFile` -- the
  * pipeline's own temp allocation, not the harness's.
  */
 function laudTempEntries(): string[] {
   return readdirSync(tmpdir()).filter(
-    (name) => name.startsWith('laud-') && !name.startsWith('laud-e2e-'),
+    (name) => name.startsWith('ailoud-') && !name.startsWith('ailoud-e2e-'),
   );
 }
 
@@ -137,7 +137,7 @@ function isWellFormedSrt(srt: string): boolean {
   return true;
 }
 
-describe('laud end-to-end', () => {
+describe('ailoud end-to-end', () => {
   let sandbox: Sandbox;
 
   beforeEach(async () => {
@@ -193,7 +193,7 @@ describe('laud end-to-end', () => {
   it('ls on an empty library reports that the library is empty', async () => {
     const human = await sandbox.run(['ls']);
     expect(human.code).toBe(0);
-    expect(human.stdout.trim()).toBe('The library is empty. Add something with "laud import".');
+    expect(human.stdout.trim()).toBe('The library is empty. Add something with "ailoud import".');
 
     const json = await sandbox.run(['ls', '--json']);
     expect(json.code).toBe(0);
@@ -419,7 +419,7 @@ describe('laud end-to-end', () => {
     // "no-such-id", which contains hyphens and so cannot be an id at all --
     // that is now a usage error rather than a lookup failure, which is a
     // different case and is covered by the spec below. The intent here is
-    // unchanged: an id laud could have had, and does not, exits 1.
+    // unchanged: an id ailoud could have had, and does not, exits 1.
     const unknown = await sandbox.run(['show', 'ZZZZZZZZ']);
     expect(unknown.code).toBe(1);
     expect(unknown.stderr).toMatch(/No recording matches/);
@@ -430,7 +430,7 @@ describe('laud end-to-end', () => {
   });
 
   it('rejects something that cannot be an id as a usage error, not a lookup failure', async () => {
-    // `laud show my-recording` is someone reaching for a filename. Saying
+    // `ailoud show my-recording` is someone reaching for a filename. Saying
     // "ids are letters and digits only" and exiting 2 is more use to them
     // than "no recording matches" and exiting 1, which invites them to go
     // looking for a recording that was never the problem.

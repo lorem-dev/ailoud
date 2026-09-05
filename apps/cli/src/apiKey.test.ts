@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { apiKeyFrom } from './apiKey.js';
 
 describe('apiKeyFrom', () => {
-  it('prefers the laud-specific key over the shared vendor one', () => {
+  it('prefers the ailoud-specific key over the shared vendor one', () => {
     expect(
-      apiKeyFrom({ LAUD_LLM_API_KEY: 'mine', OPENAI_API_KEY: 'shared' }, 'OPENAI_API_KEY'),
+      apiKeyFrom({ AILOUD_LLM_API_KEY: 'mine', OPENAI_API_KEY: 'shared' }, 'OPENAI_API_KEY'),
     ).toBe('mine');
   });
 
@@ -22,10 +22,10 @@ describe('apiKeyFrom', () => {
     expect(apiKeyFrom({ ANTHROPIC_API_KEY: '  ' }, 'ANTHROPIC_API_KEY')).toBeUndefined();
   });
 
-  it('falls through a blank laud key to a real vendor key', () => {
-    expect(apiKeyFrom({ LAUD_LLM_API_KEY: '', ANTHROPIC_API_KEY: 'k' }, 'ANTHROPIC_API_KEY')).toBe(
-      'k',
-    );
+  it('falls through a blank ailoud key to a real vendor key', () => {
+    expect(
+      apiKeyFrom({ AILOUD_LLM_API_KEY: '', ANTHROPIC_API_KEY: 'k' }, 'ANTHROPIC_API_KEY'),
+    ).toBe('k');
   });
 
   it('returns undefined when nothing is set', () => {

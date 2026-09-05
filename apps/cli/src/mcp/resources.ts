@@ -1,6 +1,11 @@
 import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { formatRecordedAt, recordedOrImportedAt, speakerNameMap, transcriptLine } from '@laud/core';
+import {
+  formatRecordedAt,
+  recordedOrImportedAt,
+  speakerNameMap,
+  transcriptLine,
+} from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 
 /**
@@ -9,7 +14,7 @@ import type { CliContext } from '../wiring.js';
  * Alongside the tools rather than instead of them, because they answer a
  * different question: a tool is something to do, a resource is something to
  * refer to. A client that lets a user attach context can offer the library
- * directly, and an agent can cite `laud://recording/ID001/transcript` in a
+ * directly, and an agent can cite `ailoud://recording/ID001/transcript` in a
  * conversation without a tool call.
  *
  * The completion callbacks matter more than they look: they are what turns a
@@ -18,7 +23,7 @@ import type { CliContext } from '../wiring.js';
 export function registerResources(server: McpServer, context: CliContext): void {
   server.registerResource(
     'transcript',
-    new ResourceTemplate('laud://recording/{id}/transcript', {
+    new ResourceTemplate('ailoud://recording/{id}/transcript', {
       list: async () => {
         const recordings = await context.store.listRecordings({});
         const resources = [];
@@ -26,7 +31,7 @@ export function registerResources(server: McpServer, context: CliContext): void 
           if ((await context.store.latestTranscript(recording.id)) === null) continue;
           const tags = await context.store.listTags(recording.id);
           resources.push({
-            uri: `laud://recording/${recording.id}/transcript`,
+            uri: `ailoud://recording/${recording.id}/transcript`,
             name: recording.title ?? recording.sourcePath,
             description:
               `Transcript of ${formatRecordedAt(recordedOrImportedAt(recording))}` +
@@ -76,10 +81,10 @@ export function registerResources(server: McpServer, context: CliContext): void 
 
   server.registerResource(
     'report',
-    new ResourceTemplate('laud://report/{id}', {
+    new ResourceTemplate('ailoud://report/{id}', {
       list: async () => ({
         resources: (await context.store.listAllSummaries()).map((summary) => ({
-          uri: `laud://report/${summary.id}`,
+          uri: `ailoud://report/${summary.id}`,
           name: `${summary.template} report, ${formatRecordedAt(summary.createdAt)}`,
           description: `${summary.provider} ${summary.model}, covers ${summary.recordingIds.join(', ')}`,
           mimeType: 'text/markdown',

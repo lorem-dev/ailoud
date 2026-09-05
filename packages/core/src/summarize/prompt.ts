@@ -119,7 +119,7 @@ export function wordCap(sourceCount: number): number {
  * repeated sonnet runs, where the headings gave that fact somewhere to live.
  *
  * The language is named explicitly rather than left implicit. "In the language
- * of the transcript" is the default because laud exists for recordings that
+ * of the transcript" is the default because ailoud exists for recordings that
  * are not in English, and a Russian meeting summarised into English is a
  * translation nobody asked for -- but `--lang` overrides it, because the
  * person reading the summary is not always the person who was in the room.

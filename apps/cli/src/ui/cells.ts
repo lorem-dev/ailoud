@@ -1,4 +1,4 @@
-import { quoteSample } from '@laud/core';
+import { quoteSample } from '@ailoud/core';
 import type { Check } from './types.js';
 
 /**
@@ -42,7 +42,7 @@ export function previewCell(preview: string): string {
  * `n/a`, not a second `FAIL`: `blocksReadiness` has always ignored an
  * optional failure, so an Intel Mac or Linux arm64 user could watch `setup
  * --yes` print red FAIL rows and then a green success frame with nothing
- * connecting the two. Rendering the same word for "laud cannot run" and "one
+ * connecting the two. Rendering the same word for "ailoud cannot run" and "one
  * opt-in feature is unavailable" made the report contradict the exit code.
  * Lowercase like `ok` and unlike the shouted `FAIL`, because that is the
  * severity it carries. Four characters, so it fits both renderers' existing
@@ -70,6 +70,6 @@ export function optionalNote(checks: readonly Check[]): string | null {
   if (count === 0) return null;
   return (
     `${count} optional check${count === 1 ? '' : 's'} marked "n/a" above: an opt-in feature ` +
-    'is unavailable until that is fixed, but laud does not need it to run.'
+    'is unavailable until that is fixed, but ailoud does not need it to run.'
   );
 }

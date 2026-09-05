@@ -1,4 +1,4 @@
-# Contributing to laud
+# Contributing to ailoud
 
 Thank you for contributing. This document covers commit conventions,
 dependency policy, and GPG signing. Please read it in full before opening a

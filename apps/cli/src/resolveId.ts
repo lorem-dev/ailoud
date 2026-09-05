@@ -1,11 +1,11 @@
-import { FailureError, UsageError, formatRecordedAt } from '@laud/core';
-import type { Recording, RecordingStore, Summary, Transcript } from '@laud/core';
+import { FailureError, UsageError, formatRecordedAt } from '@ailoud/core';
+import type { Recording, RecordingStore, Summary, Transcript } from '@ailoud/core';
 
 /**
- * The shortest prefix laud will resolve.
+ * The shortest prefix ailoud will resolve.
  *
  * One character over a base32 alphabet narrows almost nothing, and the cost
- * of the mistake is asymmetric: `laud rm 0` matching a single recording by
+ * of the mistake is asymmetric: `ailoud rm 0` matching a single recording by
  * luck deletes the wrong one irreversibly. Two is the floor the user asked
  * for and the floor a person can still type without thinking.
  */
@@ -40,7 +40,7 @@ function describe(recording: Recording): string {
  * The ambiguous case is the one worth building carefully, because it is the
  * common one rather than the exception: a ULID begins with a timestamp, so
  * recordings imported minutes apart agree for eight characters or more. An
- * error that only said "ambiguous" would send the user back to `laud ls` to
+ * error that only said "ambiguous" would send the user back to `ailoud ls` to
  * work out what to type instead -- so it says how many matched and shows the
  * first few, which is usually enough to pick the right longer prefix without
  * looking anything up.
@@ -129,7 +129,7 @@ export async function resolveTranscript(
  * a typo having half-deleted a library, with no undo.
  *
  * A prefix that resolves to a recording another prefix already picked is an
- * error too. `laud rm 01A 01AB` reads as two recordings and is one, and
+ * error too. `ailoud rm 01A 01AB` reads as two recordings and is one, and
  * silently deduplicating would report deleting one when the user asked for
  * two.
  */

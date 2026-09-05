@@ -4,7 +4,7 @@ import { constants } from 'node:fs';
 import { dirname } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { FailureError } from '@laud/core';
+import { FailureError } from '@ailoud/core';
 
 export interface DownloadOptions {
   readonly onProgress?: (received: number, total: number | null) => void;
@@ -30,7 +30,7 @@ async function exists(path: string): Promise<boolean> {
  * to trace back to a dropped connection.
  *
  * Completeness is judged against the response's own Content-Length, not
- * against a size compiled into laud: an upstream reupload should not be able
+ * against a size compiled into ailoud: an upstream reupload should not be able
  * to make installation fail. When the server advertises no length, the
  * stream ending cleanly is all there is to go on, and that is accepted.
  */

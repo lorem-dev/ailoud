@@ -1,5 +1,5 @@
-import type { Clock, Ids } from '@laud/core';
-import { encodeUlid } from '@laud/core';
+import type { Clock, Ids } from '@ailoud/core';
+import { encodeUlid } from '@ailoud/core';
 
 export class SystemClock implements Clock {
   nowIso(): string {

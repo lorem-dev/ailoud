@@ -25,7 +25,7 @@ main().then(
     // commander already printed its own message for a usage failure, or
     // its help/version text, through configureOutput above.
     if (!isCommanderError(error)) {
-      process.stderr.write(`laud: ${messageFor(error)}\n`);
+      process.stderr.write(`ailoud: ${messageFor(error)}\n`);
     }
     process.exitCode = code;
   },

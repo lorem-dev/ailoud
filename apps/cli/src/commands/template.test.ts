@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { FailureError, UsageError } from '@laud/core';
+import { FailureError, UsageError } from '@ailoud/core';
 import { buildProgram } from '../program.js';
 import { contextWithTranscript } from './testContext.js';
 
 const dirOf = (ctx: { paths: { configFile: string } }) =>
   ctx.paths.configFile.replace(/\/[^/]*$/, '/templates');
 
-describe('laud template ls', () => {
+describe('ailoud template ls', () => {
   it('writes the built-ins out on first use, so they can be read and edited', async () => {
     const ctx = await contextWithTranscript({ skipImport: true, clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'template', 'ls']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'template', 'ls']);
     const out = ctx.lines.join('\n');
     for (const name of [
       'one-on-one',
@@ -24,21 +24,21 @@ describe('laud template ls', () => {
 
   it('says where to edit them, since that is the point of writing them out', async () => {
     const ctx = await contextWithTranscript({ skipImport: true, clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'template', 'ls']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'template', 'ls']);
     expect(ctx.lines.join('\n')).toContain(dirOf(ctx));
   });
 
   it('works through the letter alias', async () => {
     const ctx = await contextWithTranscript({ skipImport: true, clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'template', 'l']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'template', 'l']);
     expect(ctx.lines.join('\n')).toContain('one-on-one');
   });
 });
 
-describe('laud template show', () => {
+describe('ailoud template show', () => {
   it('prints the file path and the template as stored', async () => {
     const ctx = await contextWithTranscript({ skipImport: true, clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'template', 'show', 'solution-decision']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'template', 'show', 'solution-decision']);
     const out = ctx.lines.join('\n');
     expect(out).toContain('solution-decision.yaml');
     expect(out).toContain('Rejected alternatives');
@@ -47,14 +47,14 @@ describe('laud template show', () => {
   it('says so when there is no such template', async () => {
     const ctx = await contextWithTranscript({ skipImport: true, clearLines: true });
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'template', 'show', 'nope']),
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'template', 'show', 'nope']),
     ).rejects.toThrow(FailureError);
   });
 });
 
-describe('laud template new', () => {
+describe('ailoud template new', () => {
   const run = (ctx: Awaited<ReturnType<typeof contextWithTranscript>>, args: string[]) =>
-    buildProgram(ctx).parseAsync(['node', 'laud', 'template', 'new', ...args]);
+    buildProgram(ctx).parseAsync(['node', 'ailoud', 'template', 'new', ...args]);
 
   it('creates a template that summarize can then use', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
@@ -70,7 +70,7 @@ describe('laud template new', () => {
     ctx.summarizerPrompts.length = 0;
     await buildProgram(ctx).parseAsync([
       'node',
-      'laud',
+      'ailoud',
       'summarize',
       'ID001',
       '--template',
@@ -83,7 +83,7 @@ describe('laud template new', () => {
   it('can start from an existing template', async () => {
     const ctx = await contextWithTranscript({ skipImport: true, clearLines: true });
     await run(ctx, ['skip-level', '--from', 'one-on-one', '--summary', 'skip level']);
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'template', 'show', 'skip-level']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'template', 'show', 'skip-level']);
     // Inherited both the headings and the context sentence.
     expect(ctx.lines.join('\n')).toContain('Concerns raised');
     expect(ctx.lines.join('\n')).toMatch(/one-to-one/i);
@@ -117,7 +117,7 @@ describe('laud template new', () => {
     const ctx = await contextWithTranscript({ skipImport: true, clearLines: true });
     await run(ctx, ['ordered', '--context', 'x', '--heading', 'First', '--heading', 'Second']);
     ctx.lines.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'template', 'show', 'ordered']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'template', 'show', 'ordered']);
     const out = ctx.lines.join('\n');
     expect(out.indexOf('First')).toBeLessThan(out.indexOf('Second'));
   });

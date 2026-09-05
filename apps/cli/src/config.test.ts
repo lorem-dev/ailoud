@@ -1,23 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { EnvironmentError } from '@laud/core';
+import { EnvironmentError } from '@ailoud/core';
 import { parseConfig, resolvePaths } from './config.js';
 
 describe('resolvePaths', () => {
   it('honours both XDG variables', () => {
     expect(resolvePaths({ XDG_CONFIG_HOME: '/c', XDG_DATA_HOME: '/d', HOME: '/h' })).toEqual({
-      configFile: '/c/laud/config.yaml',
-      dataDir: '/d/laud',
-      dbFile: '/d/laud/laud.db',
-      mediaRoot: '/d/laud/media',
+      configFile: '/c/ailoud/config.yaml',
+      dataDir: '/d/ailoud',
+      dbFile: '/d/ailoud/ailoud.db',
+      mediaRoot: '/d/ailoud/media',
     });
   });
 
   it('falls back to the documented defaults under HOME', () => {
     expect(resolvePaths({ HOME: '/h' })).toEqual({
-      configFile: '/h/.config/laud/config.yaml',
-      dataDir: '/h/.local/share/laud',
-      dbFile: '/h/.local/share/laud/laud.db',
-      mediaRoot: '/h/.local/share/laud/media',
+      configFile: '/h/.config/ailoud/config.yaml',
+      dataDir: '/h/.local/share/ailoud',
+      dbFile: '/h/.local/share/ailoud/ailoud.db',
+      mediaRoot: '/h/.local/share/ailoud/media',
     });
   });
 
@@ -47,7 +47,7 @@ describe('parseConfig', () => {
         },
       },
       llm: {
-        // Local by default: the same choice the rest of laud makes, and the
+        // Local by default: the same choice the rest of ailoud makes, and the
         // one that needs no key and sends nothing off the machine.
         provider: 'llama-cpp',
         llamaCpp: {

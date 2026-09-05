@@ -1,7 +1,7 @@
 import { readFile as readFileFromDisk } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
-import type { RawSegment, TranscriptionProvider } from '@laud/core';
-import { FailureError } from '@laud/core';
+import type { RawSegment, TranscriptionProvider } from '@ailoud/core';
+import { FailureError } from '@ailoud/core';
 import { run as defaultRunner } from '../process/run.js';
 
 // NOT VERIFIED AGAINST A REAL BUILD: this JSON shape ("-oj" output: a
@@ -109,7 +109,7 @@ export class WhisperCppProvider implements TranscriptionProvider {
     // Derived from the filename component only (node:path), not a bare regex
     // on the whole path: a regex anchored on "last dot in the string" matches
     // a dot inside a directory name too, so an extension-less file inside a
-    // directory like "laud-1.2" would collapse to a sibling path outside that
+    // directory like "ailoud-1.2" would collapse to a sibling path outside that
     // directory and silently collide with another recording's output.
     // NOT VERIFIED AGAINST A REAL BUILD: that whisper-cli writes exactly
     // "<outputBase>.json" (not, say, "<outputBase>.json.txt" or a name that

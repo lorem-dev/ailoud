@@ -1,12 +1,12 @@
 import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { FailureError } from '@laud/core';
+import { FailureError } from '@ailoud/core';
 import { run } from '../process/run.js';
 import { downloadFile } from './download.js';
 
 /**
- * The sherpa-onnx release laud installs. Pinned, never "latest": two people
- * running `laud setup` a week apart must get the same binary, and an
+ * The sherpa-onnx release ailoud installs. Pinned, never "latest": two people
+ * running `ailoud setup` a week apart must get the same binary, and an
  * upstream change must not be able to break installation for everyone at
  * once. Bumping this is a reviewable commit.
  */

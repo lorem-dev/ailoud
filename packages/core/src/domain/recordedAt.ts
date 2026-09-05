@@ -2,7 +2,7 @@ import type { Recording } from './model.js';
 
 /**
  * The date to show for a recording: what its metadata says, or failing that
- * when laud imported it.
+ * when ailoud imported it.
  *
  * One function, so the fallback is one rule rather than an `??` repeated at
  * every call site and drifting at one of them. The two fields stay separate in

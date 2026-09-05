@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Document } from 'yaml';
-import { UsageError } from '@laud/core';
+import { UsageError } from '@ailoud/core';
 import { applyConfigUpdates, writeConfigUpdates } from './configWrite.js';
 import { parseConfig } from './config.js';
 
@@ -41,7 +41,7 @@ describe('applyConfigUpdates', () => {
 
   it('preserves comments and unrelated keys', () => {
     const source = [
-      '# my laud config',
+      '# my ailoud config',
       'stt:',
       '  whisperCpp:',
       '    # chosen by hand',
@@ -50,7 +50,7 @@ describe('applyConfigUpdates', () => {
       '',
     ].join('\n');
     const out = applyConfigUpdates(source, { model: '/data/m.bin' });
-    expect(out).toContain('# my laud config');
+    expect(out).toContain('# my ailoud config');
     expect(out).toContain('# chosen by hand');
     expect(out).toContain('binary: /usr/local/bin/whisper-cli');
     expect(out).toContain('somethingElse: keep me');
@@ -76,7 +76,7 @@ describe('applyConfigUpdates', () => {
   });
 
   it('round-trips through the real parser', () => {
-    // The written file must be readable by the config laud actually uses --
+    // The written file must be readable by the config ailoud actually uses --
     // otherwise setup leaves the user with a file that fails to load.
     const out = applyConfigUpdates(null, { model: '/m.bin', vadModel: '/v.bin' });
     const parsed = parseConfig(out);
@@ -189,7 +189,7 @@ describe('writeConfigUpdates', () => {
   });
 
   async function tempDir(): Promise<string> {
-    const dir = await mkdtemp(join(tmpdir(), 'laud-configwrite-'));
+    const dir = await mkdtemp(join(tmpdir(), 'ailoud-configwrite-'));
     dirs.push(dir);
     return dir;
   }

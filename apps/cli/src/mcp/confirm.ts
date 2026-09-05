@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Clock } from '@laud/core';
+import type { Clock } from '@ailoud/core';
 
 /** How long a confirmation stays good for. Long enough to show a user, short enough to expire. */
 const TTL_MS = 10 * 60_000;

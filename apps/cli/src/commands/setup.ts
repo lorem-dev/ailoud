@@ -11,8 +11,8 @@ import {
   findModel,
   planDownloadBytes,
   planProvisioning,
-} from '@laud/core';
-import type { Action, LlmProvider, Remedy } from '@laud/core';
+} from '@ailoud/core';
+import type { Action, LlmProvider, Remedy } from '@ailoud/core';
 import {
   LLAMA_VERSION,
   SHERPA_VERSION,
@@ -24,19 +24,19 @@ import {
   sherpaTarballUrl,
   whisperInstallCommands,
   whisperTarballUrl,
-} from '@laud/providers';
-import type { PackageManager } from '@laud/providers';
+} from '@ailoud/providers';
+import type { PackageManager } from '@ailoud/providers';
 import { executePlan } from '../provisionRunner.js';
 import { writeConfigUpdates } from '../configWrite.js';
 import { withProvisioningLock } from '../setupLock.js';
 import { parseConfig } from '../config.js';
-import type { LaudConfig } from '../config.js';
+import type { AiloudConfig } from '../config.js';
 import { NOT_READY_MESSAGE, runChecks } from './doctor.js';
 import type { CliContext } from '../wiring.js';
 import type { Check } from '../ui/index.js';
 
 /**
- * Whether laud may prompt: a terminal on both ends, and not a CI runner.
+ * Whether ailoud may prompt: a terminal on both ends, and not a CI runner.
  *
  * `CI=0` and `CI=false` are the `ci-info`/`is-ci` convention for "explicitly
  * not CI, prompting is fine" -- only an unset, empty, or truthy `CI` counts
@@ -57,7 +57,7 @@ export function isInteractive(env: NodeJS.ProcessEnv, stdinIsTty: boolean): bool
  * still fails the very check it just fixed, because the in-memory config
  * still holds the pre-install (missing) value.
  */
-async function readCurrentConfig(configFile: string): Promise<LaudConfig> {
+async function readCurrentConfig(configFile: string): Promise<AiloudConfig> {
   let raw: string | null;
   try {
     raw = await readFile(configFile, 'utf8');
@@ -95,7 +95,7 @@ export async function resolveModelName(options: ModelNameOptions): Promise<strin
 
   const selectImpl = options.selectImpl ?? select;
   const answer = await selectImpl({
-    message: 'Which transcription model should laud download?',
+    message: 'Which transcription model should ailoud download?',
     initialValue: DEFAULT_MODEL_NAME,
     options: TRANSCRIPTION_MODELS.map((model) => ({
       value: model.name,
@@ -144,7 +144,7 @@ export interface ConsentOptions {
    * software", "deleting recordings".
    *
    * Parameterised because this guard is shared, and the message is not. It
-   * told a `laud rm` user that the command "needs confirmation before
+   * told a `ailoud rm` user that the command "needs confirmation before
    * installing software" -- the same class of wrong-thing-named bug that had
    * already been fixed twice in the provisioning messages, arriving here the
    * moment a second kind of command reused the guard.
@@ -170,7 +170,7 @@ export async function requireConsent(options: ConsentOptions): Promise<boolean> 
     const action = options.action ?? 'installing software';
     const flag = options.consentFlag ?? '--yes';
     throw new UsageError(
-      `laud ${commandName} needs confirmation before ${action}, but there is no terminal to ` +
+      `ailoud ${commandName} needs confirmation before ${action}, but there is no terminal to ` +
         `ask on. Re-run with ${flag} to confirm in advance.`,
     );
   }
@@ -215,13 +215,13 @@ function providerPlanLines(
       : `Sets llm.provider to "${provider}" and its model to "${model}" in ${env.configFile}`,
   ];
   if (provider === 'anthropic') {
-    lines.push('Needs ANTHROPIC_API_KEY (or LAUD_LLM_API_KEY) in your environment');
+    lines.push('Needs ANTHROPIC_API_KEY (or AILOUD_LLM_API_KEY) in your environment');
   }
   if (provider === 'openai-compatible') {
-    lines.push('Needs OPENAI_API_KEY (or LAUD_LLM_API_KEY) in your environment');
+    lines.push('Needs OPENAI_API_KEY (or AILOUD_LLM_API_KEY) in your environment');
   }
   if (provider === 'claude-cli') {
-    lines.push('Needs Claude Code installed and signed in; laud does not install it');
+    lines.push('Needs Claude Code installed and signed in; ailoud does not install it');
   }
   return lines;
 }
@@ -269,7 +269,7 @@ export interface PlanEnvironment {
 }
 
 const NO_PACKAGE_MANAGER =
-  'No supported package manager was found, so laud cannot do this automatically.';
+  'No supported package manager was found, so ailoud cannot do this automatically.';
 
 /** Whether the plan contains an action that needs a package manager to run. */
 export function planNeedsPackageManager(
@@ -290,7 +290,7 @@ function whisperPlanLines(env: PlanEnvironment): readonly string[] {
     return whisperInstallCommands(env.manager).map((c) => `Runs: ${formatInstallCommand(c)}`);
   }
   if (env.platform !== 'linux') {
-    return [`laud cannot install whisper.cpp on ${env.platform} automatically.`];
+    return [`ailoud cannot install whisper.cpp on ${env.platform} automatically.`];
   }
   try {
     return [
@@ -327,7 +327,7 @@ function diarizerPlanLines(env: PlanEnvironment): readonly string[] {
  * What installing the language-model runner will do, for the consent plan.
  *
  * On macOS this is one brew command, because llama.cpp has a formula and
- * sending a user through laud's own installer for something brew already does
+ * sending a user through ailoud's own installer for something brew already does
  * would be gratuitous. Everywhere else it is the pinned release tarball, the
  * same route whisper.cpp and sherpa take.
  */
@@ -387,10 +387,10 @@ export function describePlan(actions: readonly Action[], env: PlanEnvironment): 
 }
 
 /**
- * Whether a failing check means laud cannot run at all. `Check.optional`
+ * Whether a failing check means ailoud cannot run at all. `Check.optional`
  * (see its doc comment) marks checks for opt-in features -- the diarizer
  * today -- whose failure means only that feature is unavailable, not that
- * laud is broken. This is the one place that distinction is applied to the
+ * ailoud is broken. This is the one place that distinction is applied to the
  * ready/not-ready decision, so `doctor`, `unfixableChecks`, and the final
  * re-check in `runProvisioning` cannot drift onto different answers for the
  * same check.
@@ -438,8 +438,8 @@ export function unfixableChecks(checks: readonly Check[]): readonly Check[] {
 function reportUnfixable(context: CliContext, checks: readonly Check[]): void {
   context.write(
     checks.length === 1
-      ? 'One check failed, and it is not something laud can repair automatically:'
-      : `${checks.length} checks failed, and none of them are something laud can repair ` +
+      ? 'One check failed, and it is not something ailoud can repair automatically:'
+      : `${checks.length} checks failed, and none of them are something ailoud can repair ` +
           'automatically:',
   );
   for (const check of checks) {
@@ -492,7 +492,7 @@ export async function runProvisioning(
   if (platform === 'win32') {
     for (const line of windowsManualSteps(commandName)) context.write(line);
     throw new EnvironmentError(
-      `laud ${commandName} cannot provision Windows: follow the manual steps above.`,
+      `ailoud ${commandName} cannot provision Windows: follow the manual steps above.`,
     );
   }
 
@@ -519,7 +519,7 @@ export async function runProvisioning(
     // and nothing else.
     const unfixable = unfixableChecks(checks);
     if (unfixable.length === 0) {
-      context.write('Everything laud needs is already in place.');
+      context.write('Everything ailoud needs is already in place.');
       return;
     }
     // `doctor --fix` already rendered the full check list (ui.checks) before
@@ -610,7 +610,7 @@ export async function runProvisioning(
     const finalChecks = await runChecks({ ...context, config: freshConfig }, platform);
     context.ui.checks(finalChecks);
     if (finalChecks.some(blocksReadiness)) {
-      throw new EnvironmentError('laud is still not ready: see the failing checks above.');
+      throw new EnvironmentError('ailoud is still not ready: see the failing checks above.');
     }
   });
 }
@@ -634,7 +634,7 @@ export async function runProvisioning(
  */
 export function windowsManualSteps(commandName: CommandName): readonly string[] {
   return [
-    `laud ${commandName} does not provision Windows, and will not pretend to.`,
+    `ailoud ${commandName} does not provision Windows, and will not pretend to.`,
     'Install the pieces by hand -- 1 to 4 are required, 5 only for --diarize:',
     '  1. ffmpeg and ffprobe -- take a build from https://ffmpeg.org/download.html',
     '     and put both on PATH.',
@@ -652,7 +652,7 @@ export function windowsManualSteps(commandName: CommandName): readonly string[] 
     '     https://github.com/k2-fsa/sherpa-onnx/releases',
     'Then set stt.whisperCpp.binary, .vadBinary, .model and .vadModel in the config',
     'file to those paths -- plus stt.diarization.binary, .segmentationModel and',
-    '.embeddingModel if you did step 5 -- and run "laud doctor" to confirm. The',
+    '.embeddingModel if you did step 5 -- and run "ailoud doctor" to confirm. The',
     'full version of these steps is under "Manual install (fallback)" in README.md.',
   ];
 }
@@ -676,9 +676,9 @@ export function registerSetup(
       '--llm-model <id>',
       'model id for the chosen summariser (default: ask, or keep the configured one)',
     )
-    .description('Install ffmpeg and whisper.cpp, and download the models laud needs')
+    .description('Install ffmpeg and whisper.cpp, and download the models ailoud needs')
     .action(async (options: SetupOptions) => {
-      await context.ui.frame('Setting up laud', async () => {
+      await context.ui.frame('Setting up ailoud', async () => {
         // The win32 refusal lives in runProvisioning now (the shared
         // engine), not here -- see its doc comment. runChecks itself only
         // probes; it downloads nothing, so running it unconditionally

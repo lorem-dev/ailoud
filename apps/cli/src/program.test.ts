@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseConfig } from './config.js';
-import { EnvironmentError, FailureError, UsageError } from '@laud/core';
+import { EnvironmentError, FailureError, UsageError } from '@ailoud/core';
 import {
   FakeAudioTool,
   FakeClock,
@@ -9,8 +9,8 @@ import {
   FakeSegmenter,
   FakeStt,
   MemFs,
-} from '@laud/core/testing';
-import { SqliteStore } from '@laud/providers';
+} from '@ailoud/core/testing';
+import { SqliteStore } from '@ailoud/providers';
 import { buildProgram, exitCodeFor } from './program.js';
 import type { CliContext } from './wiring.js';
 import { PlainUi } from './ui/plain.js';
@@ -44,7 +44,7 @@ describe('exitCodeFor', () => {
       exitCode: 0,
     });
     expect(exitCodeFor(version)).toBe(0);
-    // An explicit `laud help` also carries the code 'commander.help', but
+    // An explicit `ailoud help` also carries the code 'commander.help', but
     // commander itself reports that one as a clean exit (its own exitCode
     // is 0), unlike the no-subcommand case below which shares the same code
     // string but is a usage error.
@@ -60,7 +60,7 @@ describe('exitCodeFor', () => {
     // registered subcommand and no arguments raises 'commander.help' with
     // exitCode 1 -- it is a usage error of the same class as a missing
     // argument, not a clean exit, even though the code string is identical
-    // to the one an explicit `laud help` raises with exitCode 0.
+    // to the one an explicit `ailoud help` raises with exitCode 0.
     const noSubcommand = Object.assign(new Error('(outputHelp)'), {
       code: 'commander.help',
       exitCode: 1,
@@ -149,13 +149,13 @@ describe('buildProgram', () => {
 
   it('names, describes, and versions the program', () => {
     const program = buildProgram(makeContext());
-    expect(program.name()).toBe('laud');
+    expect(program.name()).toBe('ailoud');
     expect(program.description()).toContain('audio-to-text');
   });
 
   it('throws instead of exiting the process on an unknown flag', async () => {
     const program = buildProgram(makeContext());
-    await expect(program.parseAsync(['node', 'laud', '--bogus'])).rejects.toMatchObject({
+    await expect(program.parseAsync(['node', 'ailoud', '--bogus'])).rejects.toMatchObject({
       code: 'commander.unknownOption',
     });
   });
@@ -163,7 +163,7 @@ describe('buildProgram', () => {
   it('maps an unknown flag to exit code 2 end to end', async () => {
     const program = buildProgram(makeContext());
     const error: unknown = await program
-      .parseAsync(['node', 'laud', '--bogus'])
+      .parseAsync(['node', 'ailoud', '--bogus'])
       .catch((caught: unknown) => caught);
     expect(exitCodeFor(error)).toBe(2);
   });
@@ -172,7 +172,7 @@ describe('buildProgram', () => {
     const lines: string[] = [];
     const program = buildProgram(makeContext((line) => lines.push(line)));
     const error: unknown = await program
-      .parseAsync(['node', 'laud', '--help'])
+      .parseAsync(['node', 'ailoud', '--help'])
       .catch((caught: unknown) => caught);
     expect(lines.join('\n')).toContain('Usage:');
     expect(exitCodeFor(error)).toBe(0);
@@ -180,14 +180,14 @@ describe('buildProgram', () => {
 
   it('maps running with a subcommand attached but no arguments to exit code 2, not 1', async () => {
     // buildProgram already attaches subcommands (import, transcribe, ls,
-    // show, doctor), and with a subcommand registered, running `laud` with
+    // show, doctor), and with a subcommand registered, running `ailoud` with
     // no arguments and no default action makes commander print help and
     // raise 'commander.help' with its own exitCode of 1. That is a usage
     // error (nothing was told what to do), not a normal failure, so it must
     // map to 2 here, not fall through as 1.
     const program = buildProgram(makeContext());
     const error: unknown = await program
-      .parseAsync(['node', 'laud'])
+      .parseAsync(['node', 'ailoud'])
       .catch((caught: unknown) => caught);
     expect(error).toMatchObject({ code: 'commander.help' });
     expect(exitCodeFor(error)).toBe(2);

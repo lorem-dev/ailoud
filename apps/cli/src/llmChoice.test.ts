@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { UsageError } from '@laud/core';
-import type { Remedy } from '@laud/core';
+import { UsageError } from '@ailoud/core';
+import type { Remedy } from '@ailoud/core';
 import {
   LLM_CHOICES,
   modelsFor,
@@ -226,7 +226,7 @@ describe('choosing a model of the chosen engine', () => {
   });
 
   it('says why it could not ask, instead of picking silently', async () => {
-    // "laud chose a model for me and did not say which" is the confusing
+    // "ailoud chose a model for me and did not say which" is the confusing
     // outcome; an unlistable provider has to be announced.
     const notes: string[] = [];
     const selectImpl = vi.fn().mockResolvedValueOnce('openai');

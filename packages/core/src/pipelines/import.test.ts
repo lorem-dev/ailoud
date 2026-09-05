@@ -111,7 +111,7 @@ describe('importRecording and the recording date', () => {
     };
     const { recording } = await importRecording(withDate, { path: '/in/talk.mp3' });
     expect(recording.recordedAt).toBe('2024-03-15T10:23:45.000Z');
-    // Kept apart from when laud saw it, so the two remain distinguishable.
+    // Kept apart from when ailoud saw it, so the two remain distinguishable.
     expect(recording.importedAt).toBe('2026-01-01T00:00:00.000Z');
   });
 

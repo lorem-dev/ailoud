@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FailureError } from '@laud/core';
+import { FailureError } from '@ailoud/core';
 import { LlamaCppSummarizer, cleanCompletion } from './llamaCpp.js';
 import { OpenAiCompatibleSummarizer, extractCompletion } from './openAiCompatible.js';
 import { AnthropicSummarizer, extractAnthropicText } from './anthropic.js';
@@ -292,7 +292,7 @@ describe('ClaudeCliSummarizer', () => {
     // --print, or it opens a session and never returns.
     expect(args).toContain('--print');
     // An empty allow-list, or the model can read files and run commands in
-    // whatever directory laud happened to be started from.
+    // whatever directory ailoud happened to be started from.
     expect(args[args.indexOf('--allowed-tools') + 1]).toBe('');
   });
 

@@ -1,5 +1,5 @@
-import type { Summarizer } from '@laud/core';
-import { FailureError } from '@laud/core';
+import type { Summarizer } from '@ailoud/core';
+import { FailureError } from '@ailoud/core';
 import { run as defaultRunner } from '../process/run.js';
 
 /**
@@ -22,14 +22,14 @@ export interface ClaudeCliOptions {
  *
  * The reason this exists alongside the API adapter: a Claude subscription is
  * not an API key, and someone who pays for one should not have to pay twice to
- * summarise their own recordings. The CLI is already authenticated, so laud
+ * summarise their own recordings. The CLI is already authenticated, so ailoud
  * borrows that rather than asking for a second credential.
  *
  * `--print` makes it answer and exit instead of opening a session. Tools are
  * switched off explicitly with an empty allow-list: this is a text completion,
  * and an agent that could read files or run commands while summarising a
  * transcript would be a much larger thing than the job asks for -- and would
- * do it in whatever directory laud happened to be run from.
+ * do it in whatever directory ailoud happened to be run from.
  */
 export class ClaudeCliSummarizer implements Summarizer {
   public readonly name = 'claude-cli';

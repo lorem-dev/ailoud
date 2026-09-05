@@ -124,7 +124,7 @@ describe('WhisperCppProvider', () => {
   });
 
   it.each([
-    ['/tmp/laud-1.2/audio', '/tmp/laud-1.2/audio'],
+    ['/tmp/ailoud-1.2/audio', '/tmp/ailoud-1.2/audio'],
     ['/tmp/a', '/tmp/a'],
     ['/tmp/dir.v2/clip.wav', '/tmp/dir.v2/clip'],
   ])(

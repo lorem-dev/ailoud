@@ -1,12 +1,12 @@
-# laud
+# ailoud
 
-`laud` is a command-line tool that turns audio and video recordings into
+`ailoud` is a command-line tool that turns audio and video recordings into
 transcripts, keeps them in a local library, and (in a later milestone) answers
 questions over one or many of them through a large language model.
 
 ## Two engine layers
 
-`laud` keeps two engine layers strictly separate, because no single vendor
+`ailoud` keeps two engine layers strictly separate, because no single vendor
 covers both:
 
 - **Speech to text (STT)** turns audio into timestamped segments. Local
@@ -34,21 +34,21 @@ not exist yet.
 
 ## Install
 
-`laud` has no published release yet. Build it from source:
+`ailoud` has no published release yet. Build it from source:
 
 ```shell
 git clone <this-repository>
-cd laud
+cd ailoud
 pnpm install
 pnpm build
 ```
 
-Run the CLI from the built output. `apps/cli/dist/bin/laud.js` has a shebang
+Run the CLI from the built output. `apps/cli/dist/bin/ailoud.js` has a shebang
 that already disables the experimental-SQLite warning, so running it
 directly is the simplest option:
 
 ```shell
-./apps/cli/dist/bin/laud.js --help
+./apps/cli/dist/bin/ailoud.js --help
 ```
 
 If you invoke it through `node` instead, the shebang is bypassed and you
@@ -56,42 +56,42 @@ must pass the flag yourself, or every command prints an `ExperimentalWarning`
 before its actual output:
 
 ```shell
-node --disable-warning=ExperimentalWarning apps/cli/dist/bin/laud.js --help
+node --disable-warning=ExperimentalWarning apps/cli/dist/bin/ailoud.js --help
 ```
 
-While working on laud itself, `pnpm laud` builds and runs in one step and
+While working on ailoud itself, `pnpm ailoud` builds and runs in one step and
 forwards its arguments, so there is no separate build to remember:
 
 ```shell
-pnpm laud doctor
-pnpm laud import ./recordings
+pnpm ailoud doctor
+pnpm ailoud import ./recordings
 ```
 
 The build it runs is incremental -- `tsc -b` recompiles only the packages
 whose inputs changed -- so an unchanged tree costs a fraction of a second.
-Its progress line goes to stderr, leaving `pnpm laud ls --json` safe to
+Its progress line goes to stderr, leaving `pnpm ailoud ls --json` safe to
 pipe.
 
-To get a real `laud` on your `PATH`, link the package globally:
+To get a real `ailoud` on your `PATH`, link the package globally:
 
 ```shell
 cd apps/cli
 npm link
-laud --help
+ailoud --help
 ```
 
 ## CLI quick start
 
-The binary is `laud` below, once linked onto your `PATH` as shown above.
+The binary is `ailoud` below, once linked onto your `PATH` as shown above.
 Every command exits non-zero on failure.
 
 Human-facing output is decorated -- left gutter, status glyphs, a spinner
 while `transcribe` waits on whisper.cpp -- whenever stdout is a real
-terminal, and plain otherwise. Pipe any command (`laud ls | cat`, or into a
+terminal, and plain otherwise. Pipe any command (`ailoud ls | cat`, or into a
 file or another program) and it drops the decoration automatically, so
-scripts and `laud ls --json | jq` see the same stable text either way.
+scripts and `ailoud ls --json | jq` see the same stable text either way.
 
-On a fresh machine, run `laud setup` first -- see "First run: `laud setup`"
+On a fresh machine, run `ailoud setup` first -- see "First run: `ailoud setup`"
 under "External tools" below for what it installs and how to run it
 unattended.
 
@@ -99,8 +99,8 @@ Import a file or a directory of audio/video, then transcribe what has no
 transcript yet:
 
 ```shell
-laud import ./recordings
-laud transcribe
+ailoud import ./recordings
+ailoud transcribe
 ```
 
 `import` against a directory only looks at files directly inside it; it does
@@ -114,7 +114,7 @@ that already have one, and requires explicit ids so it cannot silently
 re-run the whole library:
 
 ```shell
-laud transcribe ID001 --force
+ailoud transcribe ID001 --force
 ```
 
 `transcribe` picks one language for the whole recording by default, which is
@@ -128,14 +128,14 @@ language separately, so a switch produces multiple segments instead of one
 segment in the wrong language:
 
 ```shell
-laud transcribe ID001 --multilingual
+ailoud transcribe ID001 --multilingual
 ```
 
 If you know which languages the recording holds, say so instead. Naming two
 or more turns multilingual mode on by itself:
 
 ```shell
-laud transcribe ID001 --lang ru,en
+ailoud transcribe ID001 --lang ru,en
 ```
 
 That is worth doing, and not only for brevity. whisper's language detector
@@ -143,11 +143,11 @@ answers with any language in the world and cannot be restricted, so on a
 Russian/English recording it will sometimes report Polish for a Russian
 stretch -- and that stretch is then transcribed as Polish, coming back as
 phonetic nonsense. Declaring the set turns such an answer from a discovery
-into a knowable mistake, which laud repairs from the surrounding stretches.
+into a knowable mistake, which ailoud repairs from the surrounding stretches.
 
 Declaring also buys sharper switching. Detection needs roughly five seconds
 of one language to be reliable, while conversational turns run two to four
-seconds, so the two pull against each other. Undeclared, laud must favour
+seconds, so the two pull against each other. Undeclared, ailoud must favour
 reliability and use a wide window, which can swallow a short turn of the
 other language whole. Declared, mis-detections are repairable, so it uses a
 narrow window and keeps up with the conversation.
@@ -164,7 +164,7 @@ for no benefit, which is why multilingual mode is not the default.
 uses: a voice-activity-detection (VAD) model, configured separately at
 `stt.whisperCpp.vadModel` (see "Configuration and storage" below). Without
 one configured, `transcribe --multilingual` exits 3 and names the missing
-config key, the same way it would for the missing whisper.cpp model; `laud
+config key, the same way it would for the missing whisper.cpp model; `ailoud
 doctor` reports the same gap ahead of time.
 
 Because it works by dividing detected speech into windows at least 1.5
@@ -196,8 +196,8 @@ the transcript by time overlap. Off by default, for the same reason
 audio, and most recordings are one person.
 
 ```shell
-laud transcribe ID001 --diarize
-laud transcribe ID001 --diarize --speakers 2
+ailoud transcribe ID001 --diarize
+ailoud transcribe ID001 --diarize --speakers 2
 ```
 
 `--speakers <n>` tells the diarizer how many speakers to expect. Measured
@@ -207,12 +207,12 @@ whenever you know it. `--speakers` without `--diarize` is a usage error, not
 a silent no-op, since without `--diarize` there is nothing for it to inform.
 
 Diarization cannot be installed automatically on Linux arm64: sherpa-onnx,
-the tool laud uses, publishes no generic build for that CPU architecture in
+the tool ailoud uses, publishes no generic build for that CPU architecture in
 the pinned release -- only vendor NPU builds (axcl, axera, rknn), which
 cannot run on an ordinary ARM machine. Diarization itself still works there
 if you build sherpa-onnx from source and point `stt.diarization.binary` at
 the result; what is missing is the prebuilt download, not the feature. See
-"External tools" below for the platforms `laud setup` covers on its own.
+"External tools" below for the platforms `ailoud setup` covers on its own.
 
 Naming speakers and separating overlapping speech are both out of scope:
 output is always `speaker_00`, `speaker_01`, and so on, and a segment where
@@ -225,21 +225,21 @@ Every command lives under the noun it acts on, the way `docker container ls`
 and `gh pr list` do. There are two nouns, plus `doctor` and `setup`:
 
 ```shell
-laud audio import ./recordings
-laud audio transcribe
-laud audio summarize ID001
-laud audio ls
-laud audio show ID001
-laud audio annotate ID001 --title "Standup"
-laud audio rm ID001
+ailoud audio import ./recordings
+ailoud audio transcribe
+ailoud audio summarize ID001
+ailoud audio ls
+ailoud audio show ID001
+ailoud audio annotate ID001 --title "Standup"
+ailoud audio rm ID001
 
-laud report ls
-laud report show SUM0
-laud report rm SUM0
+ailoud report ls
+ailoud report show SUM0
+ailoud report rm SUM0
 
-laud template ls
-laud template show one-on-one
-laud template new retro --context "A sprint retro." --heading "Went well" --heading Actions
+ailoud template ls
+ailoud template show one-on-one
+ailoud template new retro --context "A sprint retro." --heading "Went well" --heading Actions
 ```
 
 Every verb has a one-letter alias, and the same verb takes the same letter in
@@ -253,35 +253,35 @@ both groups, so the letters are worth learning once rather than per noun:
 | `a`    | `annotate`    |     |        |              |
 
 ```shell
-laud audio l
-laud audio v ID001
-laud report l
+ailoud audio l
+ailoud audio v ID001
+ailoud report l
 ```
 
-The group is singular with the plural as an alias, so `laud report rm SUM0`
-reads as removing one report rather than all of them; `laud recordings l` and
-`laud reports l` work too. A bare `laud audio` prints its verbs.
+The group is singular with the plural as an alias, so `ailoud report rm SUM0`
+reads as removing one report rather than all of them; `ailoud recordings l` and
+`ailoud reports l` work too. A bare `ailoud audio` prints its verbs.
 
-The old top-level spellings keep working and always will -- `laud import`,
-`laud transcribe`, `laud summarize`, `laud ls`, `laud show`, `laud rm`, `laud
+The old top-level spellings keep working and always will -- `ailoud import`,
+`ailoud transcribe`, `ailoud summarize`, `ailoud ls`, `ailoud show`, `ailoud rm`, `ailoud
 annotate` -- the same bargain `docker ps` struck with `docker container ls`.
-They are left out of `laud --help` so that it shows the shape of the tool
+They are left out of `ailoud --help` so that it shows the shape of the tool
 rather than every command twice.
 
 ```shell
-laud ls
-laud ls --json
-laud show ID001
-laud show ID001 --format srt
+ailoud ls
+ailoud ls --json
+ailoud show ID001
+ailoud show ID001 --format srt
 ```
 
 Find where something was said, without reading a transcript:
 
 ```shell
-laud audio search fuel
-laud audio f "before sunrise"        # a phrase, adjacent
-laud audio f "гаван*"                # a prefix, for an inflected language
-laud audio f rollback --tag release --lang ru
+ailoud audio search fuel
+ailoud audio f "before sunrise"        # a phrase, adjacent
+ailoud audio f "гаван*"                # a prefix, for an inflected language
+ailoud audio f rollback --tag release --lang ru
 ```
 
 Search returns the matching segments -- a timestamp, the speaker, the line --
@@ -290,7 +290,7 @@ returns a whole transcript: "where was this discussed" is answered by a line,
 and handing back a thousand lines to find one is not an answer.
 
 It is full-text search over an index SQLite maintains, so it folds case in
-every language laud is for: `встреча` finds `Встреча`. A trailing `*` is a
+every language ailoud is for: `встреча` finds `Встреча`. A trailing `*` is a
 prefix search, which matters far more in an inflected language than in English.
 Everything else is matched literally, so `don't` and `C++` are searches rather
 than syntax errors. By default only each recording's newest transcript is
@@ -300,9 +300,9 @@ several times; `--all` searches them all.
 Summarise one recording, or a tagged group of them in a single pass:
 
 ```shell
-laud summarize ID001
-laud summarize ID001 ID002
-laud summarize --tag standup
+ailoud summarize ID001
+ailoud summarize ID001 ID002
+ailoud summarize --tag standup
 ```
 
 `summarize` has no default selection, unlike `transcribe`: summarising the
@@ -310,7 +310,7 @@ whole library by accident costs minutes of local inference, or real money on
 a hosted model.
 
 `--lang <code>` chooses the language of the summary; without it the summary is
-written in the language of the recording, because laud exists for recordings
+written in the language of the recording, because ailoud exists for recordings
 that are not in English and a translation nobody asked for is not a summary.
 Codes are turned into names before the model sees them -- "Write in Russian"
 holds far better than "Write in ru".
@@ -320,13 +320,13 @@ headings, and `--context` hands the model the sentence or two the transcript
 does not say:
 
 ```shell
-laud audio summarize ID001 --template one-on-one \
+ailoud audio summarize ID001 --template one-on-one \
   --context "Ann is Ben's manager; this is their fortnightly."
 ```
 
 The headings differ because the questions do: a one-to-one is about agreements
 and concerns, a solution decision is about what was rejected and what would
-change the answer. `laud template ls` lists what is available:
+change the answer. `ailoud template ls` lists what is available:
 
 | template                | shape                                                              |
 | ----------------------- | ------------------------------------------------------------------ |
@@ -337,7 +337,7 @@ change the answer. `laud template ls` lists what is available:
 | `solution-decision`     | decision, reasoning, rejected alternatives, what would change it   |
 | `offsite`               | themes, decisions, actions                                         |
 
-Templates are written out as files in `$XDG_CONFIG_HOME/laud/templates/`, one
+Templates are written out as files in `$XDG_CONFIG_HOME/ailoud/templates/`, one
 YAML file each, on first use. They are files rather than something buried in
 the binary because a template is prose about how to summarise, and prose nobody
 can see cannot be improved. Edit one and the edit takes effect; a file you have
@@ -345,23 +345,23 @@ edited is never replaced by an update. Write your own and it is a peer of the
 shipped ones:
 
 ```shell
-laud template ls
-laud template show solution-decision
-laud template new retro --from one-on-one \
+ailoud template ls
+ailoud template show solution-decision
+ailoud template new retro --from one-on-one \
   --heading "Went well" --heading "Did not" --heading Actions
 ```
 
 The template and the context are stored with the report, so what a report was
 asked to be can be read back later.
 
-Every summary is saved. `laud report ls` lists them, `laud report show <id>`
-prints one, and `laud report rm <id>` deletes one:
+Every summary is saved. `ailoud report ls` lists them, `ailoud report show <id>`
+prints one, and `ailoud report rm <id>` deletes one:
 
 ```shell
-laud report ls
-laud report ls --recording ID001
-laud report show SUM0
-laud report rm SUM0
+ailoud report ls
+ailoud report ls --recording ID001
+ailoud report show SUM0
+ailoud report rm SUM0
 ```
 
 Deleting a report never touches a recording or its transcript: a report is
@@ -378,7 +378,7 @@ While the work runs there is a spinner, and where progress is countable it is
 counted: `Summarising portion 3/8 (37%)`. A report longer than 30 lines opens
 in your pager, where up, down and `q` behave as they do in `git` and `man`.
 
-For each recording, laud writes a transcript file into a directory that exists
+For each recording, ailoud writes a transcript file into a directory that exists
 only for the length of the run -- `record-yyyymmddhhmmss.txt`, from the
 recording's own date, with `-001` appended if two recordings share a second.
 Each file opens with a header the prompt is told to read:
@@ -404,19 +404,19 @@ argument. A transcript of any length passes `ARG_MAX` -- about a megabyte on
 macOS, less once the environment is counted -- and the spawn then fails with
 `E2BIG`, which is not something a user can fix.
 
-`laud setup` asks which engine to use and writes the answer to
+`ailoud setup` asks which engine to use and writes the answer to
 `llm.provider`; `--llm local|claude-cli|claude-api|openai|skip` answers it
 without a prompt, which is what an unattended run needs. Picking anything but
 `local` skips the 2.1 GB download entirely. `skip` configures nothing and
 leaves `summarize` unavailable until you come back to it -- `doctor` reports
 that as `n/a`, not as a failure. The providers:
 
-| `llm.provider`      | Reaches                                                        | Credential                                                            |
-| ------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `llama-cpp`         | a local GGUF model through `llama-cli`                         | none; nothing leaves the machine                                      |
-| `openai-compatible` | OpenAI, and local servers like llama-server, Ollama, LM Studio | `LAUD_LLM_API_KEY` or `OPENAI_API_KEY`, and none for a local endpoint |
-| `anthropic`         | Claude, through Anthropic's API                                | `LAUD_LLM_API_KEY` or `ANTHROPIC_API_KEY`                             |
-| `claude-cli`        | Claude, through the Claude Code CLI                            | the CLI's own sign-in -- a subscription, not a key                    |
+| `llm.provider`      | Reaches                                                        | Credential                                                              |
+| ------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `llama-cpp`         | a local GGUF model through `llama-cli`                         | none; nothing leaves the machine                                        |
+| `openai-compatible` | OpenAI, and local servers like llama-server, Ollama, LM Studio | `AILOUD_LLM_API_KEY` or `OPENAI_API_KEY`, and none for a local endpoint |
+| `anthropic`         | Claude, through Anthropic's API                                | `AILOUD_LLM_API_KEY` or `ANTHROPIC_API_KEY`                             |
+| `claude-cli`        | Claude, through the Claude Code CLI                            | the CLI's own sign-in -- a subscription, not a key                      |
 
 After the engine, `setup` asks which model, and asks the provider itself
 rather than carrying a list that goes stale: `GET /v1/models` on Anthropic or
@@ -439,7 +439,7 @@ Claude is reachable both ways deliberately, and `setup` asks which rather
 than guessing: a subscription is not an API key, and someone who already pays
 for one should not have to buy API credit to summarise their own recordings.
 `claude-cli` borrows the CLI's existing sign-in and runs one non-interactive
-completion with tools switched off. laud does not install Claude Code itself.
+completion with tools switched off. ailoud does not install Claude Code itself.
 
 Whichever engine is chosen, `doctor` reports its state and never exits
 non-zero over it: summarising is opt-in, so an unset key, an unsigned-in CLI
@@ -448,7 +448,7 @@ and a deliberate `skip` all read as `n/a`.
 Check that your machine is set up correctly:
 
 ```shell
-laud doctor
+ailoud doctor
 ```
 
 `doctor` is a first-class command, not a diagnostic afterthought: it reports
@@ -465,25 +465,25 @@ reports its state, but never makes `doctor` exit non-zero by itself -- only
 checks unrelated to those features do.
 See section 12 of the design doc for the exit code convention `doctor`
 failures use. Add `--fix` to have it install or download whatever failed,
-using the same engine `laud setup` uses -- see "First run: `laud setup`"
+using the same engine `ailoud setup` uses -- see "First run: `ailoud setup`"
 under "External tools" below.
 
 ## External tools
 
-`laud` depends on tools it does not bundle:
+`ailoud` depends on tools it does not bundle:
 
 - **`ffmpeg` and `ffprobe`** -- probing and format conversion. Verified by
-  `laud doctor`.
+  `ailoud doctor`.
 - **`whisper-vad-speech-segments`** (also from whisper.cpp) and a **VAD model
   file** -- speech detection for `transcribe --multilingual` only; the
   single-language default does not need either. Configured at
-  `stt.whisperCpp.vadBinary` and `stt.whisperCpp.vadModel`. Checked by `laud
+  `stt.whisperCpp.vadBinary` and `stt.whisperCpp.vadModel`. Checked by `ailoud
 doctor`, but because `--multilingual` is opt-in, a failing VAD check is
   reported as `n/a` rather than `FAIL` and never makes `doctor` exit
   non-zero on its own -- see "CLI quick start" above.
 - **`whisper-cli`** (whisper.cpp) and a **model file** -- local speech to
   text. The binary and model path are set in the config file, described
-  below, and checked by `laud doctor`.
+  below, and checked by `ailoud doctor`.
 - **`sherpa-onnx-offline-speaker-diarization`**, a **segmentation model**,
   and an **embedding model** -- speaker attribution for `transcribe
 --diarize` only; the single-speaker default needs none of it. Configured
@@ -492,25 +492,25 @@ doctor`, but because `--multilingual` is opt-in, a failing VAD check is
   clustering threshold used when `--speakers` is not given; default `0.6`)
   and `stt.diarization.threads` (threads for both diarizer passes; default
   `4`, the setting diarization speed was measured at -- the binary's own
-  default of 1 is about half as fast). Checked by `laud doctor`, but
+  default of 1 is about half as fast). Checked by `ailoud doctor`, but
   because `--diarize` is opt-in, a failing diarization check is reported as
   `n/a` rather than `FAIL` and never makes `doctor` exit non-zero on its own
   -- see "CLI quick start" above.
 
 - **`llama-cli`** (llama.cpp) and a **GGUF model file** -- local
-  summarisation for `laud summarize` only, and only when `llm.provider` is
+  summarisation for `ailoud summarize` only, and only when `llm.provider` is
   `llama-cpp`; the other three providers need neither. Configured at
-  `llm.llamaCpp.binary` and `llm.llamaCpp.model`. Checked by `laud doctor`,
+  `llm.llamaCpp.binary` and `llm.llamaCpp.model`. Checked by `ailoud doctor`,
   but because `summarize` is opt-in, a failing language-model check is
   reported as `n/a` rather than `FAIL` and never makes `doctor` exit non-zero
   on its own.
 
-### First run: `laud setup`
+### First run: `ailoud setup`
 
-The fastest way to get all of the above is to let laud install it:
+The fastest way to get all of the above is to let ailoud install it:
 
 ```shell
-laud setup
+ailoud setup
 ```
 
 `setup` runs the same checks `doctor` does, prints what is missing, the exact
@@ -551,7 +551,7 @@ command exits non-zero rather than claiming everything is in place.
   `--multilingual` was tuned against.
 
 If the environment drifts after that -- an OS update removes a binary, a
-model file gets deleted -- `laud doctor --fix` runs the exact same
+model file gets deleted -- `ailoud doctor --fix` runs the exact same
 provisioning engine as `setup`. Both act on exactly the checks that are
 currently failing, and both skip the ones that pass; the difference is only
 which command you reach for. `setup` is the first-run entry point, and prints
@@ -559,8 +559,8 @@ nothing but the plan; `doctor --fix` prints the full check report first, so
 you see what is wrong before you see what it proposes to do:
 
 ```shell
-laud doctor --fix
-laud doctor --fix --yes --model tiny
+ailoud doctor --fix
+ailoud doctor --fix --yes --model tiny
 ```
 
 It takes the same `--yes` and `--model` flags, for the same reasons, and
@@ -583,7 +583,7 @@ else -- an Intel Mac, Linux arm64 (where the only aarch64 assets upstream
 ships are vendor NPU builds that do not run on an ordinary ARM machine), any
 other Linux architecture, Windows -- there is no prebuilt asset to fetch, so
 building sherpa-onnx from source and pointing `stt.diarization.binary` at
-the result is the route. That is a real route, not a dead end: laud only
+the result is the route. That is a real route, not a dead end: ailoud only
 ever invokes the binary the config names. In all those cases the install
 action is skipped with an explanation rather than aborting the rest of the
 plan, the same way an unsupported whisper.cpp architecture is handled.
@@ -643,15 +643,15 @@ never answer.
     same sherpa-onnx releases page, and set `stt.diarization.segmentationModel`
     and `stt.diarization.embeddingModel` to their paths.
 
-Either way, `laud doctor` confirms what is still missing.
+Either way, `ailoud doctor` confirms what is still missing.
 
-## Using laud from an agent (MCP)
+## Using ailoud from an agent (MCP)
 
-`laud mcp` runs the library as an MCP server over stdio, so an agent can search
+`ailoud mcp` runs the library as an MCP server over stdio, so an agent can search
 it, summarise it and tag it. Point your agent at the command:
 
 ```json
-{ "mcpServers": { "laud": { "command": "laud", "args": ["mcp"] } } }
+{ "mcpServers": { "ailoud": { "command": "ailoud", "args": ["mcp"] } } }
 ```
 
 It serves the same library the other commands use, so anything imported or
@@ -677,7 +677,7 @@ instructions so the agent reads them before its first call:
   agent reads the part it needs with its own tools. The directory is removed
   when the server stops.
 - **Context lives in the agent's memory.** `summarize` takes a short `context`;
-  laud does not remember it between calls. The instructions tell the agent to
+  ailoud does not remember it between calls. The instructions tell the agent to
   keep it and pass it again.
 
 Templates are offered before summarising: `list_templates` is described as a
@@ -696,18 +696,18 @@ untagged), and `summarise-properly` (pick a template, check for an existing
 report, pass the context).
 
 Transcripts and reports are also addressable as resources --
-`laud://recording/{id}/transcript` and `laud://report/{id}` -- with id
+`ailoud://recording/{id}/transcript` and `ailoud://report/{id}` -- with id
 completion, for clients that let a user attach context directly.
 
 ## Configuration and storage
 
-- Config: `$XDG_CONFIG_HOME/laud/config.yaml`, default `~/.config/laud`.
-- Data: `$XDG_DATA_HOME/laud`, default `~/.local/share/laud`, holding
-  `laud.db` and the `media/` tree.
-- Secrets (`LAUD_LLM_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) come
+- Config: `$XDG_CONFIG_HOME/ailoud/config.yaml`, default `~/.config/ailoud`.
+- Data: `$XDG_DATA_HOME/ailoud`, default `~/.local/share/ailoud`, holding
+  `ailoud.db` and the `media/` tree.
+- Secrets (`AILOUD_LLM_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) come
   from the environment, never from the config file, and are never logged: a
   config file gets pasted into issues and committed by accident.
-  `LAUD_LLM_API_KEY` wins over the vendor variable, so a laud-specific key can
+  `AILOUD_LLM_API_KEY` wins over the vendor variable, so a ailoud-specific key can
   override a shared one. A variable exported but left blank counts as no key.
 
 ## Development

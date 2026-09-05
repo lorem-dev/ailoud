@@ -1,47 +1,47 @@
-# laud Changelog
+# ailoud Changelog
 
 ## Development
 
 ### Added
 
 - Initial project scaffolding: workspace, quality gate, and documents.
-- `laud import` adds audio and video files, or whole directories, to a local
+- `ailoud import` adds audio and video files, or whole directories, to a local
   library, skipping anything already stored.
-- `laud transcribe` turns recordings into timestamped, language-detected
+- `ailoud transcribe` turns recordings into timestamped, language-detected
   transcripts with whisper.cpp.
-- `laud ls` and `laud show` list the library and print a transcript as text,
+- `ailoud ls` and `ailoud show` list the library and print a transcript as text,
   JSON, SRT, or VTT.
-- `laud doctor` reports every missing tool, model, and permission, with how
+- `ailoud doctor` reports every missing tool, model, and permission, with how
   to fix each one.
 - Runtime dependencies are pinned to exact versions, so an install never
   drifts to an untested release.
-- Config lives at `$XDG_CONFIG_HOME/laud/config.yaml`, with two keys:
+- Config lives at `$XDG_CONFIG_HOME/ailoud/config.yaml`, with two keys:
   `stt.whisperCpp.binary` and `stt.whisperCpp.model`.
 - Every command exits with one of four codes: 0 ok, 1 failure, 2 usage, 3
   environment -- a scriptable, stable contract.
-- `laud transcribe --multilingual` detects and preserves each language in a
+- `ailoud transcribe --multilingual` detects and preserves each language in a
   code-switched recording instead of tagging the whole thing with one.
-- `laud setup` provisions a fresh machine -- ffmpeg, whisper.cpp, and a
+- `ailoud setup` provisions a fresh machine -- ffmpeg, whisper.cpp, and a
   transcription model -- asking once for consent (`--yes` to skip it, e.g.
   in CI) and letting `--model` pick which model to download.
-- `laud doctor --fix` runs the same provisioning engine as `setup`, acting on
+- `ailoud doctor --fix` runs the same provisioning engine as `setup`, acting on
   the checks that are currently failing, then re-checks.
 - The setup plan names every command it will run, including any `sudo`, so
   consent is never given blind.
-- `laud ls` names every language of a code-switched recording (`en+ru`), not
+- `ailoud ls` names every language of a code-switched recording (`en+ru`), not
   only the dominant one. `--json` still carries the single stored code.
 - Transcript previews are quoted and escaped, so trailing whitespace is
   visible and a transcript containing control characters cannot reprogram the
   reader's terminal. A clipped preview ends in `...`.
 - A command that runs for more than a second reports how long it took
   (`Done in 1m 5.300s`), on failure as well as success.
-- `laud setup` detects Windows up front and prints manual instructions
+- `ailoud setup` detects Windows up front and prints manual instructions
   instead of downloading anything.
 - With no terminal, an install that could prompt is reported with its exact
   command rather than spawned and left to hang.
 - A failing check with no automated repair, such as a corrupt database, is
   reported with its manual fix and exits non-zero.
-- `laud transcribe --diarize` attributes each segment to a speaker with a
+- `ailoud transcribe --diarize` attributes each segment to a speaker with a
   local sherpa-onnx diarizer, joined to the transcript by time overlap;
   `--speakers <n>` gives the known speaker count, which measured more
   reliably than letting the count be inferred. `show --format text` prints
@@ -50,7 +50,7 @@
 - Config gains `stt.diarization.binary`, `stt.diarization.segmentationModel`,
   `stt.diarization.embeddingModel`, `stt.diarization.threshold` (default
   `0.6`), and `stt.diarization.threads` (default `4`).
-- `laud setup` and `laud doctor --fix` provision the diarizer and its models
+- `ailoud setup` and `ailoud doctor --fix` provision the diarizer and its models
   the same way as whisper.cpp. Its `doctor` checks are optional: they report
   state, shown as `n/a` rather than `FAIL`, but never make `doctor` fail on
   their own, since `--diarize` is opt-in. The prebuilt diarizer covers macOS
@@ -59,12 +59,12 @@
   machine), for an Intel Mac, or for Windows, so on those platforms
   diarization needs sherpa-onnx built from source with
   `stt.diarization.binary` pointed at it.
-- `laud doctor`'s `vad binary` and `vad model` checks are optional now, the
+- `ailoud doctor`'s `vad binary` and `vad model` checks are optional now, the
   same way the diarization checks are: `--multilingual` is opt-in, so a
   machine that never transcribes code-switched audio no longer carries a
   permanently failing `doctor` over it. `transcribe --multilingual` still
   exits 3 with an actionable message when the VAD model is not configured.
-- `laud summarize <ids...>` and `laud summarize --tag <tag>` summarise one
+- `ailoud summarize <ids...>` and `ailoud summarize --tag <tag>` summarise one
   recording or a group with a language model. A group is summarised together
   rather than one at a time and stapled: "what came out of these
   conversations" is a different question from three separate answers, and the
@@ -85,7 +85,7 @@
   one: the two APIs differ in path, authentication header, a required version
   header, and where the reply's text lives. Pretending otherwise would have
   produced an adapter that looked generic and worked for one vendor.
-- The API key is read from `LAUD_LLM_API_KEY`, or `ANTHROPIC_API_KEY` /
+- The API key is read from `AILOUD_LLM_API_KEY`, or `ANTHROPIC_API_KEY` /
   `OPENAI_API_KEY` for the selected vendor -- from the environment, never from
   the config file: a config file gets pasted into issues and committed by
   accident. An exported-but-blank variable counts as no key, so `doctor`
@@ -118,7 +118,7 @@
   column.
 - A speaker name is capped at 32 characters: it prints in front of every line
   that person says, and a description belongs in --notes.
-- `laud annotate <id>` adds context to a recording: `--title`, `--notes`, and
+- `ailoud annotate <id>` adds context to a recording: `--title`, `--notes`, and
   `--speaker label=name` (repeatable) to give a diarizer's `speaker_00` a real
   name. Named speakers feed the summaries planned for the next milestone, and
   make a transcript readable now.
@@ -126,7 +126,7 @@
   the segments. The label is what the diarizer produced and the name is a
   human's annotation of it, so re-transcribing with `--force` re-runs
   diarization without losing the names -- verified on a real recording.
-- `laud show <id> --speakers` lists who spoke, ordered by how much, with their
+- `ailoud show <id> --speakers` lists who spoke, ordered by how much, with their
   names, segment counts and total speech. `--speaker <who>` shows only that
   speaker, matched by diarizer label or by the name you gave them, either
   case. A miss names the speakers the recording does have.
@@ -140,13 +140,13 @@
   a ULID begins with a timestamp and recordings imported minutes apart agree
   for eight characters or more. So the error says how many matched, lists the
   first three with their source, and counts the rest -- enough to choose a
-  longer prefix without going back to `laud ls`.
+  longer prefix without going back to `ailoud ls`.
 - Commands taking several ids resolve all of them before acting on any. A
   typo in the third of three cannot leave the first two already deleted.
 - Recordings carry the date the audio was recorded, read from the container's
   own metadata (`creation_time`, which mp4 and mov usually have and wav
   usually does not). It is stored separately from the import timestamp rather
-  than folded into it, so "when was this recorded" and "when did laud first
+  than folded into it, so "when was this recorded" and "when did ailoud first
   see it" stay distinguishable; `recordedOrImportedAt` resolves the fallback
   at the point of use. A placeholder date -- the Unix epoch, or an unparseable
   tag -- is refused rather than stored, because 1970 would be silently wrong
@@ -154,9 +154,9 @@
 - Schema version 2 adds the column. Existing databases migrate in place, with
   their recordings kept and no date of their own, which is the truth: nothing
   knows retroactively when they were recorded.
-- `laud rm <ids...>` deletes recordings from the library, with their
-  transcripts and segments, and with laud's own copy of the audio. The file
-  you imported from is never touched -- `import` copies into laud's storage
+- `ailoud rm <ids...>` deletes recordings from the library, with their
+  transcripts and segments, and with ailoud's own copy of the audio. The file
+  you imported from is never touched -- `import` copies into ailoud's storage
   and leaves the original where it is, and the confirmation says so. Deletion
   asks first; `--force` answers in advance, and with no terminal to ask on it
   refuses rather than assuming consent.
@@ -196,14 +196,14 @@
   never swallowed whole. A flat 5000ms window stopped splitting the
   3.46-second bilingual clip the feature was built for, silently losing its
   second language again.
-- `laud setup` and `laud doctor --fix` take an exclusive lock on the data
+- `ailoud setup` and `ailoud doctor --fix` take an exclusive lock on the data
   directory before provisioning, so two concurrent runs cannot delete or
   truncate scratch files out from under each other. A live lock is refused
   immediately, naming the other process's pid and when it started, rather
   than waiting -- provisioning can sit on a consent prompt for minutes. A
   stale lock (holder no longer running, or an empty/corrupt lock file left
   by a crash) is taken over automatically.
-- `laud doctor` reports the language model, and `laud setup` can provision it.
+- `ailoud doctor` reports the language model, and `ailoud setup` can provision it.
   Both treat it as optional, the way the VAD and diarization checks are:
   `summarize` is opt-in, and a machine that only transcribes must not carry a
   permanently red `doctor` over a feature it never uses.
@@ -214,8 +214,8 @@
   without making a billable request, and `doctor` does not spend the user's
   money to answer a question. A local OpenAI-compatible endpoint is not asked
   for a key, since Ollama and llama-server want none.
-- `laud setup` installs llama.cpp -- `brew` on macOS, a pinned release tarball
-  on Linux, where every target laud supports is published -- and downloads
+- `ailoud setup` installs llama.cpp -- `brew` on macOS, a pinned release tarball
+  on Linux, where every target ailoud supports is published -- and downloads
   Qwen2.5-3B-Instruct (Q4_K_M, about 2 GB) as the local summarisation model.
 - The local runner and the local model are two `doctor` checks, not one. A
   check carries one remedy, so folding them together made `setup` download two
@@ -229,7 +229,7 @@
 - `doctor`'s undecorated output widens its name column to the longest check
   name. At a fixed width, `diarization segmentation model` ran into its own
   detail: `diarization segmentation modelnot configured`.
-- `laud setup` asks which language model to set up instead of assuming the
+- `ailoud setup` asks which language model to set up instead of assuming the
   local one: llama.cpp with Qwen2.5-3B, Claude, OpenAI, or skip for now, with
   Claude asking subscription or API key as a second question. Guessing that
   one from whether the CLI happens to be installed would quietly put someone
@@ -250,7 +250,7 @@
 - The action executor rejects an unhandled action kind at compile time. Its
   switch had no default, so a kind nobody wrote a case for was named in the
   plan, consented to, and then silently did nothing.
-- After the engine, `laud setup` asks which model, and asks the provider for
+- After the engine, `ailoud setup` asks which model, and asks the provider for
   the list rather than shipping one: `GET /v1/models` on Anthropic or OpenAI.
   A built-in list was the alternative and is stale the day a vendor ships
   anything.
@@ -279,7 +279,7 @@
   does not adjust `contextTokens`. Picking a small-context model needs that key
   set by hand; the symptom is a context error from the API on the first
   oversized request, not a silently truncated summary.
-- `laud summarize --lang <code>` writes the summary in a chosen language. The
+- `ailoud summarize --lang <code>` writes the summary in a chosen language. The
   default stays the recording's own language. A code is turned into a name
   before the model sees it: "Write in Russian" holds far better than
   "Write in ru".
@@ -288,7 +288,7 @@
   cover several, and the same recording can be summarised again in another
   language or by another model without the earlier one becoming wrong. The
   provider and model are stored with it, because they explain the text.
-- `laud reports` lists saved summaries and `laud reports <id>` prints one, with
+- `ailoud reports` lists saved summaries and `ailoud reports <id>` prints one, with
   `--recording` to filter, `--json`, and id prefixes as everywhere else.
 - A group summary reuses each recording's stored summary instead of re-reading
   its transcript, which is where the saving is. Asking again about a single
@@ -336,31 +336,31 @@
   participant names and so called a clean English summary Russian, and a
   speaker-label pattern that matched the model honestly saying "speaker not
   identified". Both were caught by reading the outputs rather than the scores.
-- Commands are grouped by the noun they act on: `laud audio ls|show|annotate|rm`
-  and `laud report ls|show|rm`. Verbs that bring something into being --
+- Commands are grouped by the noun they act on: `ailoud audio ls|show|annotate|rm`
+  and `ailoud report ls|show|rm`. Verbs that bring something into being --
   `import`, `transcribe`, `summarize` -- stay at the top level. That is the
-  shape `docker` and `gh` settled on, and it is what keeps `laud --help`
+  shape `docker` and `gh` settled on, and it is what keeps `ailoud --help`
   readable as the library grows.
-- The group is singular with the plural as an alias -- `laud report rm SUM0`
-  reads as removing one report, while `laud reports rm SUM0` reads as removing
+- The group is singular with the plural as an alias -- `ailoud report rm SUM0`
+  reads as removing one report, while `ailoud reports rm SUM0` reads as removing
   all of them. `recordings` and `reports` both resolve.
-- The short spellings keep working and are not deprecated: `laud ls`, `laud
-show`, `laud rm`, `laud annotate`. `docker ps` still works years after
+- The short spellings keep working and are not deprecated: `ailoud ls`, `ailoud
+show`, `ailoud rm`, `ailoud annotate`. `docker ps` still works years after
   `docker container ls` became canonical, because the short form is what hands
   and scripts already know. They are hidden from the top-level help so it shows
   the shape of the tool instead of every command twice. The e2e suite, which
-  drives `laud ls` and `laud show`, passes untouched -- which is the proof the
+  drives `ailoud ls` and `ailoud show`, passes untouched -- which is the proof the
   compatibility is real rather than claimed.
-- A bare `laud audio` prints its verbs instead of an error: someone typing it
+- A bare `ailoud audio` prints its verbs instead of an error: someone typing it
   does not yet know them, and the list is the answer to that.
-- `laud report rm` is new. Deleting a report never touches a recording or a
+- `ailoud report rm` is new. Deleting a report never touches a recording or a
   transcript: a report is derived, and what it was derived from is what the
   library is for. It asks first, takes `--force`, refuses with no terminal, and
   resolves every id before deleting any of them -- half a deletion is the worst
   outcome when the user asked about a set.
 - `import`, `transcribe` and `summarize` moved under `audio` as well, so every
   verb lives under the noun it acts on and the top level is two nouns plus
-  `doctor` and `setup`. `laud --help` now shows the shape of the tool rather
+  `doctor` and `setup`. `ailoud --help` now shows the shape of the tool rather
   than a list that grows with every feature.
 - Every second-level verb has a one-letter alias -- `l` ls, `v` show, `r` rm,
   `a` annotate, `i` import, `t` transcribe, `s` summarize -- and the same verb
@@ -372,9 +372,9 @@ show`, `laud rm`, `laud annotate`. `docker ps` still works years after
   that table and fails on a duplicate, a missing letter, or one longer than a
   character.
 - The old top-level spellings all keep working, `import`, `transcribe` and
-  `summarize` included. The e2e suite drives `laud import`, `laud transcribe`,
-  `laud ls` and `laud show`, and passes untouched.
-- `laud audio summarize --template <name>` says what kind of conversation this
+  `summarize` included. The e2e suite drives `ailoud import`, `ailoud transcribe`,
+  `ailoud ls` and `ailoud show`, and passes untouched.
+- `ailoud audio summarize --template <name>` says what kind of conversation this
   is, which decides the summary's headings, and `--context <text>` hands the
   model the sentence or two the transcript does not say -- who these people are
   to each other, what the project is called, what happened last week.
@@ -384,15 +384,15 @@ show`, `laud rm`, `laud annotate`. `docker ps` still works years after
   about agreements and concerns, a solution decision about what was rejected
   and what would change the answer.
 - Templates are written out as YAML files under
-  `$XDG_CONFIG_HOME/laud/templates/`, one per template, on first use. A
+  `$XDG_CONFIG_HOME/ailoud/templates/`, one per template, on first use. A
   template is prose about how to summarise, and prose nobody can see cannot be
   improved. Disk is the source of truth, so an edit takes effect -- and a file
   the user has edited is never overwritten, which is the difference between
   shipping defaults and destroying someone's work.
-- `laud template ls|show|new` lists, prints and creates them. `new --from`
+- `ailoud template ls|show|new` lists, prints and creates them. `new --from`
   starts from an existing template. A template needs a context sentence and at
   least two headings: one heading is a title, not a shape.
-- `laud audio import --tag` tags at import. A tag is how a recording is found
+- `ailoud audio import --tag` tags at import. A tag is how a recording is found
   again by context, and the moment it is easiest to supply is while somebody is
   already thinking about what the file is; postponed, it stays undone.
 - The caller's context sits above the rules in the prompt, not below them: it
@@ -407,16 +407,16 @@ show`, `laud rm`, `laud annotate`. `docker ps` still works years after
   on haiku, sonnet and opus, and the whole set is 68/72. Changing the headings
   does not carry the previous measurement automatically, so the harness gained
   a template case.
-- `laud template new one-on-one` on a machine that had never listed templates
+- `ailoud template new one-on-one` on a machine that had never listed templates
   created a file shadowing a built-in, silently, because the built-ins had not
   been written out yet. `new` materialises them before it checks.
-- `laud audio search <words>` finds where something was said. It returns the
+- `ailoud audio search <words>` finds where something was said. It returns the
   matching segments -- timestamp, speaker, line -- grouped by recording with
   each recording's tags in the heading, and never a whole transcript: "where
   was this discussed" is answered by a line, and handing back a thousand lines
   to find one is not an answer.
 - Full-text, over the FTS index that has existed since schema version 1 and had
-  no reader. It folds case in every language laud is for -- `встреча` finds
+  no reader. It folds case in every language ailoud is for -- `встреча` finds
   `Встреча` -- which a `LIKE` search could not have done, since SQLite's
   `LOWER()` folds ASCII only.
 - A trailing `*` is a prefix search, worth far more in an inflected language
@@ -433,15 +433,15 @@ show`, `laud rm`, `laud annotate`. `docker ps` still works years after
 - Schema version 7 adds the AFTER UPDATE trigger the FTS index never had. A
   statement rewriting a segment's text in place would have left the index
   holding the old words -- finding the recording by a phrase nobody says in it
-  any more, and missing it by the phrase they do. Nothing in laud updates
+  any more, and missing it by the phrase they do. Nothing in ailoud updates
   segment text today, so this closes a hole rather than fixing a symptom.
-- `laud mcp` runs the library as an MCP server over stdio, so an agent can
+- `ailoud mcp` runs the library as an MCP server over stdio, so an agent can
   search, summarise and tag it. Sixteen tools: nine reading, five writing, two
   deleting. It serves the same library the other commands use.
 - The server's own `instructions` carry the four rules that change an agent's
   behaviour, stated with their reasons: tag everything, search before reading,
   transcripts arrive as files, and the context lives in the agent's memory
-  rather than in laud. A tool description explains one call; this explains the
+  rather than in ailoud. A tool description explains one call; this explains the
   shape of the thing, which is what stops an agent reading four transcripts to
   answer a question one search would have answered.
 - Every tool description says when to use it AND when not to, and every input
@@ -475,3 +475,15 @@ show`, `laud rm`, `laud annotate`. `docker ps` still works years after
 - `@modelcontextprotocol/sdk` 1.30.0, MIT, recorded in the Third-Party Notices
   per the `check-licenses` skill. Every production dependency is MIT, ISC or
   BSD; nothing on the disallowed list.
+- Renamed to AILoud. The command is `ailoud`, the packages are `@ailoud/core`
+  and `@ailoud/providers`, the config directory is `$XDG_CONFIG_HOME/ailoud`,
+  the data directory `$XDG_DATA_HOME/ailoud`, the database `ailoud.db`, and the
+  shared API-key variable `AILOUD_LLM_API_KEY`.
+- Nothing has been published yet, so there is no migration: an existing
+  library under the old paths is not read. Move
+  `~/.local/share/laud` to `~/.local/share/ailoud` and
+  `~/.config/laud` to `~/.config/ailoud` to keep one.
+- `strict-peer-dependencies` moved from `.npmrc` to `pnpm-workspace.yaml`. It
+  is a pnpm setting, npm warned about it on every command that read `.npmrc`,
+  and pnpm 11 no longer reads it from there at all -- so it was both noisy and
+  inert.

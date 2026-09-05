@@ -1,9 +1,9 @@
 import { select } from '@clack/prompts';
 import { isCancel } from '@clack/prompts';
-import { UsageError } from '@laud/core';
-import type { LlmProvider, Remedy } from '@laud/core';
-import { listAnthropicModels, listOpenAiModels } from '@laud/providers';
-import type { ModelOption } from '@laud/providers';
+import { UsageError } from '@ailoud/core';
+import type { LlmProvider, Remedy } from '@ailoud/core';
+import { listAnthropicModels, listOpenAiModels } from '@ailoud/providers';
+import type { ModelOption } from '@ailoud/providers';
 import { apiKeyFrom } from './apiKey.js';
 import type { CommandName } from './commands/setup.js';
 
@@ -163,7 +163,7 @@ export async function chooseLlm(options: LlmChoiceOptions): Promise<LlmSelection
   };
 
   const engine = await selectImpl({
-    message: 'Which language model should laud use to summarise?',
+    message: 'Which language model should ailoud use to summarise?',
     initialValue: 'local',
     options: [
       {
@@ -187,7 +187,7 @@ export async function chooseLlm(options: LlmChoiceOptions): Promise<LlmSelection
   }
 
   const route = await selectImpl({
-    message: 'How should laud reach Claude?',
+    message: 'How should ailoud reach Claude?',
     initialValue: 'claude-cli',
     options: [
       {
@@ -209,7 +209,7 @@ export async function chooseLlm(options: LlmChoiceOptions): Promise<LlmSelection
  * Returns undefined -- leaving whatever the config already says -- whenever
  * there is nothing to choose from: the local route has no list, and the hosted
  * ones cannot be listed without a key. That case is announced rather than
- * passed over silently, because "laud picked a model for me and did not say
+ * passed over silently, because "ailoud picked a model for me and did not say
  * which" is the confusing outcome.
  */
 async function chooseModelId(
@@ -240,14 +240,14 @@ async function chooseModelId(
     options.note?.(
       variable === null
         ? 'No models to choose from; keeping the configured model.'
-        : `${variable} is not set, so laud cannot ask which models you can use. ` +
+        : `${variable} is not set, so ailoud cannot ask which models you can use. ` +
             'Keeping the configured model -- set the key and re-run to choose one.',
     );
     return undefined;
   }
 
   const answer = await (options.selectImpl ?? select)({
-    message: 'Which model should laud use?',
+    message: 'Which model should ailoud use?',
     initialValue: models[0]!.id,
     options: models.map((model) => ({ value: model.id, label: model.label })),
   });

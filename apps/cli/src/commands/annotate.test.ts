@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { UsageError } from '@laud/core';
+import { UsageError } from '@ailoud/core';
 import { buildProgram } from '../program.js';
 import { context, contextWithTranscript } from './testContext.js';
 import {
@@ -65,19 +65,26 @@ describe('parseSpeakerAssignments', () => {
   });
 });
 
-describe('laud annotate', () => {
+describe('ailoud annotate', () => {
   it('sets a title', async () => {
     const ctx = context();
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'annotate', 'ID001', '--title', 'Standup']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync([
+      'node',
+      'ailoud',
+      'annotate',
+      'ID001',
+      '--title',
+      'Standup',
+    ]);
     expect((await ctx.store.getRecording('ID001'))?.title).toBe('Standup');
   });
 
   it('leaves the other field alone when only one is given', async () => {
     const ctx = context();
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'annotate', 'ID001', '--notes', 'ctx']);
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'annotate', 'ID001', '--title', 'T']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'annotate', 'ID001', '--notes', 'ctx']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'annotate', 'ID001', '--title', 'T']);
     const recording = await ctx.store.getRecording('ID001');
     expect(recording?.notes).toBe('ctx');
     expect(recording?.title).toBe('T');
@@ -85,10 +92,10 @@ describe('laud annotate', () => {
 
   it('stores speaker names against the recording', async () => {
     const ctx = context();
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
     await buildProgram(ctx).parseAsync([
       'node',
-      'laud',
+      'ailoud',
       'annotate',
       'ID001',
       '--speaker',
@@ -104,10 +111,10 @@ describe('laud annotate', () => {
 
   it('replaces a name rather than failing on a second attempt', async () => {
     const ctx = context();
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
     await buildProgram(ctx).parseAsync([
       'node',
-      'laud',
+      'ailoud',
       'annotate',
       'ID001',
       '--speaker',
@@ -115,7 +122,7 @@ describe('laud annotate', () => {
     ]);
     await buildProgram(ctx).parseAsync([
       'node',
-      'laud',
+      'ailoud',
       'annotate',
       'ID001',
       '--speaker',
@@ -129,10 +136,10 @@ describe('laud annotate', () => {
 
   it('accepts a label no segment uses, since annotating before transcribing is reasonable', async () => {
     const ctx = context();
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
     await buildProgram(ctx).parseAsync([
       'node',
-      'laud',
+      'ailoud',
       'annotate',
       'ID001',
       '--speaker',
@@ -145,15 +152,15 @@ describe('laud annotate', () => {
     // A command that succeeds having changed nothing is indistinguishable
     // from one that worked.
     const ctx = context();
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'annotate', 'ID001']),
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'annotate', 'ID001']),
     ).rejects.toThrow(/needs something to set/);
   });
 
   it('takes an id prefix like every other command', async () => {
     const ctx = await contextWithTranscript();
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'annotate', 'ID0', '--title', 'T']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'annotate', 'ID0', '--title', 'T']);
     expect((await ctx.store.getRecording('ID001'))?.title).toBe('T');
   });
 });

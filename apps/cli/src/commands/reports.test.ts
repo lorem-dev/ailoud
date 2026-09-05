@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { FailureError, UsageError } from '@laud/core';
-import type { Summary } from '@laud/core';
+import { FailureError, UsageError } from '@ailoud/core';
+import type { Summary } from '@ailoud/core';
 import { buildProgram } from '../program.js';
 import { FIXTURE_PATH, contextWithTranscript } from './testContext.js';
 import { reportPreview } from './reports.js';
@@ -51,13 +51,13 @@ describe('reportPreview', () => {
   });
 });
 
-describe('laud report ls / show', () => {
+describe('ailoud report ls / show', () => {
   it('says so when there are none, rather than printing an empty table', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
-    await expect(buildProgram(ctx).parseAsync(['node', 'laud', 'report', 'ls'])).rejects.toThrow(
+    await expect(buildProgram(ctx).parseAsync(['node', 'ailoud', 'report', 'ls'])).rejects.toThrow(
       FailureError,
     );
-    await expect(buildProgram(ctx).parseAsync(['node', 'laud', 'report', 'ls'])).rejects.toThrow(
+    await expect(buildProgram(ctx).parseAsync(['node', 'ailoud', 'report', 'ls'])).rejects.toThrow(
       /No reports yet/,
     );
   });
@@ -69,7 +69,7 @@ describe('laud report ls / show', () => {
       summary({ id: 'SUM00000000000000000000002', createdAt: '2026-08-31T11:00:00.000Z' }),
     );
     ctx.lines.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'report', 'ls']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'report', 'ls']);
     const out = ctx.lines.join('\n');
     expect(out).toContain('haiku');
     expect(out.indexOf('SUM00000000000000000000002')).toBeLessThan(
@@ -81,7 +81,7 @@ describe('laud report ls / show', () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await ctx.store.insertSummary(summary());
     ctx.lines.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'report', 'show', 'SUM']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'report', 'show', 'SUM']);
     const out = ctx.lines.join('\n');
     expect(out).toContain('claude-cli haiku');
     expect(out).toContain('Covers: ID001');
@@ -92,7 +92,7 @@ describe('laud report ls / show', () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await ctx.store.insertSummary(summary());
     ctx.lines.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'report', 'show', 'SUM0']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'report', 'show', 'SUM0']);
     expect(ctx.lines.join('\n')).toContain('Meet at the pier at five.');
   });
 
@@ -101,7 +101,7 @@ describe('laud report ls / show', () => {
     await ctx.store.insertSummary(summary({ id: 'SUM00000000000000000000001' }));
     await ctx.store.insertSummary(summary({ id: 'SUM00000000000000000000002' }));
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'report', 'show', 'SUM']),
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'report', 'show', 'SUM']),
     ).rejects.toThrow(/matches 2 reports/);
   });
 
@@ -109,14 +109,14 @@ describe('laud report ls / show', () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await ctx.store.insertSummary(summary());
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'report', 'show', 'S']),
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'report', 'show', 'S']),
     ).rejects.toThrow(UsageError);
   });
 
   it('says which report id did not match', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'report', 'show', 'ZZZZ']),
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'report', 'show', 'ZZZZ']),
     ).rejects.toThrow(/No report matches "ZZZZ"/);
   });
 
@@ -124,19 +124,19 @@ describe('laud report ls / show', () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await ctx.store.insertSummary(summary({ recordingIds: ['ID001'] }));
     ctx.lines.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'report', 'ls', '--recording', 'ID0']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'report', 'ls', '--recording', 'ID0']);
     expect(ctx.lines.join('\n')).toContain('SUM00000000000000000000001');
   });
 
   it('emits JSON for machines, and an empty array rather than an error', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     ctx.lines.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'report', 'ls', '--json']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'report', 'ls', '--json']);
     expect(ctx.lines.join('')).toContain('[]');
 
     await ctx.store.insertSummary(summary());
     ctx.lines.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'report', 'ls', '--json']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'report', 'ls', '--json']);
     const parsed = JSON.parse(ctx.lines.join('')) as Summary[];
     expect(parsed[0]!.model).toBe('haiku');
     expect(parsed[0]!.recordingIds).toEqual(['ID001']);
@@ -146,12 +146,12 @@ describe('laud report ls / show', () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await ctx.store.insertSummary(summary({ recordingIds: ['ID001', 'ID002', 'ID003'] }));
     ctx.lines.length = 0;
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'report', 'ls']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'report', 'ls']);
     expect(ctx.lines.join('\n')).toContain('3 recordings');
   });
 });
 
-describe('laud report rm', () => {
+describe('ailoud report rm', () => {
   const stored = async (ctx: Awaited<ReturnType<typeof contextWithTranscript>>) => {
     await ctx.store.insertSummary(summary({ id: 'SUM00000000000000000000001' }));
     await ctx.store.insertSummary(summary({ id: 'SUM00000000000000000000002' }));
@@ -163,7 +163,7 @@ describe('laud report rm', () => {
     await stored(ctx);
     await buildProgram(ctx).parseAsync([
       'node',
-      'laud',
+      'ailoud',
       'report',
       'rm',
       'SUM00000000000000000000001',
@@ -182,7 +182,7 @@ describe('laud report rm', () => {
     ctx.lines.length = 0;
     await buildProgram(ctx).parseAsync([
       'node',
-      'laud',
+      'ailoud',
       'report',
       'rm',
       'SUM00000000000000000000001',
@@ -199,15 +199,27 @@ describe('laud report rm', () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await stored(ctx);
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'report', 'rm', 'SUM00000000000000000000001']),
-    ).rejects.toThrow(/laud report rm needs confirmation/);
+      buildProgram(ctx).parseAsync([
+        'node',
+        'ailoud',
+        'report',
+        'rm',
+        'SUM00000000000000000000001',
+      ]),
+    ).rejects.toThrow(/ailoud report rm needs confirmation/);
   });
 
   it('changes nothing when the confirmation is refused', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await stored(ctx);
     await expect(
-      buildProgram(ctx).parseAsync(['node', 'laud', 'report', 'rm', 'SUM00000000000000000000001']),
+      buildProgram(ctx).parseAsync([
+        'node',
+        'ailoud',
+        'report',
+        'rm',
+        'SUM00000000000000000000001',
+      ]),
     ).rejects.toThrow();
     expect(await ctx.store.listAllSummaries()).toHaveLength(2);
   });
@@ -219,7 +231,7 @@ describe('laud report rm', () => {
     await expect(
       buildProgram(ctx).parseAsync([
         'node',
-        'laud',
+        'ailoud',
         'report',
         'rm',
         'SUM00000000000000000000001',
@@ -236,9 +248,9 @@ describe('command layout', () => {
     // The same bargain docker struck: `docker ps` still works years after
     // `docker container ls` became canonical.
     for (const argv of [
-      ['node', 'laud', 'ls'],
-      ['node', 'laud', 'audio', 'ls'],
-      ['node', 'laud', 'recordings', 'ls'],
+      ['node', 'ailoud', 'ls'],
+      ['node', 'ailoud', 'audio', 'ls'],
+      ['node', 'ailoud', 'recordings', 'ls'],
     ]) {
       const ctx = await contextWithTranscript({ clearLines: true });
       await buildProgram(ctx).parseAsync(argv);
@@ -247,7 +259,7 @@ describe('command layout', () => {
   });
 
   it('leaves only the nouns and the environment commands at the top level', async () => {
-    // The whole point of the reshuffle: laud --help shows the shape of the
+    // The whole point of the reshuffle: ailoud --help shows the shape of the
     // tool, not a list that grows with every verb.
     const ctx = await contextWithTranscript({ skipImport: true });
     const visible = buildProgram(ctx)
@@ -283,8 +295,8 @@ describe('command layout', () => {
 
   it('dispatches on the letter', async () => {
     for (const argv of [
-      ['node', 'laud', 'audio', 'l'],
-      ['node', 'laud', 'recordings', 'l'],
+      ['node', 'ailoud', 'audio', 'l'],
+      ['node', 'ailoud', 'recordings', 'l'],
     ]) {
       const ctx = await contextWithTranscript({ clearLines: true });
       await buildProgram(ctx).parseAsync(argv);
@@ -295,8 +307,8 @@ describe('command layout', () => {
   it('keeps import, transcribe and summarize working at the top level too', async () => {
     // e2e drives these, and so does anyone's shell history.
     const ctx = await contextWithTranscript({ skipImport: true });
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'import', FIXTURE_PATH]);
-    await buildProgram(ctx).parseAsync(['node', 'laud', 'transcribe']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', FIXTURE_PATH]);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe']);
     expect((await ctx.store.listRecordings({})).length).toBeGreaterThan(0);
     expect(await ctx.store.latestTranscript('ID001')).not.toBeNull();
   });

@@ -156,14 +156,14 @@ async function withSpeakers(
     // library callers, who can build deps without one -- and it must warn
     // rather than throw, because the transcript is already worth keeping.
     //
-    // Names no install command on purpose. `laud setup` and `laud doctor
+    // Names no install command on purpose. `ailoud setup` and `ailoud doctor
     // --fix` both refuse Windows, so naming them here would rebuild the same
     // dead end checkDiarizerBinary's fix text was just cured of (see
-    // installHint in ../provision/remedy.ts). `laud doctor` is safe on every
+    // installHint in ../provision/remedy.ts). `ailoud doctor` is safe on every
     // platform and reports the per-platform remedy itself.
     deps.onWarning?.(
       'speaker diarization was requested but no diarizer is available, so this transcript ' +
-        'has no speakers. Run "laud doctor" to see which diarization pieces are missing.',
+        'has no speakers. Run "ailoud doctor" to see which diarization pieces are missing.',
     );
     return [...segments];
   }
@@ -226,7 +226,7 @@ export async function transcribeRecording(
 ): Promise<Transcript> {
   if (deps.stt.capabilities.maxBytes !== null) {
     throw new FailureError(
-      `${deps.stt.name} declares a request size limit, and laud cannot split audio yet. Use a provider without a limit.`,
+      `${deps.stt.name} declares a request size limit, and ailoud cannot split audio yet. Use a provider without a limit.`,
     );
   }
 

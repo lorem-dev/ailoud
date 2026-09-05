@@ -1,5 +1,5 @@
-import type { Diarizer, SpeakerTurn } from '@laud/core';
-import { FailureError } from '@laud/core';
+import type { Diarizer, SpeakerTurn } from '@ailoud/core';
+import { FailureError } from '@ailoud/core';
 import { run as defaultRunner } from '../process/run.js';
 
 // Explicit rather than inherited from the run helper's default, for the same

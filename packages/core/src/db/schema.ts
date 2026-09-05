@@ -54,7 +54,7 @@ export const MIGRATIONS: readonly Migration[] = [
   {
     version: 2,
     statements: [
-      // When the audio was recorded, as opposed to when laud was told about
+      // When the audio was recorded, as opposed to when ailoud was told about
       // it. Nullable on purpose: most containers carry no such tag, and a
       // column that always held a value would make "we know" and "we
       // guessed" indistinguishable. Callers resolve the fallback with
@@ -142,7 +142,7 @@ export const MIGRATIONS: readonly Migration[] = [
       // triggers. An UPDATE trigger was missing, so a statement that rewrote a
       // segment's text in place would leave the index holding the old words:
       // search would find the recording by a phrase nobody says in it any
-      // more, and miss it by the phrase they do. Nothing in laud updates
+      // more, and miss it by the phrase they do. Nothing in ailoud updates
       // segment text today -- re-transcribing inserts a new transcript -- so
       // this is closing a hole rather than fixing a symptom, which is the
       // cheapest time to do it.
@@ -160,7 +160,7 @@ export const SCHEMA_VERSION = MIGRATIONS.length;
 export function pendingMigrations(currentVersion: number): readonly Migration[] {
   if (currentVersion > SCHEMA_VERSION) {
     throw new Error(
-      `The database is at schema version ${currentVersion}, newer than this build understands (${SCHEMA_VERSION}). Update laud.`,
+      `The database is at schema version ${currentVersion}, newer than this build understands (${SCHEMA_VERSION}). Update ailoud.`,
     );
   }
   return MIGRATIONS.filter((m) => m.version > currentVersion);

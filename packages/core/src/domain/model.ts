@@ -14,7 +14,7 @@ export interface Recording {
    *
    * Kept separate from `importedAt` rather than folded into it: a date read
    * from the file is a fact about the recording, and the import timestamp is
-   * a fact about laud. Storing only the resolved value would answer "when
+   * a fact about ailoud. Storing only the resolved value would answer "when
    * was this recorded" with a number that might mean "when did I first see
    * it", with no way to tell which. Use `recordedOrImportedAt` to resolve.
    */

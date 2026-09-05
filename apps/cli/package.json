@@ -1,15 +1,15 @@
 {
-  "name": "laud",
+  "name": "ailoud",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "bin": {
-    "laud": "./dist/bin/laud.js"
+    "ailoud": "./dist/bin/ailoud.js"
   },
   "dependencies": {
     "@clack/prompts": "1.7.0",
-    "@laud/core": "workspace:*",
-    "@laud/providers": "workspace:*",
+    "@ailoud/core": "workspace:*",
+    "@ailoud/providers": "workspace:*",
     "@modelcontextprotocol/sdk": "1.30.0",
     "cli-table3": "0.6.5",
     "commander": "15.0.0",
@@ -19,7 +19,7 @@
     "zod": "4.4.3"
   },
   "scripts": {
-    "build": "tsc -b tsconfig.build.json && chmod +x dist/bin/laud.js",
+    "build": "tsc -b tsconfig.build.json && chmod +x dist/bin/ailoud.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }

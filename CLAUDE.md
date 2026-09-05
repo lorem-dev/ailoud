@@ -1,6 +1,6 @@
-# CLAUDE.md -- laud
+# CLAUDE.md -- ailoud
 
-`laud` is a command-line tool that transcribes audio and video into a local
+`ailoud` is a command-line tool that transcribes audio and video into a local
 recording library, and, in a later milestone, will summarize and answer
 questions over it through a large language model. Speech-to-text and the
 LLM are separate engine layers behind stable ports. There is no GUI; the

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { MemFs } from '@laud/core/testing';
-import { SUMMARY_TEMPLATES, UsageError } from '@laud/core';
+import { MemFs } from '@ailoud/core/testing';
+import { SUMMARY_TEMPLATES, UsageError } from '@ailoud/core';
 import {
   loadTemplate,
   loadTemplates,
@@ -11,13 +11,13 @@ import {
   validateTemplateName,
 } from './templateStore.js';
 
-const DIR = '/config/laud/templates';
+const DIR = '/config/ailoud/templates';
 
 describe('templatesDir', () => {
   it('sits beside the config file, not under the data directory', () => {
     // A template is configuration -- prose about how to summarise -- not
     // library data.
-    expect(templatesDir('/config/laud/config.yaml')).toBe('/config/laud/templates');
+    expect(templatesDir('/config/ailoud/config.yaml')).toBe('/config/ailoud/templates');
   });
 });
 

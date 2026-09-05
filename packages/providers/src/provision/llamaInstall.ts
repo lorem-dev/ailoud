@@ -1,13 +1,13 @@
 import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { FailureError } from '@laud/core';
+import { FailureError } from '@ailoud/core';
 import { run, runInteractive } from '../process/run.js';
 import { downloadFile } from './download.js';
 
 /**
- * The llama.cpp build laud installs. Pinned, never "latest", for the same
+ * The llama.cpp build ailoud installs. Pinned, never "latest", for the same
  * reason the whisper.cpp and sherpa-onnx pins exist: two people running the
- * same `laud setup` a week apart must get the same binary, and an upstream
+ * same `ailoud setup` a week apart must get the same binary, and an upstream
  * change must not be able to break installation for everyone at once.
  */
 export const LLAMA_VERSION = 'b10712';
@@ -17,7 +17,7 @@ const RELEASES = 'https://github.com/ggml-org/llama.cpp/releases/download';
 /**
  * The prebuilt archive for this platform and CPU.
  *
- * Every target laud supports is published here -- macOS on both
+ * Every target ailoud supports is published here -- macOS on both
  * architectures, Ubuntu on both -- which is a happier position than the
  * diarizer, where generic Linux arm64 simply does not exist.
  */

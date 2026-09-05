@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
-import { EnvironmentError, UsageError, planProvisioning } from '@laud/core';
+import { EnvironmentError, UsageError, planProvisioning } from '@ailoud/core';
 import { buildProgram, exitCodeFor } from '../program.js';
 import { parseConfig } from '../config.js';
 import { blocksReadiness } from './setup.js';
@@ -29,7 +29,7 @@ import { collectRemedies } from './setup.js';
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'laud-doctor-test-'));
+  dir = await mkdtemp(join(tmpdir(), 'ailoud-doctor-test-'));
 });
 
 afterEach(async () => {
@@ -66,7 +66,7 @@ describe('checkVadModel', () => {
 
 describe('checkVadBinary', () => {
   it('reports "not found on PATH" for a bare binary name that is not installed', async () => {
-    const check = await checkVadBinary('/c', 'laud-doctor-test-no-such-binary');
+    const check = await checkVadBinary('/c', 'ailoud-doctor-test-no-such-binary');
     expect(check.ok).toBe(false);
     expect(check.detail).toBe('not found on PATH');
   });
@@ -91,7 +91,7 @@ describe('checkVadBinary', () => {
   // its own assertion rather than relying on the passing-binary case below.
   it('is optional on every branch: passing, not on PATH, and configured path missing', async () => {
     const passing = await checkVadBinary('/c', process.execPath);
-    const notOnPath = await checkVadBinary('/c', 'laud-doctor-test-no-such-binary');
+    const notOnPath = await checkVadBinary('/c', 'ailoud-doctor-test-no-such-binary');
     const missingPath = await checkVadBinary('/c', join(dir, 'no-such-vad-binary'));
     expect(passing.optional).toBe(true);
     expect(notOnPath.optional).toBe(true);
@@ -173,7 +173,7 @@ describe('checkLanguageModel', () => {
         '/c',
         llm({
           provider,
-          claudeCli: { binary: 'laud-no-such-cli', model: 'sonnet', contextTokens: 1 },
+          claudeCli: { binary: 'ailoud-no-such-cli', model: 'sonnet', contextTokens: 1 },
         }),
         {},
         'linux',
@@ -236,7 +236,7 @@ describe('checkLanguageModel', () => {
     const shared = await checkLanguageModel(
       '/c',
       llm({ provider: 'anthropic' }),
-      { LAUD_LLM_API_KEY: 'k' },
+      { AILOUD_LLM_API_KEY: 'k' },
       'linux',
     );
     expect(shared.ok).toBe(true);
@@ -298,7 +298,7 @@ describe('checkLanguageModel', () => {
       '/c',
       llm({
         provider: 'claude-cli',
-        claudeCli: { ...parseConfig(null).llm.claudeCli, binary: 'laud-no-such-claude' },
+        claudeCli: { ...parseConfig(null).llm.claudeCli, binary: 'ailoud-no-such-claude' },
       }),
       {},
       'linux',
@@ -311,7 +311,7 @@ describe('checkLanguageModel', () => {
 
 describe('checkDiarizerBinary', () => {
   it('reports "not found on PATH" for a bare binary name that is not installed', async () => {
-    const check = await checkDiarizerBinary('/c', 'laud-doctor-test-no-such-binary');
+    const check = await checkDiarizerBinary('/c', 'ailoud-doctor-test-no-such-binary');
     expect(check.ok).toBe(false);
     expect(check.detail).toBe('not found on PATH');
   });
@@ -328,31 +328,31 @@ describe('checkDiarizerBinary', () => {
     expect(check.ok).toBe(true);
   });
 
-  it('sends every platform to "laud setup", never to brew -- sherpa-onnx has no brew route', async () => {
+  it('sends every platform to "ailoud setup", never to brew -- sherpa-onnx has no brew route', async () => {
     const missing = join(dir, 'no-such-diarizer-binary');
     const darwin = await checkDiarizerBinary('/c', missing, 'darwin');
     const linux = await checkDiarizerBinary('/c', missing, 'linux');
     expect(darwin.fix).not.toContain('brew');
-    expect(darwin.fix).toContain('laud setup');
-    expect(linux.fix).toContain('laud setup');
+    expect(darwin.fix).toContain('ailoud setup');
+    expect(linux.fix).toContain('ailoud setup');
   });
 
-  it('names "laud setup" exactly once on the platforms it applies to', async () => {
+  it('names "ailoud setup" exactly once on the platforms it applies to', async () => {
     // The fix text used to hardcode the command AND interpolate the hint,
-    // which renders as 'run "laud setup" (laud setup)'.
+    // which renders as 'run "ailoud setup" (ailoud setup)'.
     const missing = join(dir, 'no-such-diarizer-binary');
     const darwin = await checkDiarizerBinary('/c', missing, 'darwin');
-    expect(darwin.fix?.match(/laud setup/g)).toHaveLength(1);
+    expect(darwin.fix?.match(/ailoud setup/g)).toHaveLength(1);
   });
 
-  it('never points a win32 user at "laud setup", which refuses Windows', async () => {
+  it('never points a win32 user at "ailoud setup", which refuses Windows', async () => {
     // installHint's own comment: setup refuses to provision Windows, so
     // sending the user there is a circle -- run setup, be told setup cannot
     // help, run doctor, be told to run setup. The Windows route is the
     // manual one, and windowsManualSteps now covers the diarizer.
     const missing = join(dir, 'no-such-diarizer-binary');
     const win32 = await checkDiarizerBinary('/c', missing, 'win32');
-    expect(win32.fix).not.toContain('laud setup');
+    expect(win32.fix).not.toContain('ailoud setup');
     expect(win32.fix).toContain('install it by hand');
     expect(win32.fix).toContain('README.md');
   });
@@ -362,7 +362,7 @@ describe('checkBinary', () => {
   it('attaches the given remedy to a failing check', async () => {
     const check = await checkBinary(
       'thing',
-      'laud-doctor-test-no-such-binary',
+      'ailoud-doctor-test-no-such-binary',
       ['--help'],
       'install it',
       undefined,
@@ -516,7 +516,7 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
   let binDir: string;
 
   beforeEach(async () => {
-    scopedDir = await mkdtemp(join(tmpdir(), 'laud-doctor-fix-test-'));
+    scopedDir = await mkdtemp(join(tmpdir(), 'ailoud-doctor-fix-test-'));
     binDir = join(scopedDir, 'bin');
     await mkdir(binDir, { recursive: true });
     await mkdir(join(scopedDir, 'media'), { recursive: true });
@@ -547,7 +547,7 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
       paths: {
         configFile: join(scopedDir, 'config.yaml'),
         dataDir: scopedDir,
-        dbFile: join(scopedDir, 'laud.db'),
+        dbFile: join(scopedDir, 'ailoud.db'),
         mediaRoot: join(scopedDir, 'media'),
       },
       config: {
@@ -663,7 +663,7 @@ describe('doctor: an unconfigured optional feature does not mean "not ready"', (
   let binDir: string;
 
   beforeEach(async () => {
-    dataDir = await mkdtemp(join(tmpdir(), 'laud-optional-check-test-'));
+    dataDir = await mkdtemp(join(tmpdir(), 'ailoud-optional-check-test-'));
     binDir = join(dataDir, 'bin');
     await mkdir(binDir, { recursive: true });
     await mkdir(join(dataDir, 'media'), { recursive: true });
@@ -687,7 +687,7 @@ describe('doctor: an unconfigured optional feature does not mean "not ready"', (
       paths: {
         configFile: join(dataDir, 'config.yaml'),
         dataDir,
-        dbFile: join(dataDir, 'laud.db'),
+        dbFile: join(dataDir, 'ailoud.db'),
         mediaRoot: join(dataDir, 'media'),
       },
       config: {
@@ -720,7 +720,7 @@ describe('doctor: an unconfigured optional feature does not mean "not ready"', (
       // defect being fixed), this await would reject and fail the test on
       // its own -- the same "resolves cleanly" idiom the rest of this
       // suite uses for a genuinely healthy machine.
-      await buildProgram(ctx).parseAsync(['node', 'laud', 'doctor']);
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'doctor']);
       // The failing checks are still reported -- optional means "not
       // fatal", not "hidden".
       expect(ctx.lines.some((line) => line.includes('diarizer binary'))).toBe(true);
@@ -737,7 +737,7 @@ describe('doctor: an unconfigured optional feature does not mean "not ready"', (
     try {
       const ctx = almostHealthyContext();
       const error: unknown = await buildProgram(ctx)
-        .parseAsync(['node', 'laud', 'doctor'])
+        .parseAsync(['node', 'ailoud', 'doctor'])
         .catch((caught: unknown) => caught);
       expect(error).toBeInstanceOf(EnvironmentError);
       expect(exitCodeFor(error)).toBe(3);
@@ -753,8 +753,8 @@ describe('doctor: an unconfigured optional feature does not mean "not ready"', (
  * above this one calls `runChecks`/`planProvisioning` directly and would
  * stay green even if registerDoctor's own call to `runProvisioning` fell
  * back to naming "setup" -- which is exactly what shipped in the first cut
- * of this file: `runProvisioning`'s shared consent guard hard-coded "laud
- * setup needs confirmation", so `laud doctor --fix` in CI reported an error
+ * of this file: `runProvisioning`'s shared consent guard hard-coded "ailoud
+ * setup needs confirmation", so `ailoud doctor --fix` in CI reported an error
  * about a command nobody ran. Only a test that goes through the real
  * action, the way a CI job actually invokes it, can catch that.
  */
@@ -768,12 +768,12 @@ describe('doctor --fix: the real CLI action', () => {
     // this guard exists for.
     const ctx = context();
     const error: unknown = await buildProgram(ctx)
-      .parseAsync(['node', 'laud', 'doctor', '--fix'])
+      .parseAsync(['node', 'ailoud', 'doctor', '--fix'])
       .catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(UsageError);
     const message = error instanceof Error ? error.message : String(error);
-    expect(message).toMatch(/laud doctor needs confirmation/);
-    expect(message).not.toMatch(/laud setup/);
+    expect(message).toMatch(/ailoud doctor needs confirmation/);
+    expect(message).not.toMatch(/ailoud setup/);
   });
 });
 
@@ -782,7 +782,7 @@ describe('doctor --fix: the real CLI action', () => {
  * deletes user data, so its repair stays a human's job (design section 3).
  * That made it the state where the three entry points could disagree --
  * `doctor` exited 3 while `doctor --fix` on the identical library printed
- * "Everything laud needs is already in place" and exited 0, and `setup`,
+ * "Everything ailoud needs is already in place" and exited 0, and `setup`,
  * which never prints the checks, printed that one false sentence and
  * nothing else. All three must refuse.
  */
@@ -791,7 +791,7 @@ describe('a corrupt database: every entry point must refuse', () => {
   let binDir: string;
 
   beforeEach(async () => {
-    corruptDir = await mkdtemp(join(tmpdir(), 'laud-corrupt-db-test-'));
+    corruptDir = await mkdtemp(join(tmpdir(), 'ailoud-corrupt-db-test-'));
     binDir = join(corruptDir, 'bin');
     await mkdir(binDir, { recursive: true });
     await mkdir(join(corruptDir, 'media'), { recursive: true });
@@ -828,7 +828,7 @@ describe('a corrupt database: every entry point must refuse', () => {
       paths: {
         configFile: join(corruptDir, 'config.yaml'),
         dataDir: corruptDir,
-        dbFile: join(corruptDir, 'laud.db'),
+        dbFile: join(corruptDir, 'ailoud.db'),
         mediaRoot: join(corruptDir, 'media'),
       },
       config: {
@@ -873,7 +873,7 @@ describe('a corrupt database: every entry point must refuse', () => {
     try {
       const ctx = corruptContext();
       const error: unknown = await buildProgram(ctx)
-        .parseAsync(['node', 'laud', ...argv])
+        .parseAsync(['node', 'ailoud', ...argv])
         .catch((caught: unknown) => caught);
       return { error, lines: ctx.lines };
     } finally {
@@ -889,7 +889,7 @@ describe('a corrupt database: every entry point must refuse', () => {
   it('doctor --fix exits non-zero on the same state, instead of claiming success', async () => {
     const { error, lines } = await runCommand(['doctor', '--fix']);
     expect(error).toBeInstanceOf(EnvironmentError);
-    expect(lines.join('\n')).not.toContain('Everything laud needs is already in place.');
+    expect(lines.join('\n')).not.toContain('Everything ailoud needs is already in place.');
   });
 
   it('doctor --fix does not print the failing checks a second time', async () => {
@@ -908,7 +908,7 @@ describe('a corrupt database: every entry point must refuse', () => {
     const { error, lines } = await runCommand(['setup']);
     expect(error).toBeInstanceOf(EnvironmentError);
     const output = lines.join('\n');
-    expect(output).not.toContain('Everything laud needs is already in place.');
+    expect(output).not.toContain('Everything ailoud needs is already in place.');
     expect(output).toContain('database');
     expect(output).toContain('Back up');
   });
@@ -926,12 +926,12 @@ describe('a corrupt database: every entry point must refuse', () => {
 /**
  * The Windows guard lives in runProvisioning (the shared engine) now, not
  * in registerSetup, precisely so `doctor --fix` inherits it too. Before
- * this fix, `laud doctor --fix --yes` on win32 built a plan, took consent,
+ * this fix, `ailoud doctor --fix --yes` on win32 built a plan, took consent,
  * downloaded the transcription model and the VAD model (up to 1.6 GB), and
  * only then failed both installs and exited non-zero. registerDoctor is
  * called directly (not through buildProgram) so `platform` can be pinned to
  * 'win32' without a real Windows box, mirroring the equivalent
- * "laud setup on Windows" test in setup.test.ts.
+ * "ailoud setup on Windows" test in setup.test.ts.
  */
 describe('doctor --fix on Windows', () => {
   it('refuses immediately, downloading nothing and building no plan', async () => {
@@ -941,14 +941,14 @@ describe('doctor --fix on Windows', () => {
     registerDoctor(program, ctx, 'win32');
 
     const error: unknown = await program
-      .parseAsync(['node', 'laud', 'doctor', '--fix', '--yes'])
+      .parseAsync(['node', 'ailoud', 'doctor', '--fix', '--yes'])
       .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(EnvironmentError);
     const message = error instanceof Error ? error.message : String(error);
-    expect(message).toMatch(/laud doctor cannot provision Windows/);
+    expect(message).toMatch(/ailoud doctor cannot provision Windows/);
     const output = ctx.lines.join('\n');
-    expect(output).toContain('laud doctor does not provision Windows');
+    expect(output).toContain('ailoud doctor does not provision Windows');
     expect(output).toContain('README.md');
     // Refused before collectRemedies/planProvisioning ever ran: none of the
     // plan-only output (the download total, the exact command lines) appears.

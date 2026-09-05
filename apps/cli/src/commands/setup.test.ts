@@ -2,14 +2,14 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Action } from '@laud/core';
+import type { Action } from '@ailoud/core';
 import {
   EMBEDDING_MODEL,
   EnvironmentError,
   SEGMENTATION_MODEL,
   VAD_MODEL,
   findModel,
-} from '@laud/core';
+} from '@ailoud/core';
 import {
   blocksReadiness,
   chooseModel,
@@ -25,10 +25,10 @@ import {
   unfixableChecks,
 } from './setup.js';
 import type { PlanEnvironment } from './setup.js';
-import type { PackageManager } from '@laud/providers';
-import type { Remedy } from '@laud/core';
-import type * as Providers from '@laud/providers';
-import type { LaudConfig, LaudPaths } from '../config.js';
+import type { PackageManager } from '@ailoud/providers';
+import type { Remedy } from '@ailoud/core';
+import type * as Providers from '@ailoud/providers';
+import type { AiloudConfig, AiloudPaths } from '../config.js';
 import type { CliContext } from '../wiring.js';
 import type { Check } from '../ui/index.js';
 import { context } from './testContext.js';
@@ -160,7 +160,7 @@ describe('requireConsent', () => {
 
   it('defaults the guard message to "setup" when no commandName is given', async () => {
     await expect(requireConsent({ yes: false, interactive: false })).rejects.toThrow(
-      /laud setup needs confirmation/,
+      /ailoud setup needs confirmation/,
     );
   });
 
@@ -171,7 +171,7 @@ describe('requireConsent', () => {
     // that `setup` needs confirmation -- a command it never ran.
     await expect(
       requireConsent({ yes: false, interactive: false, commandName: 'doctor' }),
-    ).rejects.toThrow(/laud doctor needs confirmation/);
+    ).rejects.toThrow(/ailoud doctor needs confirmation/);
   });
 
   it('asks when interactive and returns the answer', async () => {
@@ -221,14 +221,14 @@ describe('describeAction / describePlan', () => {
     arch: 'x64',
     dataDir: '/data',
     manager: 'apt-get',
-    configFile: '/config/laud.yaml',
+    configFile: '/config/ailoud.yaml',
   };
   const brew: PlanEnvironment = {
     platform: 'darwin',
     arch: 'arm64',
     dataDir: '/data',
     manager: 'brew',
-    configFile: '/config/laud.yaml',
+    configFile: '/config/ailoud.yaml',
   };
 
   it('names where the choice lands and what it still needs, before consent', () => {
@@ -236,7 +236,7 @@ describe('describeAction / describePlan', () => {
     // while deciding, not the first time summarize refuses.
     const lines = describePlan([{ kind: 'set-llm-provider', provider: 'anthropic' }], apt);
     expect(lines[0]).toContain("Claude through Anthropic's API");
-    expect(lines.join('\n')).toContain('/config/laud.yaml');
+    expect(lines.join('\n')).toContain('/config/ailoud.yaml');
     expect(lines.join('\n')).toMatch(/ANTHROPIC_API_KEY/);
   });
 
@@ -248,7 +248,7 @@ describe('describeAction / describePlan', () => {
     expect(lines.join('\n')).toContain('claude-opus-5');
   });
 
-  it('says laud will not install Claude Code for the subscription route', () => {
+  it('says ailoud will not install Claude Code for the subscription route', () => {
     const lines = describePlan([{ kind: 'set-llm-provider', provider: 'claude-cli' }], brew);
     expect(lines.join('\n')).toMatch(/does not install it/);
   });
@@ -467,7 +467,7 @@ const providers = vi.hoisted(() => ({
 // because the plan text tests below assert on the exact command lines a user
 // would be shown -- a mocked builder would let those pass while the real
 // consent plan said something else entirely.
-vi.mock('@laud/providers', async (importOriginal) => ({
+vi.mock('@ailoud/providers', async (importOriginal) => ({
   ...(await importOriginal<typeof Providers>()),
   ...providers,
 }));
@@ -490,7 +490,7 @@ describe('executePlan', () => {
   let dataDir: string;
 
   beforeEach(async () => {
-    dataDir = await mkdtemp(join(tmpdir(), 'laud-setup-test-'));
+    dataDir = await mkdtemp(join(tmpdir(), 'ailoud-setup-test-'));
     for (const fn of Object.values(providers)) fn.mockReset();
   });
 
@@ -791,7 +791,7 @@ describe('executePlan', () => {
       '--strip-components=1',
     ]);
     // The archive and the scratch extraction directory are both cleaned up
-    // -- laud has no use for model.int8.onnx or anything else in there.
+    // -- ailoud has no use for model.int8.onnx or anything else in there.
     await expect(stat(`${target}.tar.bz2`)).rejects.toThrow();
     await expect(stat(`${target}.extracted`)).rejects.toThrow();
   });
@@ -962,7 +962,7 @@ describe('executePlan: set-llm-provider', () => {
 });
 
 // runProvisioning integration tests -- these drive the real executePlan,
-// writeConfigUpdates, and runChecks (only @laud/providers and @clack/prompts
+// writeConfigUpdates, and runChecks (only @ailoud/providers and @clack/prompts
 // are mocked, per the module-level vi.mock calls above). They exist because
 // every other test in this file targets a sub-function in isolation, which
 // is exactly how the previous bug survived: runChecks re-reading the config
@@ -972,7 +972,7 @@ describe('executePlan: set-llm-provider', () => {
 // catch that.
 describe('runProvisioning', () => {
   let tmp: string;
-  let paths: LaudPaths;
+  let paths: AiloudPaths;
 
   // Diarization is pre-configured and healthy here, deliberately: the final
   // re-check inside runProvisioning runs the REAL runChecks (see the
@@ -984,7 +984,7 @@ describe('runProvisioning', () => {
   // they exist to test. `process.execPath` stands in for both model paths
   // the same way it stands in for a binary elsewhere in this file: a real
   // file guaranteed to exist, whose content nothing here reads.
-  const badConfig: LaudConfig = {
+  const badConfig: AiloudConfig = {
     stt: {
       provider: 'whisper-cpp',
       whisperCpp: {
@@ -1009,7 +1009,7 @@ describe('runProvisioning', () => {
     return { name, ok: false, detail: 'missing', fix: `fix ${name} by hand`, remedy };
   }
 
-  function provisioningContext(config: LaudConfig): CliContext & { lines: string[] } {
+  function provisioningContext(config: AiloudConfig): CliContext & { lines: string[] } {
     // Reuses testContext.ts's fakes for everything runChecks/runProvisioning
     // do not care about here (store, fs, audio, clock, ids), but points
     // `paths` at a real throwaway directory: checkModel, checkVadModel, and
@@ -1037,11 +1037,11 @@ describe('runProvisioning', () => {
   }
 
   beforeEach(async () => {
-    tmp = await mkdtemp(join(tmpdir(), 'laud-provisioning-test-'));
+    tmp = await mkdtemp(join(tmpdir(), 'ailoud-provisioning-test-'));
     paths = {
       configFile: join(tmp, 'config.yaml'),
       dataDir: join(tmp, 'data'),
-      dbFile: join(tmp, 'data', 'laud.db'),
+      dbFile: join(tmp, 'data', 'ailoud.db'),
       mediaRoot: join(tmp, 'data', 'media'),
     };
     await mkdir(paths.mediaRoot, { recursive: true });
@@ -1080,7 +1080,7 @@ describe('runProvisioning', () => {
   it('still writes the config updates that did succeed, still re-checks, and still throws on a partial failure', async () => {
     // The MANDATORY download is the one that fails here. It used to be the
     // VAD model, but the VAD checks are optional now -- a failing optional
-    // check does not mean laud cannot run, so it can no longer stand in for
+    // check does not mean ailoud cannot run, so it can no longer stand in for
     // "the run as a whole failed". The whisper model is genuinely required,
     // so it is what this case turns on.
     providers.downloadFile.mockImplementation(async (url: string, target: string) => {
@@ -1118,13 +1118,13 @@ describe('runProvisioning', () => {
     expect(providers.downloadFile).not.toHaveBeenCalled();
     expect(providers.installWhisper).not.toHaveBeenCalled();
     await expect(stat(paths.configFile)).rejects.toThrow();
-    expect(ctx.lines.at(-1)).toBe('Everything laud needs is already in place.');
+    expect(ctx.lines.at(-1)).toBe('Everything ailoud needs is already in place.');
   });
 
   it('refuses, rather than reporting success, when every failing check is un-fixable', async () => {
     // The corrupt-database check deliberately carries no remedy: its repair
     // is "back up, then delete", which is destructive and belongs to a
-    // human. That used to reach the same "Everything laud needs is already
+    // human. That used to reach the same "Everything ailoud needs is already
     // in place" as a genuinely healthy machine, so `doctor --fix` exited 0
     // on a library `doctor` had just exited 3 over.
     const ctx = provisioningContext(context().config);
@@ -1134,7 +1134,7 @@ describe('runProvisioning', () => {
         name: 'database',
         ok: false,
         detail: 'integrity_check: malformed',
-        fix: 'Back up /d/laud.db, then delete it.',
+        fix: 'Back up /d/ailoud.db, then delete it.',
       },
     ];
 
@@ -1144,8 +1144,8 @@ describe('runProvisioning', () => {
 
     const output = ctx.lines.join('\n');
     expect(output).toContain('database');
-    expect(output).toContain('Back up /d/laud.db, then delete it.');
-    expect(output).not.toContain('Everything laud needs is already in place.');
+    expect(output).toContain('Back up /d/ailoud.db, then delete it.');
+    expect(output).not.toContain('Everything ailoud needs is already in place.');
     expect(providers.downloadFile).not.toHaveBeenCalled();
     expect(clack.confirm).not.toHaveBeenCalled();
   });
@@ -1158,7 +1158,7 @@ describe('runProvisioning', () => {
     ];
 
     await expect(runProvisioning(ctx, { yes: true }, checks, 'linux')).resolves.toBeUndefined();
-    expect(ctx.lines.at(-1)).toBe('Everything laud needs is already in place.');
+    expect(ctx.lines.at(-1)).toBe('Everything ailoud needs is already in place.');
   });
 
   it('prints the exact sudo command line before it asks for consent', async () => {
@@ -1312,7 +1312,7 @@ describe('runProvisioning', () => {
         name: 'diarizer binary',
         ok: false,
         detail: 'not found on PATH',
-        fix: 'run laud setup',
+        fix: 'run ailoud setup',
         remedy: { kind: 'install-diarizer' },
         optional: true,
       },
@@ -1320,7 +1320,7 @@ describe('runProvisioning', () => {
         name: 'diarization segmentation model',
         ok: false,
         detail: 'not configured',
-        fix: 'run laud setup',
+        fix: 'run ailoud setup',
         remedy: { kind: 'download-diarization-model', slot: 'segmentation' },
         optional: true,
       },
@@ -1328,7 +1328,7 @@ describe('runProvisioning', () => {
         name: 'diarization embedding model',
         ok: false,
         detail: 'not configured',
-        fix: 'run laud setup',
+        fix: 'run ailoud setup',
         remedy: { kind: 'download-diarization-model', slot: 'embedding' },
         optional: true,
       },
@@ -1338,7 +1338,7 @@ describe('runProvisioning', () => {
   });
 });
 
-describe('laud setup on Windows', () => {
+describe('ailoud setup on Windows', () => {
   beforeEach(() => {
     // The mocks are shared across this file; this block asserts on what was
     // NOT called, so it has to start from a clean count.
@@ -1356,7 +1356,7 @@ describe('laud setup on Windows', () => {
     registerSetup(program, ctx, 'win32');
 
     const error: unknown = await program
-      .parseAsync(['node', 'laud', 'setup', '--yes'])
+      .parseAsync(['node', 'ailoud', 'setup', '--yes'])
       .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(EnvironmentError);
@@ -1378,7 +1378,7 @@ describe('laud setup on Windows', () => {
     program.exitOverride();
     registerSetup(program, ctx, 'win32');
 
-    await program.parseAsync(['node', 'laud', 'setup', '--yes']).catch(() => undefined);
+    await program.parseAsync(['node', 'ailoud', 'setup', '--yes']).catch(() => undefined);
 
     const output = ctx.lines.join('\n');
     expect(output).toContain('sherpa-onnx');

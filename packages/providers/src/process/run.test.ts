@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EnvironmentError, FailureError } from '@laud/core';
+import { EnvironmentError, FailureError } from '@ailoud/core';
 import { run, runInteractive } from './run.js';
 
 describe('run', () => {
@@ -14,8 +14,8 @@ describe('run', () => {
   });
 
   it('reports a missing binary as an EnvironmentError', async () => {
-    await expect(run('laud-no-such-binary', [])).rejects.toThrow(EnvironmentError);
-    await expect(run('laud-no-such-binary', [])).rejects.toThrow(/not found/);
+    await expect(run('ailoud-no-such-binary', [])).rejects.toThrow(EnvironmentError);
+    await expect(run('ailoud-no-such-binary', [])).rejects.toThrow(/not found/);
   });
 
   it('kills a process that outlives its timeout, as a FailureError not an EnvironmentError', async () => {
@@ -52,7 +52,7 @@ describe('runInteractive', () => {
   });
 
   it('reports a missing binary as an EnvironmentError', async () => {
-    await expect(runInteractive('laud-no-such-binary', [])).rejects.toThrow(EnvironmentError);
+    await expect(runInteractive('ailoud-no-such-binary', [])).rejects.toThrow(EnvironmentError);
   });
 
   it('reports a signal death (e.g. Ctrl-C at a sudo password prompt) as 128 + signal number', async () => {

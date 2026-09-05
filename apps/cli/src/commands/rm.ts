@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import type { Recording } from '@laud/core';
+import type { Recording } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { isInteractive, requireConsent } from './setup.js';
 import { resolveRecordings } from '../resolveId.js';
@@ -11,9 +11,9 @@ interface RmOptions {
 /**
  * Describes what deletion will actually do, for the confirmation prompt.
  *
- * Names the storage copy explicitly. laud's `import` COPIES a file into its
+ * Names the storage copy explicitly. ailoud's `import` COPIES a file into its
  * own storage and leaves the original where it was, so "delete this
- * recording" removes laud's copy and nothing else. Someone about to confirm
+ * recording" removes ailoud's copy and nothing else. Someone about to confirm
  * an irreversible action should not have to go and read the source to find
  * that out.
  */
@@ -26,7 +26,7 @@ export function describeDeletion(recordings: readonly Recording[]): readonly str
       ? 'This will permanently delete 1 recording, its transcripts, and its segments:'
       : `This will permanently delete ${recordings.length} recordings, their transcripts, and their segments:`,
     ...lines,
-    "laud's own copy of the audio goes too. The file you imported from is not touched.",
+    "ailoud's own copy of the audio goes too. The file you imported from is not touched.",
   ];
 }
 
@@ -35,7 +35,7 @@ export function registerRm(program: Command, context: CliContext): void {
     .command('rm')
     .argument('<ids...>', 'recording ids to delete')
     .option('--force', 'delete without asking')
-    .description("Delete recordings from the library, with laud's copy of their audio")
+    .description("Delete recordings from the library, with ailoud's copy of their audio")
     .action(async (ids: string[], options: RmOptions) => {
       await context.ui.frame('Deleting recordings', async () => {
         // Resolves prefixes, and throws unless every one of them picks out

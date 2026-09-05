@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
-import { FailureError, formatTimestamp, speakerNameMap, toMatchExpression } from '@laud/core';
-import type { SegmentHit } from '@laud/core';
+import { FailureError, formatTimestamp, speakerNameMap, toMatchExpression } from '@ailoud/core';
+import type { SegmentHit } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecording } from '../resolveId.js';
 import { collectTag, parseTags } from '../tags.js';

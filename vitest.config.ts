@@ -6,8 +6,8 @@ const fromRoot = (relative: string): string => fileURLToPath(new URL(relative, i
 export default defineConfig({
   resolve: {
     alias: {
-      '@laud/core/testing': fromRoot('./packages/core/src/testing/index.ts'),
-      '@laud/core': fromRoot('./packages/core/src/index.ts'),
+      '@ailoud/core/testing': fromRoot('./packages/core/src/testing/index.ts'),
+      '@ailoud/core': fromRoot('./packages/core/src/index.ts'),
     },
   },
   test: {

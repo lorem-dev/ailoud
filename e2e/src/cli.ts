@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 /** The binary this suite drives: the built CLI, never the TypeScript source. */
-const BINARY = join(__dirname, '..', '..', 'apps', 'cli', 'dist', 'bin', 'laud.js');
+const BINARY = join(__dirname, '..', '..', 'apps', 'cli', 'dist', 'bin', 'ailoud.js');
 
 /** whisper.cpp on CPU is slow; a hung process should still not hang the suite forever. */
 const RUN_TIMEOUT_MS = 300_000;
@@ -26,9 +26,9 @@ export interface CliResult {
 export interface Sandbox {
   /** The sandboxed $HOME. Nothing outside it should ever be touched. */
   readonly home: string;
-  /** Where laud looks for config.yaml, per apps/cli/src/config.ts. */
+  /** Where ailoud looks for config.yaml, per apps/cli/src/config.ts. */
   readonly configFile: string;
-  /** Where laud stores its database and media, per apps/cli/src/config.ts. */
+  /** Where ailoud stores its database and media, per apps/cli/src/config.ts. */
   readonly dataDir: string;
   /** Runs the built binary with this sandbox's environment. The only way a spec invokes it. */
   run(args: readonly string[]): Promise<CliResult>;
@@ -60,11 +60,11 @@ function runProcess(args: readonly string[], env: NodeJS.ProcessEnv): Promise<Cl
 }
 
 export async function makeSandbox(): Promise<Sandbox> {
-  const home = await mkdtemp(join(tmpdir(), 'laud-e2e-'));
+  const home = await mkdtemp(join(tmpdir(), 'ailoud-e2e-'));
   const configHome = join(home, 'config');
   const dataHome = join(home, 'data');
-  const configFile = join(configHome, 'laud', 'config.yaml');
-  const dataDir = join(dataHome, 'laud');
+  const configFile = join(configHome, 'ailoud', 'config.yaml');
+  const dataDir = join(dataHome, 'ailoud');
 
   // Every one of these three variables matters: dropping any single one
   // falls back to the real $HOME-derived default in apps/cli/src/config.ts

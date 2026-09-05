@@ -9,8 +9,8 @@ import type {
   SegmentSearchFilter,
   Summary,
   Transcript,
-} from '@laud/core';
-import { orderLanguages, pendingMigrations } from '@laud/core';
+} from '@ailoud/core';
+import { orderLanguages, pendingMigrations } from '@ailoud/core';
 
 interface RecordingRow {
   id: string;

@@ -1,5 +1,5 @@
-import { formatTimestamp } from '@laud/core';
-import type { Recording, Transcript } from '@laud/core';
+import { formatTimestamp } from '@ailoud/core';
+import type { Recording, Transcript } from '@ailoud/core';
 import type { Check, RecordingRow, Ui } from './types.js';
 import { checkStatus, languageLabel, optionalNote, previewCell } from './cells.js';
 
@@ -90,7 +90,7 @@ export class PlainUi implements Ui {
   }
 
   public emptyLibrary(): void {
-    this.write('The library is empty. Add something with "laud import".');
+    this.write('The library is empty. Add something with "ailoud import".');
   }
 
   public recordings(rows: readonly RecordingRow[]): void {

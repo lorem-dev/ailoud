@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { formatRecordedAt, recordedOrImportedAt } from '@laud/core';
+import { formatRecordedAt, recordedOrImportedAt } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecording, resolveSummary } from '../resolveId.js';
 import { reportPreview } from '../commands/reports.js';
@@ -39,7 +39,7 @@ export function registerDeleteTools(
     {
       title: 'Delete recordings from the library',
       description:
-        "Deletes recordings, their transcripts, their segments and laud's own copy of the " +
+        "Deletes recordings, their transcripts, their segments and ailoud's own copy of the " +
         'audio. THE FILE THE USER IMPORTED FROM IS NOT TOUCHED.\n\n' +
         'NOT RECOVERABLE. Two calls are required: the first describes what would go and returns ' +
         'a confirmationToken, the second carries it out. Show the user the description from the ' +
@@ -84,7 +84,7 @@ export function registerDeleteTools(
           status: 'confirmation required',
           willDelete: describe,
           alsoDeleted:
-            "each recording's transcripts, segments, tags, speaker names, reports, and laud's copy of the audio",
+            "each recording's transcripts, segments, tags, speaker names, reports, and ailoud's copy of the audio",
           notDeleted: 'the original files these were imported from',
           recoverable: false,
           confirmationToken: confirmations.issue('recordings', ids),

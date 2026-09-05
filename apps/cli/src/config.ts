@@ -1,6 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import { EnvironmentError, LLM_PROVIDERS, UsageError } from '@laud/core';
+import { EnvironmentError, LLM_PROVIDERS, UsageError } from '@ailoud/core';
 
 // Zod 4's `.default()` short-circuits: when the key is missing it substitutes
 // the default value as-is, without re-running it through the inner schema.
@@ -86,46 +86,46 @@ const ConfigSchema = z.object({
     .prefault({}),
 });
 
-export type LaudConfig = z.infer<typeof ConfigSchema>;
+export type AiloudConfig = z.infer<typeof ConfigSchema>;
 
-export interface LaudPaths {
+export interface AiloudPaths {
   readonly configFile: string;
   readonly dataDir: string;
   readonly dbFile: string;
   readonly mediaRoot: string;
 }
 
-export function resolvePaths(env: Record<string, string | undefined>): LaudPaths {
+export function resolvePaths(env: Record<string, string | undefined>): AiloudPaths {
   const home = env['HOME'];
   if (home === undefined || home === '') {
     throw new EnvironmentError(
-      'HOME is not set, so laud cannot find its configuration or data. Set HOME in your ' +
-        'shell environment, then run "laud doctor" to confirm laud is ready.',
+      'HOME is not set, so ailoud cannot find its configuration or data. Set HOME in your ' +
+        'shell environment, then run "ailoud doctor" to confirm ailoud is ready.',
     );
   }
   const configHome = env['XDG_CONFIG_HOME'] ?? `${home}/.config`;
   const dataHome = env['XDG_DATA_HOME'] ?? `${home}/.local/share`;
-  const dataDir = `${dataHome}/laud`;
+  const dataDir = `${dataHome}/ailoud`;
   return {
-    configFile: `${configHome}/laud/config.yaml`,
+    configFile: `${configHome}/ailoud/config.yaml`,
     dataDir,
-    dbFile: `${dataDir}/laud.db`,
+    dbFile: `${dataDir}/ailoud.db`,
     mediaRoot: `${dataDir}/media`,
   };
 }
 
-export function parseConfig(raw: string | null): LaudConfig {
+export function parseConfig(raw: string | null): AiloudConfig {
   if (raw === null) return ConfigSchema.parse({});
   let document: unknown;
   try {
     document = parseYaml(raw) ?? {};
   } catch (error) {
-    throw new UsageError(`The laud config file is not valid YAML: ${(error as Error).message}`);
+    throw new UsageError(`The ailoud config file is not valid YAML: ${(error as Error).message}`);
   }
   const result = ConfigSchema.safeParse(document);
   if (!result.success) {
     const first = result.error.issues[0]!;
-    throw new UsageError(`Invalid laud config at "${first.path.join('.')}": ${first.message}`);
+    throw new UsageError(`Invalid ailoud config at "${first.path.join('.')}": ${first.message}`);
   }
   return result.data;
 }

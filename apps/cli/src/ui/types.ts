@@ -1,4 +1,4 @@
-import type { Recording, Remedy, Transcript } from '@laud/core';
+import type { Recording, Remedy, Transcript } from '@ailoud/core';
 
 /**
  * A single row of the human-readable `ls` listing. Distinct from the JSON
@@ -24,21 +24,21 @@ export interface Check {
   readonly detail: string;
   readonly fix?: string;
   /**
-   * Present when `laud setup` / `doctor --fix` can repair this check
+   * Present when `ailoud setup` / `doctor --fix` can repair this check
    * without a human. Absent means the repair needs judgment -- see
    * `Remedy`'s doc comment.
    */
   readonly remedy?: Remedy;
   /**
    * True when this check reports the state of an opt-in feature rather than
-   * something laud needs to run at all -- the diarizer today, since
+   * something ailoud needs to run at all -- the diarizer today, since
    * `--diarize` is opt-in per recording. Absent (the default) means the
-   * check is load-bearing: `laud` cannot do its job without it, the way it
+   * check is load-bearing: `ailoud` cannot do its job without it, the way it
    * cannot without ffmpeg or a transcription model.
    *
    * The distinction is `remedy`'s counterpart, one level up: `remedy` says
    * whether a failure can be repaired without a human; `optional` says
-   * whether the failure means laud cannot run at all, or only that one
+   * whether the failure means ailoud cannot run at all, or only that one
    * opt-in feature is unavailable until someone asks for it. A failing
    * optional check is still reported like any other -- it just does not
    * make `doctor` exit non-zero or `setup`/`doctor --fix` treat the
@@ -68,7 +68,7 @@ export interface Ui {
    * status if `task` resolves, a failure status (naming the error) if it
    * rejects. Every command wraps its entire action in exactly one call to
    * this, so no run can leave a frame open on any exit path, including a
-   * thrown `LaudError`. Rethrows whatever `task` throws, unchanged, so the
+   * thrown `AiloudError`. Rethrows whatever `task` throws, unchanged, so the
    * process's exit code is decided the same way it always was.
    */
   frame<T>(label: string, task: () => Promise<T>): Promise<T>;
@@ -102,7 +102,7 @@ export interface Ui {
   /** A recording finished transcribing into `transcript`, with `segmentCount` segments. */
   /**
    * `languages` is every language the segments were spoken in, most-spoken
-   * first (see summarizeLanguages in @laud/core). It is passed separately
+   * first (see summarizeLanguages in @ailoud/core). It is passed separately
    * from `transcript.language`, which holds only the dominant one: showing
    * a single code for a code-switched recording tells the user something
    * untrue. Empty when the provider recorded no per-segment language, in
@@ -116,7 +116,7 @@ export interface Ui {
    * `PrettyUi` renders it inside the open frame, so an interactive reader
    * sees one coherent block instead of a frame with content spilling out
    * around it. `PlainUi` writes it verbatim -- and `PlainUi` is what runs
-   * whenever stdout is not a terminal, so `laud show ID --format srt >
+   * whenever stdout is not a terminal, so `ailoud show ID --format srt >
    * out.srt` still produces a byte-exact subtitle file and `--format json`
    * still pipes into a parser.
    */
@@ -141,7 +141,7 @@ export interface Ui {
 
   /**
    * A recording removed from the library. `mediaRemoved` is false when
-   * laud's copy of the audio was already gone -- worth saying, because the
+   * ailoud's copy of the audio was already gone -- worth saying, because the
    * difference between "deleted it" and "it was not there" is the difference
    * between a tidy library and a puzzle later.
    */

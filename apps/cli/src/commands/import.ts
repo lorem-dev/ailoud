@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { importPath } from '@laud/core';
+import { importPath } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { collectTag, parseTags } from '../tags.js';
 

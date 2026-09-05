@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { access, constants, mkdir, rename, rm } from 'node:fs/promises';
-import { FailureError } from '@laud/core';
-import type { Action, LlmProvider } from '@laud/core';
+import { FailureError } from '@ailoud/core';
+import type { Action, LlmProvider } from '@ailoud/core';
 import {
   detectPackageManager,
   downloadFile,
@@ -12,8 +12,8 @@ import {
   installWhisper,
   run,
   runInteractive,
-} from '@laud/providers';
-import type { InstallCommand, PackageManager } from '@laud/providers';
+} from '@ailoud/providers';
+import type { InstallCommand, PackageManager } from '@ailoud/providers';
 import type { ConfigUpdates } from './configWrite.js';
 
 /**
@@ -101,7 +101,7 @@ export async function executePlan(
               action,
               ok: false,
               detail:
-                `${action.path} exists but laud's user cannot write to it; change its ` +
+                `${action.path} exists but ailoud's user cannot write to it; change its ` +
                 'owner or permissions',
             });
             break;
@@ -158,7 +158,7 @@ export async function executePlan(
           // anything, exactly when macOS has no terminal to run brew in
           // interactively (see whisperInstall.ts) -- mirrored here, the same
           // way the ffmpeg branch above checks `interactive` before its own
-          // "Running ..." step, so laud never announces work it is about to
+          // "Running ..." step, so ailoud never announces work it is about to
           // decline instead of doing.
           const willSkip = deps.platform === 'darwin' && !deps.interactive;
           if (!willSkip) deps.onStep('Installing whisper.cpp');
@@ -308,7 +308,7 @@ export async function executePlan(
             await downloadFile(action.model.url, target, { onProgress });
           } else {
             // The segmentation model ships inside a .tar.bz2 alongside an
-            // int8 sibling and other files laud has no use for (see
+            // int8 sibling and other files ailoud has no use for (see
             // catalogue.ts). Download the archive next to the target,
             // extract it the same way sherpaInstall.ts and
             // whisperInstall.ts do (--strip-components=1 drops the

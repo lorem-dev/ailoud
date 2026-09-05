@@ -17,7 +17,7 @@ describe('shouldPage', () => {
   });
 
   it('never pages when stdout is not a terminal', () => {
-    // "laud summarize ID > report.md" wants the bytes. Handing them to less
+    // "ailoud summarize ID > report.md" wants the bytes. Handing them to less
     // would hang waiting for a keypress nobody can give.
     expect(shouldPage(lines(500), false, {})).toBe(false);
   });
@@ -36,7 +36,7 @@ describe('page', () => {
     // A machine without less should still be able to read a report.
     const chunks: string[] = [];
     await page('the report', (chunk) => chunks.push(chunk), {
-      PAGER: 'laud-no-such-pager-binary',
+      PAGER: 'ailoud-no-such-pager-binary',
     });
     expect(chunks).toEqual(['the report']);
   });

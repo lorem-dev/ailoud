@@ -1,13 +1,13 @@
 import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { FailureError } from '@laud/core';
+import { FailureError } from '@ailoud/core';
 import { run, runInteractive } from '../process/run.js';
 import { formatInstallCommand, whisperInstallCommands } from './packageManager.js';
 import { downloadFile } from './download.js';
 
 /**
- * The whisper.cpp release laud installs. Pinned, never "latest": two people
- * running the same `laud setup` a week apart must get the same binaries, and
+ * The whisper.cpp release ailoud installs. Pinned, never "latest": two people
+ * running the same `ailoud setup` a week apart must get the same binaries, and
  * an upstream change must not be able to break installation for everyone at
  * once. Bumping this is a reviewable commit.
  */
@@ -19,7 +19,7 @@ const RELEASES = 'https://github.com/ggml-org/whisper.cpp/releases/download';
  * The prebuilt tarball for this platform and CPU.
  *
  * Linux only. macOS installs through brew, which has a whisper-cpp formula;
- * Linux has no apt package, so laud uses the project's own release assets.
+ * Linux has no apt package, so ailoud uses the project's own release assets.
  * Both x64 and arm64 Ubuntu builds are published.
  */
 export function whisperTarballUrl(platform: NodeJS.Platform, arch: string): string {
@@ -62,9 +62,9 @@ export interface WhisperPaths {
 }
 
 /**
- * `paths` is null when whisper.cpp landed on PATH and laud therefore records
+ * `paths` is null when whisper.cpp landed on PATH and ailoud therefore records
  * nothing (the macOS/brew route). `skipped` carries the exact commands a
- * human has to run, for the non-interactive case where laud refuses to spawn
+ * human has to run, for the non-interactive case where ailoud refuses to spawn
  * something that could block on a prompt.
  */
 export type InstallWhisperResult =
@@ -74,12 +74,12 @@ export type InstallWhisperResult =
 /**
  * Installs whisper.cpp and reports where its binaries ended up.
  *
- * Reports `paths: null` on macOS: brew puts `whisper-cli` on PATH, and laud's
+ * Reports `paths: null` on macOS: brew puts `whisper-cli` on PATH, and ailoud's
  * existing config defaults already resolve it. Writing an absolute Cellar
  * path into the config there would break on the next `brew upgrade`.
  *
  * On Linux it returns absolute paths, because the extracted tree lives
- * somewhere only laud knows. The tree is kept intact: the binaries embed
+ * somewhere only ailoud knows. The tree is kept intact: the binaries embed
  * `$ORIGIN` and load `libwhisper.so` and `libggml*.so` from their own
  * directory, so moving or symlinking a single binary out of it would break
  * the loader.
@@ -105,7 +105,7 @@ export async function installWhisper(
 
   if (platform !== 'linux') {
     throw new FailureError(
-      `laud cannot install whisper.cpp on ${platform} automatically; see README.md for the ` +
+      `ailoud cannot install whisper.cpp on ${platform} automatically; see README.md for the ` +
         'manual steps',
     );
   }

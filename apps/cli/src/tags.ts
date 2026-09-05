@@ -1,4 +1,4 @@
-import { UsageError } from '@laud/core';
+import { UsageError } from '@ailoud/core';
 
 /**
  * Parses the `--tag` values a command collected.

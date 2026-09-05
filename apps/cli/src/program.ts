@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { LaudError } from '@laud/core';
+import { AiloudError } from '@ailoud/core';
 import { registerDoctor } from './commands/doctor.js';
 import { registerImport } from './commands/import.js';
 import { registerLs } from './commands/ls.js';
@@ -35,10 +35,10 @@ export function isCommanderError(error: unknown): boolean {
 }
 
 export function exitCodeFor(error: unknown): number {
-  if (error instanceof LaudError) return error.exitCode;
+  if (error instanceof AiloudError) return error.exitCode;
   // Do not key off the code string: `commander.help` is not uniformly a
   // clean exit -- commander uses that same code both for `--help` (its own
-  // exitCode is 0) and for running `laud` with no subcommand once one is
+  // exitCode is 0) and for running `ailoud` with no subcommand once one is
   // registered (its own exitCode is 1, because that is a usage error of the
   // same class as a missing argument). Trusting the code string over the
   // error's own `exitCode` would let that second case leak through as 1
@@ -55,7 +55,7 @@ export function exitCodeFor(error: unknown): number {
 export function buildProgram(context: CliContext): Command {
   const program = new Command();
   program
-    .name('laud')
+    .name('ailoud')
     .description('Multilingual audio-to-text with a local recording library')
     .version('0.0.0')
     .exitOverride(); // throw instead of calling process.exit
@@ -68,7 +68,7 @@ export function buildProgram(context: CliContext): Command {
   // Verbs that bring something into being stay at the top level; everything
   // that inspects or removes what already exists lives under the noun it acts
   // on. That is the shape `docker` and `gh` settled on, and it is what keeps
-  // `laud --help` readable as the library grows.
+  // `ailoud --help` readable as the library grows.
   const audio = group(program, 'audio', 'recordings', 'Work with recordings in the library');
   for (const register of [
     registerImport,

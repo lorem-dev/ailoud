@@ -6,14 +6,14 @@ import { buildMcpServer } from '../mcp/server.js';
 export function registerMcp(program: Command, context: CliContext): void {
   program
     .command('mcp')
-    .description('Run laud as an MCP server, so an agent can use the library')
+    .description('Run ailoud as an MCP server, so an agent can use the library')
     .addHelpText(
       'after',
       [
         '',
         'Speaks MCP over stdio. Configure your agent to run this command:',
         '',
-        '  { "mcpServers": { "laud": { "command": "laud", "args": ["mcp"] } } }',
+        '  { "mcpServers": { "ailoud": { "command": "ailoud", "args": ["mcp"] } } }',
         '',
         'The library it serves is the same one the other commands use, so anything',
         'imported or transcribed here is visible there and the other way round.',

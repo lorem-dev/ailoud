@@ -1,5 +1,5 @@
 {
-  "name": "laud-workspace",
+  "name": "ailoud-workspace",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,8 +10,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "tsc -b tsconfig.build.json && chmod +x apps/cli/dist/bin/laud.js",
-    "laud": "pnpm run build && node --disable-warning=ExperimentalWarning apps/cli/dist/bin/laud.js",
+    "build": "tsc -b tsconfig.build.json && chmod +x apps/cli/dist/bin/ailoud.js",
+    "ailoud": "pnpm run build && node --disable-warning=ExperimentalWarning apps/cli/dist/bin/ailoud.js",
     "watch": "tsc -b tsconfig.build.json --watch",
     "format:check": "prettier --check .",
     "format": "prettier --write .",

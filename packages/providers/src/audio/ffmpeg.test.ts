@@ -9,7 +9,7 @@ let dir = '';
 let source = '';
 
 beforeAll(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'laud-audio-'));
+  dir = await mkdtemp(join(tmpdir(), 'ailoud-audio-'));
   source = join(dir, 'tone.mp3');
   // Two seconds of a 440 Hz tone: small, deterministic, and real media.
   await run('ffmpeg', [

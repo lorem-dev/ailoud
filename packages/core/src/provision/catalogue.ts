@@ -91,7 +91,7 @@ export const VAD_MODEL: ModelChoice = {
  * tarball -- every other entry above is a bare file -- alongside an
  * int8-quantized sibling (`model.int8.onnx`) that is deliberately not used
  * here; the design spike settled on the full-precision `model.onnx` (5.7 MB).
- * `file` is the name laud gives it on disk, distinct from `archiveMember`
+ * `file` is the name ailoud gives it on disk, distinct from `archiveMember`
  * (the name inside the archive) so it does not collide with some other
  * model also called `model.onnx` in a shared `models/` directory.
  *
@@ -132,7 +132,7 @@ export function findModel(name: string): ModelChoice | undefined {
 }
 
 /**
- * The local language model `laud setup` installs for summarising.
+ * The local language model `ailoud setup` installs for summarising.
  *
  * Qwen2.5 3B rather than a Llama of the same size: this tool exists for
  * recordings that are not in English, and a summary of a Russian meeting is

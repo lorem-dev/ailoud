@@ -36,7 +36,7 @@ const { intro, outro, log, spinner, spinnerHandle } = vi.hoisted(() => {
 
 vi.mock('@clack/prompts', () => ({ intro, outro, log, spinner }));
 
-import type { Recording } from '@laud/core';
+import type { Recording } from '@ailoud/core';
 import { PrettyUi } from './pretty.js';
 
 const A_RECORDING: Recording = {
@@ -115,7 +115,7 @@ describe('PrettyUi.frame', () => {
   it('stays silent about the runtime of a command that finished instantly', async () => {
     intro.mockClear();
     outro.mockClear();
-    // `laud ls` finishing in four milliseconds does not need a stopwatch
+    // `ailoud ls` finishing in four milliseconds does not need a stopwatch
     // reading; a duration on every command would drown the one that matters.
     const times = [0, 4];
     const ui = new PrettyUi(Number.POSITIVE_INFINITY, () => times.shift() ?? 0);
@@ -339,7 +339,7 @@ describe('PrettyUi.checks wrapping', () => {
     log.success.mockClear();
     log.error.mockClear();
     const longFix =
-      'set stt.whisperCpp.model in the laud config file to a model path that points at a downloaded ggml model file on disk';
+      'set stt.whisperCpp.model in the ailoud config file to a model path that points at a downloaded ggml model file on disk';
     new PrettyUi(75).checks([
       { name: 'whisper model', ok: false, detail: 'not configured', fix: longFix },
     ]);
@@ -361,7 +361,8 @@ describe('PrettyUi.checks wrapping', () => {
   it('hard-wraps a path with no spaces at a narrow 60-column width', () => {
     log.success.mockClear();
     log.error.mockClear();
-    const longPath = '/Users/donat/.local/share/laud/models/ggml-small-and-a-much-longer-name.bin';
+    const longPath =
+      '/Users/donat/.local/share/ailoud/models/ggml-small-and-a-much-longer-name.bin';
     new PrettyUi(60).checks([{ name: 'whisper model', ok: true, detail: longPath }]);
     // checks() emits through clack's own log.success / log.error so the
     // glyph lands in place of the gutter; whichever fired carries the text.
@@ -462,7 +463,7 @@ describe('PrettyUi.checks distinguishes an optional failure', () => {
     expect(log.error.mock.calls[0]?.[0] as string).toContain('FAIL');
   });
 
-  it('follows the list with one note saying laud can still run', () => {
+  it('follows the list with one note saying ailoud can still run', () => {
     log.info.mockClear();
     new PrettyUi().checks([OPTIONAL_FAILURE]);
     expect(log.info).toHaveBeenCalledTimes(1);

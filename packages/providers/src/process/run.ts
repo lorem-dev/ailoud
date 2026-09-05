@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { constants } from 'node:os';
-import { EnvironmentError, FailureError } from '@laud/core';
+import { EnvironmentError, FailureError } from '@ailoud/core';
 
 export interface RunResult {
   readonly code: number;
@@ -77,7 +77,7 @@ export function run(
       if (error.code === 'ENOENT') {
         reject(
           new EnvironmentError(
-            `${command} was not found on PATH. Install it, or set its path in the laud config; run "laud doctor" for details.`,
+            `${command} was not found on PATH. Install it, or set its path in the ailoud config; run "ailoud doctor" for details.`,
           ),
         );
         return;

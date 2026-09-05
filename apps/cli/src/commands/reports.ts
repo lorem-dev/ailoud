@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
-import { FailureError, formatRecordedAt } from '@laud/core';
-import type { Summary } from '@laud/core';
-import { page, shouldPage } from '@laud/providers';
+import { FailureError, formatRecordedAt } from '@ailoud/core';
+import type { Summary } from '@ailoud/core';
+import { page, shouldPage } from '@ailoud/providers';
 import type { CliContext } from '../wiring.js';
 import { resolveRecording, resolveSummary } from '../resolveId.js';
 import { isInteractive, requireConsent } from './setup.js';
@@ -114,7 +114,7 @@ export function registerReports(parent: Command, context: CliContext): void {
           }
           throw new FailureError(
             options.recording === undefined
-              ? 'No reports yet. Run "laud summarize <id>" to make one.'
+              ? 'No reports yet. Run "ailoud summarize <id>" to make one.'
               : `No reports cover ${options.recording}.`,
           );
         }

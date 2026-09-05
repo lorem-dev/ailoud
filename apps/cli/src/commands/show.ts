@@ -11,11 +11,11 @@ import {
   toPlainText,
   toSrt,
   toVtt,
-} from '@laud/core';
-import type { Transcript } from '@laud/core';
+} from '@ailoud/core';
+import type { Transcript } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecording, resolveTranscript } from '../resolveId.js';
-import { page, shouldPage } from '@laud/providers';
+import { page, shouldPage } from '@ailoud/providers';
 import { speakerPainter } from '../ui/speakerColor.js';
 
 const FORMATS = ['text', 'json', 'srt', 'vtt'] as const;
@@ -86,7 +86,7 @@ export function registerShow(program: Command, context: CliContext): void {
           }
           if (transcript === null) {
             throw new FailureError(
-              `${recording.id} has no transcript yet. Run "laud transcribe ${recording.id}".`,
+              `${recording.id} has no transcript yet. Run "ailoud transcribe ${recording.id}".`,
             );
           }
           const allSegments = await context.store.listSegments(transcript.id);

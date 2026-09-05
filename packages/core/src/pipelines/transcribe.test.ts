@@ -159,10 +159,10 @@ describe('transcribeRecording --diarize', () => {
     );
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/no diarizer is available/);
-    expect(warnings[0]).toMatch(/laud doctor/);
-    // Not "laud setup" / "doctor --fix": both refuse Windows, so naming them
+    expect(warnings[0]).toMatch(/ailoud doctor/);
+    // Not "ailoud setup" / "doctor --fix": both refuse Windows, so naming them
     // here would rebuild the dead end checkDiarizerBinary was cured of.
-    expect(warnings[0]).not.toMatch(/laud setup/);
+    expect(warnings[0]).not.toMatch(/ailoud setup/);
     expect(warnings[0]).not.toMatch(/--fix/);
   });
 
