@@ -22,6 +22,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "description": "Transcribe audio and video into a local library, then search and summarise it",
+  "author": "Lorem Dev <contact@lorem.dev>",
   "license": "Apache-2.0",
   "homepage": "https://lorem-dev.github.io/ailoud/",
   "bugs": {

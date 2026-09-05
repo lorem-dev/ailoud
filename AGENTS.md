@@ -257,6 +257,36 @@ Run the `check-docs` skill after changing any command or option.
 
 ---
 
+## Branches and Tags
+
+| Branch    | Is                                      |
+| --------- | --------------------------------------- |
+| `main`    | the release branch                      |
+| `develop` | integration; feature branches land here |
+
+**While the project is pre-release, work happens directly on `main`** and
+`develop` follows it: a push to `main` opens a back-merge PR
+(`.github/workflows/backmerge.yml`). Once releases start that inverts --
+features land on `develop`, only release commits reach `main` -- and the same
+workflow keeps `develop` from falling behind either way. Both branches are
+protected against deletion and force-push with CI required; an admin can still
+push directly, which is what makes the pre-release flow possible.
+
+| Tag            | Cut from   | npm dist-tag | Docs |
+| -------------- | ---------- | ------------ | ---- |
+| `v1.2.3-dev.1` | any branch | `dev`        | no   |
+| `v1.2.3-rc.1`  | `develop`  | `next`       | no   |
+| `v1.2.3`       | `main`     | `latest`     | yes  |
+
+Only a final tag moves `latest` and publishes the site, so `npm install ailoud`
+never picks up a pre-release and the site never describes a version nobody can
+install. `publish.yml` refuses a tag that disagrees with any manifest version.
+
+Use the `dev-tag` skill for a snapshot; `bump-version` then `pre-release-check`
+for a release.
+
+---
+
 ## The Changelog
 
 `CHANGES.md` is for someone deciding whether to upgrade. It is not a commit
@@ -331,6 +361,7 @@ calls for it:
 | `run-tests-and-linters` | Before marking any task done -- run the full gate (build, format check, lint, typecheck, test:cov at 90%).                                                                                                                       |
 | `check-fixtures`        | After touching import, transcribe, or the audio/STT providers -- drive the built binary against `fixtures/` end to end, in a throwaway `HOME`, `XDG_CONFIG_HOME`, and `XDG_DATA_HOME`, and confirm the working tree stays clean. |
 | `pre-release-check`     | Before cutting a release -- runs the `check-*` and `run-tests-and-linters` skills above (not `bump-version`) plus version-bump and commit-format checks.                                                                         |
+| `dev-tag`               | To publish a snapshot to npm under the `dev` dist-tag without promising a release -- cuts a `v<version>-dev.<n>` tag.                                                                                                            |
 
 ---
 

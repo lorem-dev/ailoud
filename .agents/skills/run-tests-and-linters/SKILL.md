@@ -9,7 +9,7 @@ description: >
 
 # run-tests-and-linters
 
-Run the full quality gate for laud before marking any task done. `laud` is
+Run the full quality gate for ailoud before marking any task done. `ailoud` is
 a pure TypeScript pnpm workspace, so the gate has no Rust or native half to
 run alongside it.
 

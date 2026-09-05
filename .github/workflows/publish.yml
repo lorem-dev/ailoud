@@ -130,6 +130,36 @@ jobs:
           done
           ls -l dist-npm
 
+      - name: Check each tarball carries the licence and no source
+        # pnpm copies the repository's LICENSE into every workspace tarball,
+        # which is why no package directory holds its own copy -- three copies
+        # of a 224-line file would drift. That makes it an invariant worth
+        # checking rather than assuming: if pnpm ever stops, this fails the
+        # release instead of publishing an unlicensed package.
+        #
+        # The same step guards the other packing mistake: shipping `src` and
+        # the tests. Before `files` was set, the CLI tarball carried 82 source
+        # files and 32 test files.
+        run: |
+          set -euo pipefail
+          for tarball in dist-npm/*.tgz; do
+            echo "--- $tarball"
+            contents=$(tar -tzf "$tarball")
+            if ! grep -qiE '^package/LICEN[SC]E' <<< "$contents"; then
+              echo "::error::$tarball has no LICENSE."
+              exit 1
+            fi
+            if grep -qE '^package/src/' <<< "$contents"; then
+              echo "::error::$tarball ships src/; check the \`files\` field."
+              exit 1
+            fi
+            if grep -qE '\.test\.' <<< "$contents"; then
+              echo "::error::$tarball ships tests; check the \`files\` field."
+              exit 1
+            fi
+            echo "licence present, no source, no tests"
+          done
+
       - name: Publish, dependencies first
         # Order matters: the CLI's manifest names exact versions of the two
         # libraries, so they have to exist first. --provenance records which
@@ -139,11 +169,16 @@ jobs:
           set -euo pipefail
           tag="${{ github.event.inputs.tag || github.ref_name }}"
           version="${tag#v}"
-          # A pre-release goes out under `next`, so `npm install ailoud` keeps
-          # returning the last stable version until a final tag moves `latest`.
+          # Three kinds of tag, three destinations. See the dev-tag skill.
+          #   -dev.N  a snapshot to try            -> dev
+          #   -rc.N   what the release will be     -> next
+          #   final   the release                  -> latest
+          # Only the last moves `latest`, so `npm install ailoud` never picks up
+          # a pre-release by accident.
           case "$version" in
-            *-*) dist_tag=next ;;
-            *)   dist_tag=latest ;;
+            *-dev.*) dist_tag=dev ;;
+            *-*)     dist_tag=next ;;
+            *)       dist_tag=latest ;;
           esac
           echo "publishing $version under dist-tag $dist_tag"
           for name in ailoud-core ailoud-providers ailoud; do

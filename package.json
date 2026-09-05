@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Multilingual audio-to-text CLI with a recording library and LLM summaries",
+  "author": "Lorem Dev <contact@lorem.dev>",
   "license": "Apache-2.0",
   "packageManager": "pnpm@11.9.0",
   "engines": {

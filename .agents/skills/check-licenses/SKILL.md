@@ -11,7 +11,7 @@ description: >
 
 Verify that every direct npm dependency is license-compatible with
 Apache-2.0 and keep the Third-Party Notices section of `LICENSE` up to
-date. `laud` is a pure TypeScript pnpm workspace -- there is no cargo
+date. `ailoud` is a pure TypeScript pnpm workspace -- there is no cargo
 workspace to check, unlike the source repository this project inherits its
 conventions from.
 
@@ -71,7 +71,7 @@ dependencies` subsection's table -- replace from its `| Package |`
    | <name> | npm | <version> | <spdx> | <copyright> |
    ```
 
-   Every row's Ecosystem column is `npm` -- laud has no other dependency
+   Every row's Ecosystem column is `npm` -- ailoud has no other dependency
    ecosystem. List rows alphabetically by package name. Preserve
    everything above the table verbatim: the Apache 2.0 license text, the
    `## Third-Party Notices` heading, and the intro paragraph above the

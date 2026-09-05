@@ -171,6 +171,39 @@ jobs:
         # no spec here summarises, and it would otherwise fetch another 2.1 GB.
         run: node apps/cli/dist/bin/ailoud.js setup --yes --llm skip
 
+      - name: Put the provisioned binaries on PATH
+        # The e2e sandbox writes its own config naming only the MODEL, and
+        # leaves `binary` at its default -- which means whisper-cli has to be
+        # found on PATH. `setup` installs it under the data directory and
+        # records the absolute path in the user's config instead, so doctor was
+        # entirely green while every transcribe spec exited 3.
+        #
+        # The directories are read back out of that config rather than spelled
+        # here, so bumping a pinned release does not silently break this.
+        run: |
+          set -euo pipefail
+          read_dir() {
+            node -e "
+              const { parseConfig } = require('./apps/cli/dist/config.js');
+              const { readFileSync } = require('node:fs');
+              const { homedir } = require('node:os');
+              const { dirname } = require('node:path');
+              const config = parseConfig(
+                readFileSync(homedir() + '/.config/ailoud/config.yaml', 'utf8'),
+              );
+              const value = $1;
+              if (value && value.includes('/')) console.log(dirname(value));
+            "
+          }
+          for dir in \
+            "$(read_dir 'config.stt.whisperCpp.binary')" \
+            "$(read_dir 'config.stt.diarization.binary')"; do
+            if [ -n "$dir" ]; then
+              echo "adding $dir to PATH"
+              echo "$dir" >> "$GITHUB_PATH"
+            fi
+          done
+
       - name: Report what the machine now has
         # Printed whether or not the suite passes: a red e2e run is far quicker
         # to read next to doctor's account of what was actually installed.
