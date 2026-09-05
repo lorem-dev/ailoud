@@ -51,3 +51,6 @@ export { listOpenAiModels, listAnthropicModels, isChatModel } from './llm/models
 export type { ModelOption } from './llm/models.js';
 export { LLAMA_VERSION, installLlama, llamaTarballUrl } from './provision/llamaInstall.js';
 export type { InstallLlamaOptions, InstallLlamaResult } from './provision/llamaInstall.js';
+
+export { NpmRegistry } from './update/npmRegistry.js';
+export type { NpmRegistryOptions } from './update/npmRegistry.js';

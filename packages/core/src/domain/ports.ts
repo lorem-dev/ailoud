@@ -7,6 +7,7 @@ import type {
   Summary,
   Transcript,
 } from './model.js';
+import type { PublishedVersion } from './version.js';
 
 export interface Clock {
   nowIso(): string;
@@ -303,4 +304,12 @@ export interface ManagedRecordingStore extends RecordingStore {
   schemaVersion(): number;
   /** SQLite's own `PRAGMA integrity_check` result; "ok" means the database is healthy. */
   integrityCheck(): string;
+}
+
+/**
+ * What versions of a package exist. Implemented over the npm registry in
+ * packages/providers; a port because packages/core reaches no network.
+ */
+export interface VersionSource {
+  published(packageName: string): Promise<readonly PublishedVersion[]>;
 }

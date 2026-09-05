@@ -25,6 +25,7 @@ export type {
   TempDir,
   TempFile,
   TranscriptionProvider,
+  VersionSource,
 } from './domain/ports.js';
 
 export type { Migration } from './db/schema.js';
