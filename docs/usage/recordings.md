@@ -1,5 +1,19 @@
 # Recordings
 
+## Flags
+
+| Flag                     | Does                                                              |
+| ------------------------ | ----------------------------------------------------------------- |
+| `--tag <tag>`            | attach a tag (import, annotate) or filter by one (ls); repeatable |
+| `--force`                | redo a transcript (transcribe) or skip the confirmation (rm)      |
+| `--lang <codes>`         | restrict transcription to these languages, e.g. `ru,en`           |
+| `--diarize`              | attribute segments to speakers                                    |
+| `--speakers <n>`         | known number of speakers                                          |
+| `--speaker <label=name>` | name a speaker (annotate) or filter to one (show)                 |
+| `--format <format>`      | `text`, `json`, `srt`, `vtt` (default `text`)                     |
+| `--title <text>`         | set the recording's title                                         |
+| `--notes <text>`         | set free-form notes                                               |
+
 ## Import
 
 ```
