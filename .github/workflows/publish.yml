@@ -114,6 +114,13 @@ jobs:
           done
           echo "all three manifests are at $want"
 
+      - name: Install ffmpeg
+        # The gate includes packages/providers/src/audio/ffmpeg.test.ts, which
+        # spawns the real binary. CI installs it for the same reason; this job
+        # runs the same gate, so it needs the same tool. Without it the release
+        # failed here rather than on anything about the release.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
       - name: Run the gate
         # Nothing is published that has not built, linted, typechecked and
         # passed its tests on this runner. An unpublish window is 72 hours and
