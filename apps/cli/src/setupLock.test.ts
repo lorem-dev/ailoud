@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { lockPath, withProvisioningLock } from './setupLock.js';
@@ -70,6 +70,41 @@ describe('withProvisioningLock', () => {
       'utf8',
     );
     await expect(withProvisioningLock(dir, async () => 'took over')).resolves.toBe('took over');
+  });
+
+  it('leaves no scratch file behind after taking over a stale lock', async () => {
+    // The takeover writes its own lock beside the path and renames over it,
+    // because `rm` then create loses the race it looks like it wins. A rename
+    // that failed, or a path built wrong, would leave the scratch file in the
+    // data directory.
+    const dir = await dataDir();
+    await writeFile(
+      lockPath(dir),
+      JSON.stringify({ pid: 4_194_304, startedAt: '2020-01-01T00:00:00.000Z' }),
+      'utf8',
+    );
+    let duringBody: string[] = [];
+    await withProvisioningLock(dir, async () => {
+      duringBody = await readdir(dir);
+    });
+    expect(duringBody).toEqual(['provisioning.lock']);
+    expect(await readdir(dir)).toEqual([]);
+  });
+
+  it('records the taking-over process as the holder, not the stale one', async () => {
+    const dir = await dataDir();
+    await writeFile(
+      lockPath(dir),
+      JSON.stringify({ pid: 4_194_304, startedAt: '2020-01-01T00:00:00.000Z' }),
+      'utf8',
+    );
+    let held: unknown;
+    await withProvisioningLock(dir, async () => {
+      held = JSON.parse(await readFile(lockPath(dir), 'utf8'));
+    });
+    // The read-back after the rename is what makes a losing takeover
+    // detectable; this is the winning side of it.
+    expect(held).toMatchObject({ pid: process.pid });
   });
 
   it('treats an empty lock file as stale', async () => {

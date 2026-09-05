@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, rm } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { FailureError } from '@ailoud/core';
 
@@ -65,6 +65,11 @@ async function readHolder(path: string): Promise<LockHolder | null> {
  * would leave a window for the other process to win in between, which is
  * exactly the race being closed.
  *
+ * Taking over a stale lock cannot use `wx`, since the file is there. It writes
+ * a lock beside it and renames over the path -- atomic, and overwriting -- then
+ * reads the file back. Two runs can both rename; only one is in the file
+ * afterwards, and the other sees a pid that is not its own and refuses.
+ *
  * A live lock is refused immediately rather than waited on. Provisioning is
  * interactive and can sit on a consent prompt for minutes, so a queued
  * second run would look like a hang. The refusal names the holder's pid and
@@ -78,40 +83,57 @@ export async function withProvisioningLock<T>(dataDir: string, body: () => Promi
   const path = lockPath(dataDir);
   await mkdir(dirname(path), { recursive: true });
 
-  let handle;
+  const holder: LockHolder = { pid: process.pid, startedAt: new Date().toISOString() };
+  const mine = JSON.stringify(holder);
+
   try {
-    handle = await open(path, 'wx');
+    const handle = await open(path, 'wx');
+    try {
+      await handle.writeFile(mine, 'utf8');
+    } finally {
+      await handle.close();
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
 
-    const holder = await readHolder(path);
-    if (holder !== null && isRunning(holder.pid)) {
+    const existing = await readHolder(path);
+    if (existing !== null && isRunning(existing.pid)) {
       throw new FailureError(
-        `another ailoud provisioning run is already in progress (pid ${holder.pid}, started ` +
-          `${holder.startedAt}). Wait for it to finish, or stop it, then try again.`,
+        `another ailoud provisioning run is already in progress (pid ${existing.pid}, started ` +
+          `${existing.startedAt}). Wait for it to finish, or stop it, then try again.`,
       );
     }
-    // Stale: the holder is gone, or never finished writing who it was.
-    await rm(path, { force: true });
+
+    // Stale: the holder is gone, or never finished writing who it was. Taking
+    // it over used to be `rm` then create -- which loses the race it looks
+    // like it wins. Between reading the holder and removing the file, another
+    // run can take the same stale lock and become a LIVE holder; the `rm` then
+    // deletes a live lock and both runs proceed, which is the one outcome this
+    // whole file exists to prevent.
+    //
+    // So: write our own lock beside it and `rename` over the path. Rename is
+    // atomic and overwrites, so two takeovers both "succeed" -- but only one
+    // of them is in the file afterwards. Reading it back is what settles it.
+    const scratch = `${path}.${process.pid}.${process.hrtime.bigint()}`;
+    const handle = await open(scratch, 'wx');
     try {
-      handle = await open(path, 'wx');
-    } catch (retryError) {
-      if ((retryError as NodeJS.ErrnoException).code !== 'EEXIST') throw retryError;
-      // Two runs found the same stale lock and both removed it; this one lost
-      // the race to recreate it. Refusing is right -- the winner is a live
-      // holder now -- and this is the difference between saying so and
-      // reporting EEXIST about a path the user has never heard of.
+      await handle.writeFile(mine, 'utf8');
+    } finally {
+      await handle.close();
+    }
+    try {
+      await rename(scratch, path);
+    } catch (renameError) {
+      await rm(scratch, { force: true });
+      throw renameError;
+    }
+
+    const settled = await readHolder(path);
+    if (settled?.pid !== process.pid) {
       throw new FailureError(
         'another ailoud provisioning run took over the lock at the same moment. Try again.',
       );
     }
-  }
-
-  try {
-    const holder: LockHolder = { pid: process.pid, startedAt: new Date().toISOString() };
-    await handle.writeFile(JSON.stringify(holder), 'utf8');
-  } finally {
-    await handle.close();
   }
 
   try {
