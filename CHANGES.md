@@ -40,22 +40,6 @@
 
 ## Development
 
-## Version 1.0.0-dev.3
-
-### Changed
-
-- Nothing for users. This snapshot is 1.0.0-dev.2 republished through npm's
-  trusted publishing, to check that a release carries no stored credential.
-
-## Version 1.0.0-dev.2
-
-### Fixed
-
-- Each published package carries a README, so its page on npm describes what it
-  is instead of saying it has none.
-- `ailoud --version` reports the installed version. It answered `0.0.0`
-  whatever was installed, and told MCP clients the same.
-
 ## Version 1.0.0-dev.1
 
 ### Added
@@ -73,10 +57,10 @@
   as a report. `--template` shapes it for the kind of conversation -- a 1:1, a
   performance review, an architecture discussion, a decision between solutions
   -- and `--context` supplies what the transcript does not say. Templates are
-  editable YAML files under the config directory.
-- Four summarisation engines behind one setting: a local GGUF model through
-  llama.cpp, Claude by subscription through the Claude Code CLI, Claude by API,
-  and any OpenAI-compatible endpoint including Ollama and LM Studio.
+  editable YAML files under the config directory. Four engines sit behind one
+  setting: a local GGUF model through llama.cpp, Claude by subscription through
+  the Claude Code CLI, Claude by API, and any OpenAI-compatible endpoint,
+  including Ollama and LM Studio.
 - `ailoud report ls|show|rm` lists, prints and deletes saved reports.
 - `ailoud mcp` serves the library to an AI agent over MCP: sixteen tools, three
   prompts, and transcripts as addressable resources. Deleting takes two calls,
