@@ -193,7 +193,18 @@ export async function pruneProjects(deps: ProjectsDeps): Promise<readonly Projec
   const kept: ProjectEntry[] = [];
   const dropped: ProjectEntry[] = [];
   for (const entry of projects) {
-    if (await deps.fs.isDirectory(entry.path)) kept.push(entry);
+    // A throw here is NOT evidence the project is gone. `isDirectory` rethrows
+    // EACCES -- revoked permissions, an unreachable network mount -- and
+    // dropping the entry on that would forget a project that still exists and
+    // still holds a rules block. So an unanswerable question keeps the entry,
+    // and only a definite "not a directory" drops it.
+    let present: boolean;
+    try {
+      present = await deps.fs.isDirectory(entry.path);
+    } catch {
+      present = true;
+    }
+    if (present) kept.push(entry);
     else dropped.push(entry);
   }
   // merge: false, deliberately. Pruning REMOVES entries, and merging would

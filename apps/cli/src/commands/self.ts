@@ -10,8 +10,8 @@ import { VERSION } from '../version.js';
 import { AGENTS, defaultHome } from '../mcp/agents.js';
 import { update } from '../mcp/install.js';
 import type { AgentOutcome } from '../mcp/install.js';
-import { pruneProjects, readProjects, rememberProject } from '../projects.js';
-import type { ProjectsDeps } from '../projects.js';
+import { pruneProjects, readProjects, registryPath, rememberProject } from '../projects.js';
+import type { ProjectEntry, ProjectsDeps } from '../projects.js';
 import { appendUpdateLog } from '../updateLog.js';
 import { isInteractive } from './setup.js';
 
@@ -139,13 +139,33 @@ export async function syncProjects(deps: SyncDeps): Promise<SyncReport> {
   const rows: SyncRow[] = [];
   let failed = false;
 
-  const dropped = await pruneProjects(deps);
+  // Pruning and reading the registry are bookkeeping, and bookkeeping must
+  // not be able to cancel the work. Unguarded, an EACCES on one registered
+  // directory -- or on projects.json itself -- ended the whole sweep with no
+  // rows and no log lines, which looks exactly like "there was nothing to do".
+  let dropped: readonly ProjectEntry[] = [];
+  try {
+    dropped = await pruneProjects(deps);
+  } catch (error) {
+    failed = true;
+    const reason = error instanceof Error ? error.message : String(error);
+    rows.push({ path: registryPath(deps.userDataDir), status: `failed: ${reason}` });
+    await logSyncAction(deps, registryPath(deps.userDataDir), `failed: ${reason}`);
+  }
   for (const entry of dropped) {
     rows.push({ path: entry.path, status: 'gone' });
     await logSyncAction(deps, entry.path, 'gone');
   }
 
-  const projects = await readProjects(deps);
+  let projects: readonly ProjectEntry[] = [];
+  try {
+    projects = await readProjects(deps);
+  } catch (error) {
+    failed = true;
+    const reason = error instanceof Error ? error.message : String(error);
+    rows.push({ path: registryPath(deps.userDataDir), status: `failed: ${reason}` });
+    await logSyncAction(deps, registryPath(deps.userDataDir), `failed: ${reason}`);
+  }
   for (const entry of projects) {
     try {
       const outcomes: AgentOutcome[] = [];

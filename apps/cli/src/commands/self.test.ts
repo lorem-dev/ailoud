@@ -7,7 +7,7 @@ import { buildProgram, exitCodeFor } from '../program.js';
 import { context } from './testContext.js';
 import { findAgent } from '../mcp/agents.js';
 import { install } from '../mcp/install.js';
-import { readProjects, rememberProject } from '../projects.js';
+import { pruneProjects, readProjects, rememberProject } from '../projects.js';
 import type { SyncDeps } from './self.js';
 import { boundedDetectRun, syncProjects, updateSelf } from './self.js';
 import type { SelfUpdateDeps } from './self.js';
@@ -623,5 +623,54 @@ describe('the failure message found in review', () => {
     timeout.name = 'TimeoutError';
     const message = await messageFrom(timeout);
     expect(message).toContain('timed out after 10000ms');
+  });
+});
+
+describe('the sweep must survive bookkeeping failures (task 7 review)', () => {
+  class AnnoyedFs extends MemFs {
+    public constructor(private readonly failOn: string) {
+      super({});
+    }
+    override async isDirectory(path: string): Promise<boolean> {
+      if (path === this.failOn) throw new Error('EACCES: permission denied');
+      return super.isDirectory(path);
+    }
+  }
+
+  it('keeps a project whose directory cannot be read, instead of forgetting it', async () => {
+    // EACCES is not evidence the project is gone -- revoked permissions or a
+    // dead network mount answer the same way. Dropping the entry would forget
+    // a project that still holds a rules block, silently and for good.
+    const fs = new AnnoyedFs('/proj/locked');
+    const clock = new FakeClock('2026-01-01T00:00:00.000Z');
+    const deps = { fs, clock, userDataDir: '/data/ailoud' };
+    await rememberProject(deps, { path: '/proj/locked' });
+
+    const dropped = await pruneProjects(deps);
+
+    expect(dropped).toEqual([]);
+    expect((await readProjects(deps)).map((entry) => entry.path)).toEqual(['/proj/locked']);
+  });
+
+  it('reports a failure instead of sweeping nothing when the registry cannot be read', async () => {
+    // Unguarded, this ended the whole sweep with zero rows and zero log
+    // lines, which is indistinguishable from "there was nothing to do".
+    class UnreadableFs extends MemFs {
+      override async readTextFile(path: string): Promise<string> {
+        if (path.endsWith('projects.json')) throw new Error('EACCES: permission denied');
+        return super.readTextFile(path);
+      }
+    }
+    const fs = new UnreadableFs({});
+    await fs.writeTextFile('/data/ailoud/projects.json', '[]\n');
+    const report = await syncProjects({
+      fs,
+      clock: new FakeClock('2026-01-01T00:00:00.000Z'),
+      userDataDir: '/data/ailoud',
+      home: '/home/x',
+    });
+
+    expect(report.failed).toBe(true);
+    expect(report.rows.some((row) => row.status.startsWith('failed:'))).toBe(true);
   });
 });
