@@ -1,10 +1,10 @@
 # CLAUDE.md -- ailoud
 
 `ailoud` is a command-line tool that transcribes audio and video into a local
-recording library, and, in a later milestone, will summarize and answer
-questions over it through a large language model. Speech-to-text and the
-LLM are separate engine layers behind stable ports. There is no GUI; the
-CLI is the only front end, and the interface is English-only.
+recording library, searches it, and summarizes and answers questions over it
+through a large language model. Speech-to-text and the LLM are separate engine
+layers behind stable ports. There is no GUI; the CLI is the only front end, and
+the interface is English-only.
 
 **Must read before touching code:**
 

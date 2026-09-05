@@ -18,12 +18,25 @@ resulting text. No microphone or system-audio capture; import only. The CLI
 is the only front end -- there is no GUI, and the interface is English-only.
 The multilingual part of this project is the audio, not the UI.
 
-M1, the current milestone, ships `import`, `transcribe`, `ls`, `show`, and
-`doctor`. The rest of the CLI surface (`search`, `collection`, `tag`,
-`summarize`, `export`, `config`) belongs to later milestones and does not
-exist yet; do not document or assume commands beyond what M1 lists. The full
-design lives in the maintainer's planning notes under `.superpowers/`, which
-is not tracked in git, so treat this file as the authority on what exists.
+The commands, grouped by the noun they act on:
+
+| Command                                                    | Does                                      |
+| ---------------------------------------------------------- | ----------------------------------------- |
+| `audio import\|transcribe\|annotate\|search\|ls\|show\|rm` | the library and everything over it        |
+| `audio summarize`                                          | writes a summary and saves it as a report |
+| `report ls\|show\|rm`                                      | saved reports                             |
+| `template ls\|new`                                         | what shape a summary of a kind takes      |
+| `mcp` and `mcp install\|uninstall\|update`                 | serve the library to an agent             |
+| `doctor`, `setup`                                          | check and provision the machine           |
+
+The verbs also answer at the top level (`ailoud search`, `ailoud transcribe`),
+and each second-level verb has a one-letter alias.
+
+Do not trust a list of commands in prose over the binary. This section was
+wrong for a while -- it described an early milestone and said `search` and
+`summarize` "do not exist yet" long after both shipped -- so check with
+`node apps/cli/dist/bin/ailoud.js --help` after a build, which cannot be
+stale.
 
 ---
 
