@@ -529,7 +529,7 @@ about to add an entry will actually see them.
 
 ## Local Development Skills
 
-Nine skills live under `.agents/skills/`. Invoke them when the situation
+Ten skills live under `.agents/skills/`. Invoke them when the situation
 calls for it:
 
 | Skill                   | When to use                                                                                                                                                                                                                      |
@@ -543,6 +543,7 @@ calls for it:
 | `check-dependencies`    | Before every release and after any dependency change -- audit for advisories, report funding, and update what is behind, refusing any version published less than 14 days ago unless it fixes a critical advisory.               |
 | `pre-release-check`     | Before cutting a release -- runs the `check-*` and `run-tests-and-linters` skills above (not `bump-version`) plus version-bump and commit-format checks.                                                                         |
 | `dev-tag`               | To publish a snapshot to npm under the `dev` dist-tag without promising a release -- cuts a `v<version>-dev.<n>` tag.                                                                                                            |
+| `check-migrations`      | After touching `packages/core/src/db/schema.ts` -- run the migration lock and snapshot tests, and judge from git history whether an edited migration has already shipped (which the tests cannot see).                           |
 
 ---
 
