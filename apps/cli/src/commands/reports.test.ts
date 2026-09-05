@@ -257,7 +257,7 @@ describe('command layout', () => {
         return hidden !== true;
       })
       .map((command) => command.name());
-    expect(visible).toEqual(['audio', 'report', 'template', 'doctor', 'setup']);
+    expect(visible).toEqual(['audio', 'report', 'template', 'mcp', 'doctor', 'setup']);
   });
 
   it('gives every second-level verb a one-letter alias, none colliding', async () => {

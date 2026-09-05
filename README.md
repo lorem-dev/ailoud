@@ -645,6 +645,60 @@ never answer.
 
 Either way, `laud doctor` confirms what is still missing.
 
+## Using laud from an agent (MCP)
+
+`laud mcp` runs the library as an MCP server over stdio, so an agent can search
+it, summarise it and tag it. Point your agent at the command:
+
+```json
+{ "mcpServers": { "laud": { "command": "laud", "args": ["mcp"] } } }
+```
+
+It serves the same library the other commands use, so anything imported or
+transcribed there is visible here and the other way round.
+
+Sixteen tools, in three groups. Reading: `list_recordings`, `list_untagged`,
+`list_tags`, `search_transcripts`, `get_transcript`, `list_speakers`,
+`list_reports`, `get_report`, `list_templates`. Writing: `annotate`,
+`import_recording`, `transcribe`, `summarize`, `create_template`. Deleting:
+`delete_recording`, `delete_report`.
+
+Four things shape how it behaves, and all four are stated in the server's own
+instructions so the agent reads them before its first call:
+
+- **Tag everything.** A tag is the only way to ask for "the recordings about
+  this project". `list_recordings` flags untagged ones and `list_untagged`
+  exists so an agent can offer to fix them.
+- **Search before reading.** `search_transcripts` answers "where was this
+  discussed" in a few hundred bytes. Reading a transcript costs thousands of
+  tokens.
+- **Transcripts arrive as files.** `get_transcript` writes to a temporary file
+  and returns the path, the line count and the duration -- not the text. The
+  agent reads the part it needs with its own tools. The directory is removed
+  when the server stops.
+- **Context lives in the agent's memory.** `summarize` takes a short `context`;
+  laud does not remember it between calls. The instructions tell the agent to
+  keep it and pass it again.
+
+Templates are offered before summarising: `list_templates` is described as a
+prerequisite, and `create_template` is described as rarely the right move, so
+an agent reaches for an existing shape first.
+
+Deleting takes two calls, always. The first describes exactly what would go and
+returns a single-use `confirmationToken`; only a second call carrying that token
+deletes. One call is a call an agent can make from a misread sentence; two put
+the list of what will be lost in front of the user in between. The tools also
+carry `destructiveHint`, so a client that gates destructive tools gates these.
+
+Three prompts wrap the routines that are easy to get wrong: `catch-up` (search,
+then read only what the search points at), `tidy-library` (find and tag what is
+untagged), and `summarise-properly` (pick a template, check for an existing
+report, pass the context).
+
+Transcripts and reports are also addressable as resources --
+`laud://recording/{id}/transcript` and `laud://report/{id}` -- with id
+completion, for clients that let a user attach context directly.
+
 ## Configuration and storage
 
 - Config: `$XDG_CONFIG_HOME/laud/config.yaml`, default `~/.config/laud`.

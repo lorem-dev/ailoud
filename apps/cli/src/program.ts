@@ -11,6 +11,7 @@ import { registerSummarize } from './commands/summarize.js';
 import { registerReports } from './commands/reports.js';
 import { registerTemplate } from './commands/template.js';
 import { registerSearch } from './commands/search.js';
+import { registerMcp } from './commands/mcp.js';
 import { attachLetters, group, inGroupAndTopLevel } from './commands/groups.js';
 import { registerTranscribe } from './commands/transcribe.js';
 import type { CliContext } from './wiring.js';
@@ -96,6 +97,7 @@ export function buildProgram(context: CliContext): Command {
   registerTemplate(template, context);
   attachLetters(template);
 
+  registerMcp(program, context);
   registerDoctor(program, context);
   registerSetup(program, context);
   return program;

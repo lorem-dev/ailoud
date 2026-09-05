@@ -215,6 +215,7 @@ current and accurate.
 | Package | Ecosystem | Version | License | Copyright |
 |---|---|---|---|---|
 | @clack/prompts | npm | 1.7.0 | MIT | Copyright (c) 2025-Present Bombshell contributors |
+| @modelcontextprotocol/sdk | npm | 1.30.0 | MIT | Copyright (c) 2024 Anthropic, PBC |
 | cli-table3 | npm | 0.6.5 | MIT | Copyright (c) 2014 James Talmage <james.talmage@jrtechnical.com> |
 | string-width | npm | 8.2.2 | MIT | Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> |
 | wrap-ansi | npm | 10.0.1 | MIT | Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> |

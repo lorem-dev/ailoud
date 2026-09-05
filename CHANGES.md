@@ -435,3 +435,43 @@ show`, `laud rm`, `laud annotate`. `docker ps` still works years after
   holding the old words -- finding the recording by a phrase nobody says in it
   any more, and missing it by the phrase they do. Nothing in laud updates
   segment text today, so this closes a hole rather than fixing a symptom.
+- `laud mcp` runs the library as an MCP server over stdio, so an agent can
+  search, summarise and tag it. Sixteen tools: nine reading, five writing, two
+  deleting. It serves the same library the other commands use.
+- The server's own `instructions` carry the four rules that change an agent's
+  behaviour, stated with their reasons: tag everything, search before reading,
+  transcripts arrive as files, and the context lives in the agent's memory
+  rather than in laud. A tool description explains one call; this explains the
+  shape of the thing, which is what stops an agent reading four transcripts to
+  answer a question one search would have answered.
+- Every tool description says when to use it AND when not to, and every input
+  field has its own description -- id prefixes, that several tags narrow rather
+  than widen, that a trailing `*` is a prefix search. Tests fail on a tool with
+  a thin description or a field with none.
+- `get_transcript` and `get_report` write to a temporary file and return the
+  path, the line count and the duration -- never the text. The directory is
+  created on first use, so a run that only lists things creates nothing, and
+  removed when the server stops.
+- Tagging is pushed in three places rather than only in prose:
+  `list_recordings` flags untagged recordings and counts them, `list_untagged`
+  exists for finding them, and `import_recording` warns when it tagged nothing.
+- `list_templates` is described as a prerequisite of `summarize`, and
+  `create_template` as rarely the right move, so an agent reaches for an
+  existing shape before inventing one.
+- Deleting takes two calls, always. The first describes exactly what would go
+  and returns a single-use `confirmationToken` that expires in ten minutes;
+  only a second call carrying it deletes. Tokens are random and held only in
+  the server process's memory, so one cannot be computed, and each is bound to
+  the exact ids it was issued for -- redeeming one for a different recording
+  fails, or the confirmation the user read was about something else. The tools
+  also carry `destructiveHint`.
+- Three prompts for the routines that are easy to get wrong: `catch-up`,
+  `tidy-library`, `summarise-properly`.
+- Transcripts and reports are addressable as resources, with id completion.
+- A refusal the server decides on is marked `isError` like a thrown one.
+  Returned as an ordinary success carrying an `error` field, a client's error
+  handling never engaged and the agent had to notice the field to know it had
+  failed.
+- `@modelcontextprotocol/sdk` 1.30.0, MIT, recorded in the Third-Party Notices
+  per the `check-licenses` skill. Every production dependency is MIT, ISC or
+  BSD; nothing on the disallowed list.

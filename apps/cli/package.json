@@ -10,6 +10,7 @@
     "@clack/prompts": "1.7.0",
     "@laud/core": "workspace:*",
     "@laud/providers": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "cli-table3": "0.6.5",
     "commander": "15.0.0",
     "string-width": "8.2.2",
