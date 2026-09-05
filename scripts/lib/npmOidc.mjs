@@ -20,9 +20,15 @@ import { join } from 'node:path';
 
 const REGISTRY = 'https://registry.npmjs.org';
 
-/** npm's escaping: a scope's slash becomes %2f, everything else is literal. */
+/**
+ * npm's escaping: a scope's slash becomes %2f, everything else is literal.
+ *
+ * `replaceAll`, though a package name holds at most one slash: `replace` with a
+ * string argument substitutes only the first match, so the single-slash case
+ * was right by accident rather than by what the code said.
+ */
 export function escapePackageName(name) {
-  return name.replace('/', '%2f');
+  return name.replaceAll('/', '%2f');
 }
 
 /** True when this process is a GitHub Actions job with `id-token: write`. */

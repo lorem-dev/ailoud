@@ -93,7 +93,18 @@ export async function withProvisioningLock<T>(dataDir: string, body: () => Promi
     }
     // Stale: the holder is gone, or never finished writing who it was.
     await rm(path, { force: true });
-    handle = await open(path, 'wx');
+    try {
+      handle = await open(path, 'wx');
+    } catch (retryError) {
+      if ((retryError as NodeJS.ErrnoException).code !== 'EEXIST') throw retryError;
+      // Two runs found the same stale lock and both removed it; this one lost
+      // the race to recreate it. Refusing is right -- the winner is a live
+      // holder now -- and this is the difference between saying so and
+      // reporting EEXIST about a path the user has never heard of.
+      throw new FailureError(
+        'another ailoud provisioning run took over the lock at the same moment. Try again.',
+      );
+    }
   }
 
   try {

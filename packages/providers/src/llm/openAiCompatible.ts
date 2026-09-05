@@ -1,5 +1,6 @@
 import type { Summarizer } from '@ailoud/core';
 import { EnvironmentError, FailureError } from '@ailoud/core';
+import { withoutTrailingSlashes } from '@ailoud/core';
 
 /**
  * A hosted model does not get the hour a local one does. If a request has not
@@ -61,7 +62,7 @@ export class OpenAiCompatibleSummarizer implements Summarizer {
   }
 
   public async complete(prompt: string): Promise<string> {
-    const url = `${this.options.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const url = `${withoutTrailingSlashes(this.options.baseUrl)}/chat/completions`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 

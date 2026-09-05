@@ -19,6 +19,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { escapePackageName } from './lib/npmOidc.mjs';
 import {
   DEFAULT_DAYS,
   EXACT,
@@ -35,7 +36,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
 
 async function publishedAt(name, version) {
-  const response = await fetch(`${REGISTRY}/${name.replace('/', '%2f')}`);
+  const response = await fetch(`${REGISTRY}/${escapePackageName(name)}`);
   if (!response.ok) return null;
   const { time } = await response.json();
   const stamp = time?.[version];
