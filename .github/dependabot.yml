@@ -34,6 +34,13 @@ updates:
       # own, because a runtime dependency deserves its own reading.
       dev-toolchain:
         dependency-type: development
+    ignore:
+      # typescript-eslint 8.67.0 refuses to load against TS 7.0 outright
+      # ("typescript-eslint does not support TS 7.0"), so the bump Dependabot
+      # opened could not lint -- it is blocked by a peer, not by us. Tracked as
+      # typescript-eslint#10940; drop this entry when it supports TS >= 7.1.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
     labels:
       - dependencies
 
