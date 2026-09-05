@@ -73,11 +73,19 @@ version nobody can install.
 ## Cleaning up
 
 A dev version cannot be unpublished after 72 hours and its number can never be
-reused, so use a fresh `-dev.<n>` each time rather than retrying one. Old dev
-versions can be deprecated:
+reused, so use a fresh `-dev.<n>` each time rather than retrying one.
+
+Once the final release is out, retire every snapshot it supersedes in one step:
 
 ```
-npm deprecate ailoud@1.2.3-dev.1 "superseded"
+node scripts/retire-prereleases.mjs 1.2.3          # prints the plan
+node scripts/retire-prereleases.mjs 1.2.3 --yes    # carries it out
 ```
 
-Do not delete the git tag: the published package's provenance points at it.
+It deprecates the versions rather than unpublishing them, drops the `dev`
+dist-tag, and deletes the tags -- but only those whose commit is reachable from
+`main`. The provenance of a published package names both the commit and the tag
+it was built from: delete the tag and the name stops resolving, which costs
+convenience; delete a tag holding the only reference to its commit and the
+commit itself can be collected, which costs the attestation its subject. Tags
+in the second case are reported and left alone.

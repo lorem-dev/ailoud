@@ -296,6 +296,25 @@ node scripts/fold-prereleases.mjs 1.0.0   # merges 1.0.0-dev.* and Development
 node scripts/check-changelog.mjs v1.0.0   # refuses if anything is left over
 ```
 
+Once the final release is published, retire the pre-releases it supersedes:
+
+```
+node scripts/retire-prereleases.mjs 1.0.0          # prints the plan
+node scripts/retire-prereleases.mjs 1.0.0 --yes    # carries it out
+```
+
+That deprecates each `1.0.0-dev.*` version on npm, drops the `dev` dist-tag,
+and deletes the tags. Three things it deliberately does not do:
+
+- **Unpublish.** npm allows it for 72 hours, the version number can never be
+  reused after, and anyone who pinned the version has their install broken.
+  A deprecated version keeps working and prints a notice.
+- **Delete a tag whose commit is not on `origin/main`.** The published
+  provenance attests that commit; unreachable, it can be collected, leaving
+  the attestation pointing at nothing. Those tags are reported and kept.
+- **Run in CI.** Trusted publishing issues a token for `npm publish`; whether
+  it can deprecate is not something to discover halfway through a release.
+
 `publish.yml` runs the check on every tag before it builds anything. The limits
 live in `scripts/lib/changelog.mjs` and are quoted, not restated, everywhere
 else -- a limit that differs between the script that warns and the script that

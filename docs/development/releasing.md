@@ -10,10 +10,14 @@
 
 ## Tags
 
-| Tag                 | Means                                    |
-| ------------------- | ---------------------------------------- |
-| `v<version>-rc.<n>` | a release candidate, tagged on `develop` |
-| `v<version>`        | a final release, tagged on `main` only   |
+| Tag                  | Means                                    | npm dist-tag |
+| -------------------- | ---------------------------------------- | ------------ |
+| `v<version>-dev.<n>` | a snapshot, tagged on any branch         | `dev`        |
+| `v<version>-rc.<n>`  | a release candidate, tagged on `develop` | `next`       |
+| `v<version>`         | a final release, tagged on `main` only   | `latest`     |
+
+Only a final tag moves `latest`, so `npm install ailoud` never returns a
+pre-release.
 
 ## Changelog limits
 
@@ -74,9 +78,27 @@ half of what is needed: `pnpm pack` rewrites the `workspace:*` dependencies
 into real versions, which npm requires and will not do itself, and
 `npm publish` is the one with OIDC and provenance.
 
-Before publishing it checks that all three manifests agree with the tag, then
-runs the whole gate. A pre-release tag publishes under the `next` dist-tag, so
-`npm install ailoud` keeps returning the last stable version.
+Before publishing it checks that all three manifests agree with the tag, that
+the changelog is fit to release, and then runs the whole gate.
+
+## Retiring pre-releases
+
+After a final release, retire the snapshots it supersedes:
+
+```
+node scripts/retire-prereleases.mjs 1.0.0          # prints the plan
+node scripts/retire-prereleases.mjs 1.0.0 --yes    # carries it out
+```
+
+Deprecating, not unpublishing: a deprecated version keeps every pinned install
+working and prints a notice on the next one. It also drops the `dev` dist-tag,
+and deletes the tags -- but only those whose commit is reachable from `main`,
+because the published provenance attests that commit. The rest are reported and
+left in place.
+
+It is a manual step, not part of `publish.yml`: trusted publishing issues a
+credential for publishing, and a release is the wrong moment to find out what
+else it covers.
 
 ## What a tag triggers
 

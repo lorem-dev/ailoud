@@ -9,6 +9,30 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+/**
+ * The published packages, in dependency order.
+ *
+ * The CLI is last because the other two are its dependencies: publish and
+ * deprecate both have to walk them in this order.
+ */
+export const PACKAGES = ['@ailoud/core', '@ailoud/providers', 'ailoud'];
+
+/**
+ * Which pre-release tags belong to a released version, and which may be deleted.
+ *
+ * Pure: it takes the tag list and an "is this commit on main" predicate rather
+ * than running git, so the decision is testable without a repository.
+ */
+export function planRetirement(version, tags, isOnMain) {
+  const prefix = `v${version}-`;
+  const mine = tags.filter((tag) => tag.startsWith(prefix)).sort();
+  return {
+    versions: mine.map((tag) => versionFromTag(tag)),
+    deletable: mine.filter((tag) => isOnMain(tag)),
+    kept: mine.filter((tag) => !isOnMain(tag)),
+  };
+}
+
 /** Entries per version section. Stated once here, quoted in AGENTS.md and CHANGES.md. */
 export const SOFT_LIMIT = 10;
 export const HARD_LIMIT = 50;

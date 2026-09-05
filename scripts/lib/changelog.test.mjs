@@ -8,6 +8,7 @@ import {
   fingerprint,
   groupBullets,
   isPrerelease,
+  planRetirement,
   splitSections,
   versionFromTag,
   versionHeading,
@@ -154,5 +155,42 @@ describe('countBullets', () => {
 
   it('counts nothing in prose', () => {
     expect(countBullets('### Added\n\nsome prose\n')).toBe(0);
+  });
+});
+
+describe('planRetirement', () => {
+  const tags = [
+    'v1.0.0-dev.2',
+    'v1.0.0-dev.1',
+    'v1.0.0-rc.1',
+    'v1.1.0-dev.1',
+    'v1.0.0',
+    'v10.0.0-dev.1',
+  ];
+
+  it('takes the pre-releases of one version and no others', () => {
+    // v1.1.0-dev.1 belongs to a version that has not been released, and
+    // v10.0.0-dev.1 shares a prefix with "v1" only as text.
+    const { versions } = planRetirement('1.0.0', tags, () => true);
+    expect(versions).toEqual(['1.0.0-dev.1', '1.0.0-dev.2', '1.0.0-rc.1']);
+  });
+
+  it('leaves the final release itself alone', () => {
+    const { versions } = planRetirement('1.0.0', tags, () => true);
+    expect(versions).not.toContain('1.0.0');
+  });
+
+  it('splits the tags by whether their commit is on main', () => {
+    // A tag whose commit is not reachable from main cannot be deleted: the
+    // commit could then be collected, and the published provenance attests it.
+    const onMain = (tag) => tag !== 'v1.0.0-dev.2';
+    const { deletable, kept } = planRetirement('1.0.0', tags, onMain);
+    expect(deletable).toEqual(['v1.0.0-dev.1', 'v1.0.0-rc.1']);
+    expect(kept).toEqual(['v1.0.0-dev.2']);
+  });
+
+  it('plans nothing for a version that never had a pre-release', () => {
+    const plan = planRetirement('2.0.0', tags, () => true);
+    expect(plan).toEqual({ versions: [], deletable: [], kept: [] });
   });
 });
