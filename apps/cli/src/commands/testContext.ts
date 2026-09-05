@@ -44,7 +44,13 @@ export function context(): CliContext & {
     segmenterInstances,
     diarizerInstances,
     summarizerPrompts,
-    paths: { configFile: '/c', dataDir: '/d', dbFile: '/d/ailoud.db', mediaRoot: '/d/media' },
+    paths: {
+      configFile: '/c',
+      dataDir: '/d',
+      dbFile: '/d/ailoud.db',
+      mediaRoot: '/d/media',
+      isProjectLibrary: false,
+    },
     config: {
       stt: {
         provider: 'whisper-cpp',

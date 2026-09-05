@@ -93,9 +93,58 @@ export interface AiloudPaths {
   readonly dataDir: string;
   readonly dbFile: string;
   readonly mediaRoot: string;
+  /** True when the library came from a project's `.ailoud/`, not the user's home. */
+  readonly isProjectLibrary: boolean;
 }
 
-export function resolvePaths(env: Record<string, string | undefined>): AiloudPaths {
+/** The directory name a project uses to keep its own library. */
+export const PROJECT_DIR = '.ailoud';
+
+/**
+ * The nearest `.ailoud/` at or above `from`, or null.
+ *
+ * Walked upwards rather than checked only in the current directory, for the
+ * same reason git looks upwards for `.git`: work happens in subdirectories,
+ * and a library that appeared and vanished depending on which one you were
+ * standing in would be worse than no feature at all.
+ *
+ * Takes an existence predicate rather than touching the filesystem, so the
+ * search is testable and so this module keeps doing no I/O of its own.
+ */
+export function findProjectDir(from: string, exists: (path: string) => boolean): string | null {
+  let at = from;
+  for (;;) {
+    const candidate = `${at}/${PROJECT_DIR}`;
+    if (exists(candidate)) return candidate;
+    const parent = at.replace(/\/[^/]*$/, '');
+    if (parent === at || parent === '') return null;
+    at = parent;
+  }
+}
+
+export interface ResolvePathsOptions {
+  /** Where to start looking for a project library. Absent means: do not look. */
+  readonly cwd?: string;
+  readonly exists?: (path: string) => boolean;
+}
+
+/**
+ * Where the configuration and the library live.
+ *
+ * The library is per-project when a `.ailoud/` directory exists at or above
+ * the working directory, and per-user otherwise. Recordings belong to the work
+ * they came from -- a repository's design reviews are not the same collection
+ * as last year's personal voice notes -- and a project directory is how that
+ * is said, the same way `.codegraph/` says it for an index.
+ *
+ * The CONFIG stays per-user either way. It names installed binaries, model
+ * files and an LLM provider, none of which is a property of a project, and
+ * making it local would mean re-downloading a 488 MB model per repository.
+ */
+export function resolvePaths(
+  env: Record<string, string | undefined>,
+  options: ResolvePathsOptions = {},
+): AiloudPaths {
   const home = env['HOME'];
   if (home === undefined || home === '') {
     throw new EnvironmentError(
@@ -105,12 +154,19 @@ export function resolvePaths(env: Record<string, string | undefined>): AiloudPat
   }
   const configHome = env['XDG_CONFIG_HOME'] ?? `${home}/.config`;
   const dataHome = env['XDG_DATA_HOME'] ?? `${home}/.local/share`;
-  const dataDir = `${dataHome}/ailoud`;
+
+  const project =
+    options.cwd === undefined || options.exists === undefined
+      ? null
+      : findProjectDir(options.cwd, options.exists);
+  const dataDir = project ?? `${dataHome}/ailoud`;
+
   return {
     configFile: `${configHome}/ailoud/config.yaml`,
     dataDir,
     dbFile: `${dataDir}/ailoud.db`,
     mediaRoot: `${dataDir}/media`,
+    isProjectLibrary: project !== null,
   };
 }
 

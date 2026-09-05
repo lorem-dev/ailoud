@@ -3,12 +3,20 @@
 # (build first: cross-package types resolve through dist). Runs on every
 # push to main/develop and on all pull requests.
 #
-# The end-to-end suite (`pnpm test:e2e`, Jest driving the built binary
-# against fixtures/) is deliberately NOT run here. It needs a real ffmpeg,
-# a whisper.cpp build, and a model file of roughly 150 MB, none of which
-# this runner provides. Wiring those in is future work, not an oversight;
-# see the check-fixtures skill for how to read that suite's failures on a
-# machine without them.
+# The end-to-end suite is split by what a spec needs from the machine:
+#
+#   - `e2e` runs the specs that need no external tools -- `mcp install`,
+#     `uninstall` and `update`, which only read and write configuration. On
+#     every push and pull request, because it costs seconds.
+#   - `e2e-tools` provisions ffmpeg, whisper.cpp and a 488 MB model with
+#     `ailoud setup`, then runs the whole suite. On pushes only: paying that
+#     download on every pull request would not be worth the wall clock, and
+#     the models are cached between runs so the usual cost is the install, not
+#     the download.
+#
+# Specs in the second group fail loudly rather than skipping when a tool is
+# missing. A suite that goes green by not running is worse than one that is
+# honestly red.
 
 name: CI
 
@@ -72,6 +80,89 @@ jobs:
         # vitest run --coverage enforces the thresholds defined in
         # vitest.config.ts.
         run: pnpm test:cov
+
+  e2e:
+    name: End-to-end (no external tools)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          lfs: true
+
+      - name: Enable pnpm via corepack
+        run: corepack enable
+
+      - name: Set up Node.js 24 with pnpm cache
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: End-to-end specs that need no ffmpeg, whisper or model
+        # These drive the built binary in a sandboxed HOME and a sandboxed
+        # working directory. The sandboxed cwd is load-bearing: `mcp install
+        # --location local` writes into the current directory, and without it
+        # the child would edit this repository's own files.
+        run: pnpm test:e2e:no-tools
+
+  e2e-tools:
+    name: End-to-end (provisioned)
+    runs-on: ubuntu-latest
+    # Not on pull requests: it downloads a 488 MB model on a cache miss.
+    if: github.event_name == 'push'
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          # The audio fixtures are LFS-tracked; without this the suite
+          # transcribes pointer files.
+          lfs: true
+
+      - name: Enable pnpm via corepack
+        run: corepack enable
+
+      - name: Set up Node.js 24 with pnpm cache
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache the whisper models
+        # Keyed on the catalogue, which holds the pinned file names, sizes and
+        # URLs: a model change invalidates the cache, and nothing else does.
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/ailoud/models
+          key: ailoud-models-${{ runner.os }}-${{ hashFiles('packages/core/src/provision/catalogue.ts') }}
+
+      - name: Build
+        run: pnpm build
+
+      - name: Provision ffmpeg, whisper.cpp and the models
+        # The same command a user runs, which makes this a test of `setup` as
+        # well as a prerequisite for the suite. --llm skip because no spec here
+        # summarises, and it would otherwise download another 2.1 GB.
+        run: node apps/cli/dist/bin/ailoud.js setup --yes --llm skip
+
+      - name: Report what the machine now has
+        # Printed whether or not the suite passes: a red e2e run is far quicker
+        # to read next to doctor's account of what was actually installed.
+        if: always()
+        run: node apps/cli/dist/bin/ailoud.js doctor || true
+
+      - name: End-to-end suite
+        run: pnpm test:e2e
 
   docs:
     name: Docs build (strict)

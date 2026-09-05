@@ -47,8 +47,11 @@ ailoud/
   .github/workflows/
 ```
 
-`e2e/` and `fixtures/` exist; they are not part of the everyday gate (see
-"Running the Gate" below).
+`e2e/` and `fixtures/` exist. The e2e suite is split by what a spec needs from
+the machine: the `no-tools` project (`pnpm test:e2e:no-tools`) drives the
+binary without ffmpeg, whisper or a model and runs in CI on every push and
+pull request; the `tools` project needs a provisioned machine and runs in CI on
+pushes only, after `ailoud setup`. See "Running the Gate" below.
 
 ### Dependency direction
 
@@ -175,6 +178,34 @@ record.
 The consequence is that a fresh clone carries no design document. Anything a
 contributor must know to work here belongs in this file, in README.md, or in
 CONTRIBUTING.md -- not in a plan only the maintainer has.
+
+---
+
+## Agent Installation
+
+`ailoud mcp install` registers AILoud with an agent and writes the rules block
+it reads. Both halves matter: an agent with the tools and no guidance reads
+whole transcripts into its context.
+
+- The block is delimited by `<!-- AILOUD_START -->` and `<!-- AILOUD_END -->`.
+  Everything outside the markers belongs to the user and is never touched.
+  Install, update and uninstall all find the markers and act only between them.
+- Adding is idempotent: installing twice produces the same bytes as once, which
+  is what makes `update` safe to run after every upgrade.
+- Every agent path and file format in `apps/cli/src/mcp/agents.ts` was read from
+  a working installation, never guessed. A wrong path writes a file nothing
+  reads, which looks exactly like a successful install.
+- `uninstall` deletes a config file AILoud created and _edits_ one that holds
+  anything else. It never deletes the `.ailoud/` library: unregistering an
+  agent is not a request to destroy recordings.
+- Agents that read no per-project configuration (Hermes, Copilot CLI) are
+  marked global-only in the table, and the scope question is skipped when every
+  chosen agent is one of them.
+
+A project keeps its own library in `.ailoud/`, found by walking up from the
+working directory the way git finds `.git`. The config stays per-user: it names
+installed binaries and model files, and making it local would mean
+re-downloading a 488 MB model per repository.
 
 ---
 

@@ -2,9 +2,10 @@ import type { Command } from 'commander';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { CliContext } from '../wiring.js';
 import { buildMcpServer } from '../mcp/server.js';
+import { registerMcpInstall } from './mcpInstall.js';
 
 export function registerMcp(program: Command, context: CliContext): void {
-  program
+  const mcp = program
     .command('mcp')
     .description('Run ailoud as an MCP server, so an agent can use the library')
     .addHelpText(
@@ -44,4 +45,6 @@ export function registerMcp(program: Command, context: CliContext): void {
       });
       await shutdown();
     });
+
+  registerMcpInstall(mcp, context);
 }

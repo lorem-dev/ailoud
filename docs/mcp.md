@@ -6,6 +6,91 @@ and tag it.
 
 ## Set it up
 
+The quickest way is to let AILoud do it:
+
+```
+ailoud mcp install
+```
+
+It asks which agents to configure, with the ones it found on your machine
+pre-selected:
+
+```
+Which agents should AILoud configure?
+  Claude Code (detected)
+  Codex CLI (detected)
+  opencode (detected)
+  Gemini CLI (not found)
+  Hermes Agent (not found) -- global only
+  GitHub Copilot CLI (detected) -- global only
+```
+
+Then where to put it:
+
+```
+Where should it be configured?
+  This project only    config files in this directory
+  Globally             every project on this machine
+```
+
+Non-interactively:
+
+```
+ailoud mcp install --target claude,codex --location local
+ailoud mcp install --target auto --location global --yes
+```
+
+It writes two things per agent: the MCP registration, and a rules block in the
+agent's instructions file so it uses the tools well. The block is delimited by
+`<!-- AILOUD_START -->` and `<!-- AILOUD_END -->`; nothing outside the markers
+is touched, and installing twice changes no bytes.
+
+For a per-project install it also creates `.ailoud/`, where that project's
+recordings live. See [the project library](#the-project-library).
+
+### Update and remove
+
+```
+ailoud mcp update              # refresh the block after upgrading AILoud
+ailoud mcp uninstall           # remove the registration and the block
+ailoud mcp uninstall --target claude --location local
+```
+
+`update` touches only agents that are already configured; it never adds a new
+one. `uninstall` deletes a config file AILoud created, edits one that holds
+other servers, and leaves `.ailoud/` alone.
+
+### Supported agents
+
+| Agent      | Scopes          | Config                         | Rules file                           |
+| ---------- | --------------- | ------------------------------ | ------------------------------------ |
+| `claude`   | project, global | `.mcp.json` / `~/.claude.json` | `CLAUDE.md`                          |
+| `codex`    | project, global | `.codex/config.toml`           | `AGENTS.md`                          |
+| `opencode` | project, global | `opencode.jsonc`               | `AGENTS.md`                          |
+| `gemini`   | project, global | `.gemini/settings.json`        | `GEMINI.md`                          |
+| `hermes`   | global only     | `~/.hermes/config.yaml`        | `~/.hermes/AGENTS.md`                |
+| `copilot`  | global only     | `~/.copilot/mcp-config.json`   | `~/.copilot/copilot-instructions.md` |
+
+## The project library
+
+A directory named `.ailoud/` makes that project's recordings separate from
+your personal collection. AILoud finds it by walking up from the working
+directory, the way git finds `.git`, so it works from any subdirectory.
+
+```
+ailoud mcp install --location local   # creates it
+ailoud doctor                         # shows which library is in use
+```
+
+The directory carries a `.gitignore` that excludes its own contents, so the
+database and the media copies never reach git while the directory itself can
+be committed.
+
+The config file stays per-user either way. It names installed binaries and
+model files, which are not a property of a project.
+
+## By hand
+
 === "Claude Code"
 
     `.mcp.json` in your project, or `~/.claude.json` for every project:

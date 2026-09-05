@@ -507,3 +507,42 @@ show`, `ailoud rm`, `ailoud annotate`. `docker ps` still works years after
   on an inflected language is the clearest demonstration of why prefix search
   exists, and writing it in English defeats the demonstration. Prose around
   such an example stays ASCII.
+- `ailoud mcp install` registers AILoud with an AI agent and writes the rules
+  block it reads. It asks which agents, with the ones found on the machine
+  pre-selected, then asks project-only or global -- skipping that question when
+  every chosen agent reads no per-project configuration. `--target` and
+  `--location` answer both without a prompt.
+- Six agents: Claude Code, Codex CLI, opencode and Gemini CLI in either scope;
+  Hermes Agent and GitHub Copilot CLI globally, which is all they read. Every
+  path and file format was read from a working installation rather than
+  guessed: a wrong path writes a file nothing reads, which looks exactly like a
+  successful install.
+- Both halves are written per agent -- the MCP registration, which makes the
+  tools reachable, and a rules block, which makes the agent use them well. An
+  agent with the tools and no guidance reads whole transcripts into its
+  context.
+- The block is delimited by `<!-- AILOUD_START -->` and `<!-- AILOUD_END -->`.
+  Everything outside the markers is untouched, another tool's block is left
+  alone, and installing twice produces the same bytes as once -- which is what
+  makes `mcp update` safe to run after every upgrade.
+- `ailoud mcp uninstall` removes the registration and the block. A config file
+  AILoud created is deleted rather than left holding `{}`; one that holds
+  anything else is edited. It never touches the `.ailoud/` library, and says
+  so: unregistering an agent is not a request to destroy recordings.
+- `ailoud mcp update` refreshes what a previous install wrote, for agents
+  already configured, and never adds one the user did not choose.
+- A project can keep its own library in `.ailoud/`, found by walking up from
+  the working directory the way git finds `.git`, so it works from any
+  subdirectory. The directory carries a `.gitignore` excluding its own
+  contents, so the database and media never reach git while the directory
+  itself can be committed. The config stays per-user: it names installed
+  binaries and model files, and making it local would mean re-downloading a
+  488 MB model per repository.
+- The end-to-end suite runs in CI now, split by what a spec needs from the
+  machine. The `no-tools` project needs no ffmpeg, whisper or model and runs on
+  every push and pull request; the `tools` project provisions the machine with
+  `ailoud setup` and runs on pushes only, with the models cached on the
+  catalogue's hash.
+- The e2e sandbox gained an isolated working directory. Without it a spec for
+  `mcp install --location local` would have edited this repository's own
+  `CLAUDE.md` and `.mcp.json`.

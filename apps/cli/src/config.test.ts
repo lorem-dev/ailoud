@@ -9,6 +9,7 @@ describe('resolvePaths', () => {
       dataDir: '/d/ailoud',
       dbFile: '/d/ailoud/ailoud.db',
       mediaRoot: '/d/ailoud/media',
+      isProjectLibrary: false,
     });
   });
 
@@ -18,6 +19,7 @@ describe('resolvePaths', () => {
       dataDir: '/h/.local/share/ailoud',
       dbFile: '/h/.local/share/ailoud/ailoud.db',
       mediaRoot: '/h/.local/share/ailoud/media',
+      isProjectLibrary: false,
     });
   });
 

@@ -1043,6 +1043,7 @@ describe('runProvisioning', () => {
       dataDir: join(tmp, 'data'),
       dbFile: join(tmp, 'data', 'ailoud.db'),
       mediaRoot: join(tmp, 'data', 'media'),
+      isProjectLibrary: false,
     };
     await mkdir(paths.mediaRoot, { recursive: true });
     for (const fn of Object.values(providers)) fn.mockReset();

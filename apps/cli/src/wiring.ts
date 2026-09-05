@@ -10,6 +10,7 @@ import type {
   Summarizer,
   TranscriptionProvider,
 } from '@ailoud/core';
+import { existsSync, statSync } from 'node:fs';
 import { EnvironmentError } from '@ailoud/core';
 import {
   AnthropicSummarizer,
@@ -98,7 +99,12 @@ export async function createContext(
   env: Record<string, string | undefined>,
   write: (line: string) => void = (line) => process.stdout.write(`${line}\n`),
 ): Promise<CliContext> {
-  const paths = resolvePaths(env);
+  // The project library is looked for from the working directory, so a
+  // repository with a `.ailoud/` keeps its recordings beside its code.
+  const paths = resolvePaths(env, {
+    cwd: process.cwd(),
+    exists: (path) => existsSync(path) && statSync(path).isDirectory(),
+  });
   const raw = await readConfigFile(paths.configFile);
   const config = parseConfig(raw);
   await mkdir(paths.mediaRoot, { recursive: true });

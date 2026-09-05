@@ -21,7 +21,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
-    "test:e2e": "pnpm build && jest --config jest.config.cjs"
+    "test:e2e": "pnpm build && jest --config jest.config.cjs",
+    "test:e2e:no-tools": "pnpm build && jest --config jest.config.cjs --selectProjects no-tools"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

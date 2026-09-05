@@ -108,6 +108,7 @@ describe('buildProgram', () => {
         dataDir: '/fake/data',
         dbFile: ':memory:',
         mediaRoot: '/fake/data/media',
+        isProjectLibrary: false,
       },
       config: {
         stt: {

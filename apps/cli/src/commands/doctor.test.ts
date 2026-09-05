@@ -549,6 +549,7 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
         dataDir: scopedDir,
         dbFile: join(scopedDir, 'ailoud.db'),
         mediaRoot: join(scopedDir, 'media'),
+        isProjectLibrary: false,
       },
       config: {
         stt: {
@@ -689,6 +690,7 @@ describe('doctor: an unconfigured optional feature does not mean "not ready"', (
         dataDir,
         dbFile: join(dataDir, 'ailoud.db'),
         mediaRoot: join(dataDir, 'media'),
+        isProjectLibrary: false,
       },
       config: {
         stt: {
@@ -830,6 +832,7 @@ describe('a corrupt database: every entry point must refuse', () => {
         dataDir: corruptDir,
         dbFile: join(corruptDir, 'ailoud.db'),
         mediaRoot: join(corruptDir, 'media'),
+        isProjectLibrary: false,
       },
       config: {
         stt: {
