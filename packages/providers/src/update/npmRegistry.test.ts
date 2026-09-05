@@ -45,6 +45,32 @@ describe('NpmRegistry', () => {
     await expect(new NpmRegistry({ fetchImpl }).published('ailoud')).rejects.toThrow(/503/);
   });
 
+  it('throws when the versions object is present but empty', async () => {
+    // A 200 with `{"versions": {}}` used to resolve to an empty list, which
+    // every caller reads as "nothing newer exists". A package with no versions
+    // cannot be the one we are running.
+    const fetchImpl = async () => new Response('{"versions":{}}', { status: 200 });
+    await expect(new NpmRegistry({ fetchImpl }).published('ailoud')).rejects.toThrow(/no versions/);
+  });
+
+  it('treats an empty deprecation message as not deprecated', async () => {
+    // `npm deprecate <pkg>@<version> ""` un-deprecates by setting an empty
+    // string, not by removing the field. Testing for the key rather than the
+    // value reported a revived version as still deprecated, which would refuse
+    // a legitimate update.
+    const body = JSON.stringify({
+      versions: {
+        '1.0.0': { version: '1.0.0', deprecated: '' },
+        '1.0.1': { version: '1.0.1', deprecated: 'do not use' },
+      },
+    });
+    const fetchImpl = async () => new Response(body, { status: 200 });
+    expect(await new NpmRegistry({ fetchImpl }).published('ailoud')).toEqual([
+      { version: '1.0.0', deprecated: false },
+      { version: '1.0.1', deprecated: true },
+    ]);
+  });
+
   it('throws when the body has no versions', async () => {
     // A silent empty answer would read as "you are up to date", which is the
     // one wrong thing a version check can say.

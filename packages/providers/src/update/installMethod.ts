@@ -35,8 +35,14 @@ export async function detectInstallMethod(options: DetectOptions): Promise<Insta
   if (npmRoot !== null && root.startsWith(npmRoot)) return { kind: 'npm-global' };
   if (pnpmRoot !== null && root.startsWith(pnpmRoot)) return { kind: 'pnpm-global' };
 
-  // Whatever is left inside a node_modules is somebody's dependency.
-  const marker = root.lastIndexOf('/node_modules/');
+  // Whatever is left inside a node_modules is somebody's dependency. The
+  // FIRST `/node_modules/` is the project boundary, not the last: pnpm installs
+  // a project dependency at
+  // `<project>/node_modules/.pnpm/ailoud@1.0.0/node_modules/ailoud`, so taking
+  // the last one named the store entry and told the user to run their add
+  // command in `.../node_modules/.pnpm/ailoud@1.0.0`. A nested dependency of a
+  // dependency lands on the project for the same reason, which is also right.
+  const marker = root.indexOf('/node_modules/');
   if (marker !== -1) {
     const projectDir = root.slice(0, marker);
     return {

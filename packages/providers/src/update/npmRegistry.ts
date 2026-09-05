@@ -52,9 +52,36 @@ export class NpmRegistry implements VersionSource {
         `the npm registry returned no versions for ${packageName}, so ailoud cannot tell which versions exist.`,
       );
     }
-    return Object.entries(versions as Record<string, unknown>).map(([version, entry]) => ({
-      version,
-      deprecated: typeof entry === 'object' && entry !== null && 'deprecated' in entry,
-    }));
+    const published = Object.entries(versions as Record<string, unknown>).map(
+      ([version, entry]) => ({ version, deprecated: isDeprecated(entry) }),
+    );
+    // An empty list is not an answer. `{"versions": {}}` with a 200 would
+    // otherwise resolve to [], which every caller reads as "nothing newer
+    // exists" -- the one wrong thing a version check can say. A package that
+    // really has no versions cannot be the one we are running.
+    if (published.length === 0) {
+      throw new FailureError(
+        `the npm registry listed no versions of ${packageName}, so ailoud cannot tell which versions exist.`,
+      );
+    }
+    return published;
   }
+}
+
+/**
+ * Whether the registry says this version is deprecated.
+ *
+ * The value matters, not the key. npm stores the deprecation MESSAGE here, and
+ * `npm deprecate <pkg>@<version> ""` un-deprecates by setting an empty string
+ * rather than removing the field. Testing `'deprecated' in entry` therefore
+ * reports a revived version as still deprecated, which would refuse a
+ * legitimate update and, if a registry emitted the empty form widely, refuse
+ * every update.
+ */
+function isDeprecated(entry: unknown): boolean {
+  if (typeof entry !== 'object' || entry === null) return false;
+  const flag: unknown = (entry as { deprecated?: unknown }).deprecated;
+  if (typeof flag === 'string') return flag.length > 0;
+  // Not a shape npm documents, but a boolean true is unambiguous if it appears.
+  return flag === true;
 }

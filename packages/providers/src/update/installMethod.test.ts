@@ -103,4 +103,21 @@ describe('installCommandFor', () => {
     ]);
     expect(installCommandFor({ kind: 'npx', hint: 'npx ailoud@1.0.1' }, '1.0.1')).toBeNull();
   });
+
+  it('names the project, not the pnpm store entry, for a pnpm-installed dependency', async () => {
+    // pnpm puts a project dependency at
+    // <project>/node_modules/.pnpm/<name>@<version>/node_modules/<name>.
+    // Taking the LAST `/node_modules/` named the store entry, so the hint told
+    // the user to run their add command in `.../.pnpm/ailoud@1.0.0`.
+    const method = await detectInstallMethod({
+      packageRoot: '/Users/x/repo/node_modules/.pnpm/ailoud@1.0.0/node_modules/ailoud',
+      realpath: async (path: string) => path,
+      run: async () => ({ code: 0, stdout: '/nowhere\n', stderr: '' }),
+    });
+    expect(method).toEqual({
+      kind: 'project',
+      projectDir: '/Users/x/repo',
+      hint: "run your package manager's add command in /Users/x/repo",
+    });
+  });
 });
