@@ -197,7 +197,16 @@ jobs:
           esac
           echo "publishing $version under dist-tag $dist_tag"
           for name in ailoud-core ailoud-providers ailoud; do
-            tarball=$(ls dist-npm/${name}-${version}.tgz)
+            # An ABSOLUTE path. Given `dist-npm/ailoud-core-1.0.0-dev.1.tgz`,
+            # npm read the slash as the `owner/repo` GitHub shorthand and tried
+            # to `git ls-remote ssh://git@github.com/dist-npm/...git`, which
+            # failed on a missing public key rather than on anything to do with
+            # publishing.
+            tarball="$PWD/dist-npm/${name}-${version}.tgz"
+            if [ ! -f "$tarball" ]; then
+              echo "::error::$tarball was not packed."
+              exit 1
+            fi
             echo "--- $tarball"
             npm publish "$tarball" --provenance --access public --tag "$dist_tag"
           done
