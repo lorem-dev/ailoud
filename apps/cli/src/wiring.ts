@@ -60,6 +60,18 @@ const UPDATE_TIMEOUT_MS = DEFAULT_TIMEOUT_MS;
  * so there is never a handle to leak.
  */
 function packumentFixtureFetch(fixturePath: string): typeof fetch {
+  // Announced on stderr, every run, deliberately. This hook ships INSIDE the
+  // binary -- unlike the identical variable in scripts/retire-prereleases.mjs,
+  // which only maintainers run -- so it can substitute where `self check` and
+  // `self update` get their version facts. Nobody can set it in your
+  // environment without already being able to do worse, and it cannot cause a
+  // bad install because the install itself still resolves against the real
+  // registry. What it CAN do is hide that an update exists. A silent
+  // substitution of trusted data is the part worth refusing, so it is made
+  // impossible: if this is in effect, you are told.
+  process.stderr.write(
+    `ailoud: reading npm versions from the fixture ${fixturePath} (AILOUD_PACKUMENTS is set), not from the registry\n`,
+  );
   const impl: typeof fetch = async (input) => {
     const name = decodeURIComponent(new URL(String(input)).pathname.slice(1));
     const raw = await readFile(fixturePath, 'utf8');
