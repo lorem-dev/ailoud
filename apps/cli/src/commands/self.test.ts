@@ -642,7 +642,7 @@ describe('the sweep must survive bookkeeping failures (task 7 review)', () => {
     // dead network mount answer the same way. Dropping the entry would forget
     // a project that still holds a rules block, silently and for good.
     const fs = new AnnoyedFs('/proj/locked');
-    const clock = new FakeClock('2026-01-01T00:00:00.000Z');
+    const clock = new FakeClock();
     const deps = { fs, clock, userDataDir: '/data/ailoud' };
     await rememberProject(deps, { path: '/proj/locked' });
 
@@ -665,12 +665,51 @@ describe('the sweep must survive bookkeeping failures (task 7 review)', () => {
     await fs.writeTextFile('/data/ailoud/projects.json', '[]\n');
     const report = await syncProjects({
       fs,
-      clock: new FakeClock('2026-01-01T00:00:00.000Z'),
+      clock: new FakeClock(),
       userDataDir: '/data/ailoud',
       home: '/home/x',
     });
 
     expect(report.failed).toBe(true);
     expect(report.rows.some((row) => row.status.startsWith('failed:'))).toBe(true);
+  });
+});
+
+describe('a partial refresh must not be reported as a plain failure', () => {
+  const BLOCK = 'keep me\n<!-- AILOUD_START -->\nold rules\n<!-- AILOUD_END -->\n';
+
+  /** Rejects writes to one agent's rules file, leaving the other's to succeed. */
+  class OneUnwritableAgent extends MemFs {
+    override async writeTextFile(path: string, content: string): Promise<void> {
+      if (path.endsWith('GEMINI.md')) throw new Error('EROFS: read-only file system');
+      return super.writeTextFile(path, content);
+    }
+  }
+
+  it('says some agents were refreshed, and does not record the rules version', async () => {
+    // One project can hold configs for several agents. Claude's block is
+    // rewritten and Gemini's write then fails: reporting a plain `failed`
+    // would claim nothing changed in a file this command had just edited.
+    // And recording the version after a partial write would make the NEXT
+    // sweep call the project `current` and skip the block still left stale.
+    const fs = new OneUnwritableAgent({
+      '/proj/a/CLAUDE.md': BLOCK,
+      '/proj/a/GEMINI.md': BLOCK,
+    });
+    const clock = new FakeClock();
+    const registry = { fs, clock, userDataDir: '/data/ailoud' };
+    // The directory has to exist, or the sweep prunes the entry before it
+    // ever reaches an agent.
+    await fs.ensureDir('/proj/a');
+    await rememberProject(registry, { path: '/proj/a' });
+
+    const report = await syncProjects({ ...registry, home: '/home/x' });
+
+    const row = report.rows.find((candidate) => candidate.path === '/proj/a');
+    expect(row?.status).toMatch(/^failed:/);
+    expect(row?.status).toContain('some agents were refreshed');
+    expect(report.failed).toBe(true);
+    const entry = (await readProjects(registry)).find((candidate) => candidate.path === '/proj/a');
+    expect(entry?.rulesVersion).toBeUndefined();
   });
 });

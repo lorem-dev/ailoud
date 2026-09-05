@@ -169,10 +169,36 @@ export async function syncProjects(deps: SyncDeps): Promise<SyncReport> {
   for (const entry of projects) {
     try {
       const outcomes: AgentOutcome[] = [];
+      const failures: string[] = [];
       for (const agent of AGENTS) {
         if (!agent.scopes.includes('local')) continue;
-        const outcome = await update(deps.fs, agent, 'local', deps.home, entry.path);
-        if (outcome !== null) outcomes.push(outcome);
+        // Caught PER AGENT, not around the loop. One project can hold configs
+        // for several agents, and a throw on the second one used to report the
+        // whole project as `failed` even though the first one's file had
+        // already been rewritten -- telling the user nothing changed in a
+        // directory this command had just edited.
+        try {
+          const outcome = await update(deps.fs, agent, 'local', deps.home, entry.path);
+          if (outcome !== null) outcomes.push(outcome);
+        } catch (error) {
+          failures.push(error instanceof Error ? error.message : String(error));
+        }
+      }
+
+      if (failures.length > 0) {
+        failed = true;
+        const wrote = outcomes.some((outcome) =>
+          outcome.files.some((file) => file.action !== 'unchanged'),
+        );
+        // Deliberately NOT recording rulesVersion on a partial failure: some
+        // agent here still has a stale block, and recording the version would
+        // make the next sweep call this project `current` and skip it.
+        const status = (
+          wrote ? `failed: ${failures[0]} (some agents were refreshed)` : `failed: ${failures[0]}`
+        ) as SyncRow['status'];
+        rows.push({ path: entry.path, status });
+        await logSyncAction(deps, entry.path, status);
+        continue;
       }
 
       if (outcomes.length === 0) {
