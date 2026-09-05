@@ -111,9 +111,17 @@ and deletes the tags -- but only those whose commit is reachable from `main`,
 because the published provenance attests that commit. The rest are reported and
 left in place.
 
-It is a manual step, not part of `publish.yml`: trusted publishing issues a
-credential for publishing, and a release is the wrong moment to find out what
-else it covers.
+`publish.yml` runs this itself after a final release, and `retire.yml` can be
+dispatched on its own -- without `confirm` it changes nothing and reports
+whether it could, which is how to check the credential path without waiting for
+a release.
+
+No token is involved here either. Trusted publishing covers publishing, so
+`npm deprecate` has nothing to authenticate with; the script performs the same
+exchange `npm publish` does for itself -- a GitHub id token with audience
+`npm:registry.npmjs.org`, posted to
+`/-/npm/v1/oidc/token/exchange/package/<name>` -- and uses the short-lived
+token it returns.
 
 ## What a tag triggers
 

@@ -316,7 +316,7 @@ node scripts/retire-prereleases.mjs 1.0.0 --yes    # carries it out
 ```
 
 That deprecates each `1.0.0-dev.*` version on npm, drops the `dev` dist-tag,
-and deletes the tags. Three things it deliberately does not do:
+and deletes the tags. Two things it deliberately does not do:
 
 - **Unpublish.** npm allows it for 72 hours, the version number can never be
   reused after, and anyone who pinned the version has their install broken.
@@ -324,8 +324,18 @@ and deletes the tags. Three things it deliberately does not do:
 - **Delete a tag whose commit is not on `origin/main`.** The published
   provenance attests that commit; unreachable, it can be collected, leaving
   the attestation pointing at nothing. Those tags are reported and kept.
-- **Run in CI.** Trusted publishing issues a token for `npm publish`; whether
-  it can deprecate is not something to discover halfway through a release.
+
+It runs by hand or in CI. `publish.yml` calls `retire.yml` after a final
+release, and `retire.yml` can be dispatched on its own -- without `confirm` it
+changes nothing and reports whether it could, which is how to check the
+credential path without waiting for a release.
+
+Neither needs a stored credential. Trusted publishing covers publishing, so
+`npm deprecate` has nothing to authenticate with; the script performs the same
+exchange `npm publish` does for itself -- a GitHub id token with audience
+`npm:registry.npmjs.org`, posted to
+`/-/npm/v1/oidc/token/exchange/package/<name>` -- and uses the short-lived
+token it returns.
 
 `publish.yml` runs the check on every tag before it builds anything. The limits
 live in `scripts/lib/changelog.mjs` and are quoted, not restated, everywhere

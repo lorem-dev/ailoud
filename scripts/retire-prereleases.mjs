@@ -3,6 +3,13 @@
 //
 // Usage: node scripts/retire-prereleases.mjs <version> [--yes]
 //
+// Authenticates by exchanging the CI OIDC identity for a per-package npm token
+// when it runs in GitHub Actions with `id-token: write`, and otherwise leaves
+// npm to its ambient login -- so this needs no stored credential in CI and
+// still works from a laptop. Without --yes it exchanges nothing but reports
+// whether it could, which makes the dry run a real check of the credential
+// path rather than a guess about it.
+//
 // Prints the plan and changes nothing without --yes. Two of the three actions
 // cannot be undone, so consent is explicit here for the same reason it is in
 // `setup` and `rm`.
@@ -24,6 +31,7 @@
 // left alone.
 import { spawnSync } from 'node:child_process';
 import { PACKAGES, fail, planRetirement, versionFromTag, warn } from './lib/changelog.mjs';
+import { canExchange, tokenForPackage, withNpmToken } from './lib/npmOidc.mjs';
 
 const SCOPE = 'retire-prereleases';
 
@@ -68,18 +76,40 @@ for (const tag of kept) {
   );
 }
 
+/** A token for one package, or null to fall back on npm's ambient login. */
+async function credentialFor(pkg) {
+  if (!canExchange()) return null;
+  return tokenForPackage(pkg);
+}
+
+/** Runs npm with the exchanged token when there is one, plainly when not. */
+function npm(args, token) {
+  const run = (env) => spawnSync('npm', args, { encoding: 'utf8', stdio: 'inherit', env });
+  return token === null ? run(process.env) : withNpmToken(token, run);
+}
+
 if (!confirmed) {
+  if (canExchange()) {
+    // Mints a token and uses it for nothing. The exchange is the step that
+    // fails when a trusted publisher is missing, so proving it works is worth
+    // more here than a message saying it should.
+    for (const pkg of PACKAGES) {
+      const token = await tokenForPackage(pkg);
+      console.log(`  credential for ${pkg}: ${token === null ? 'NOT AVAILABLE' : 'ok'}`);
+    }
+  }
   console.log(`${SCOPE}: nothing was changed. Re-run with --yes to carry this out.`);
   process.exit(0);
 }
 
-for (const prerelease of versions) {
-  for (const pkg of PACKAGES) {
-    const result = spawnSync(
-      'npm',
-      ['deprecate', `${pkg}@${prerelease}`, `superseded by ${version}`],
-      { encoding: 'utf8', stdio: 'inherit' },
-    );
+for (const pkg of PACKAGES) {
+  const token = await credentialFor(pkg);
+  if (token === null && canExchange()) {
+    warn(`${SCOPE}: no credential for ${pkg}; its versions stay as they are`);
+    continue;
+  }
+  for (const prerelease of versions) {
+    const result = npm(['deprecate', `${pkg}@${prerelease}`, `superseded by ${version}`], token);
     // Reported, not fatal: a pre-release that was never published to one of
     // the three packages is normal, and stopping here would leave the rest
     // half-retired.
@@ -89,10 +119,8 @@ for (const prerelease of versions) {
 
 // The `dev` dist-tag still points at the last snapshot, so `npm install
 // ailoud@dev` would hand out something older than `latest`.
-const dropped = spawnSync('npm', ['dist-tag', 'rm', PACKAGES.at(-1), 'dev'], {
-  encoding: 'utf8',
-  stdio: 'inherit',
-});
+const cli = PACKAGES.at(-1);
+const dropped = npm(['dist-tag', 'rm', cli, 'dev'], await credentialFor(cli));
 if (dropped.status !== 0) warn(`${SCOPE}: could not drop the "dev" dist-tag`);
 
 for (const tag of deletable) {

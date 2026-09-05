@@ -43,7 +43,11 @@ on:
 # id-token is what makes trusted publishing work; without it npm has no OIDC
 # token to exchange and falls back to asking for a credential that is not there.
 permissions:
-  contents: read
+  # contents: write is for the `retire` job below, which deletes the tags a
+  # final release supersedes. A job calling a reusable workflow cannot be
+  # granted more than the caller holds, so it is declared here rather than
+  # only in retire.yml -- publishing itself reads and nothing more.
+  contents: write
   id-token: write
 
 concurrency:
@@ -267,3 +271,13 @@ jobs:
       - name: Report what was published
         if: always()
         run: ls -l dist-npm || true
+
+  retire:
+    # Final releases only. A pre-release supersedes nothing.
+    name: Retire superseded pre-releases
+    needs: publish
+    if: ${{ !contains(github.event.inputs.tag || github.ref_name, '-') }}
+    uses: ./.github/workflows/retire.yml
+    with:
+      version: ${{ github.event.inputs.tag || github.ref_name }}
+      confirm: true

@@ -1,0 +1,74 @@
+# Retire the pre-releases a final release supersedes: deprecate every -dev.N
+# of that version on npm, drop the `dev` dist-tag, and delete the git tags
+# whose commit is reachable from main.
+#
+# Runs the same `scripts/retire-prereleases.mjs` that runs by hand, and needs
+# no stored credential: the script exchanges this job's OIDC identity for a
+# per-package npm token, the same exchange `npm publish` performs for itself.
+# Trusted publishing covers publishing, so `npm deprecate` had nothing to
+# authenticate with, which is why this used to be manual.
+#
+# Called by publish.yml after a final release, and available on its own so the
+# credential path can be checked without waiting for one -- without `confirm`
+# it changes nothing and reports whether the exchange works.
+
+name: Retire pre-releases
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The released version whose pre-releases to retire, e.g. 1.0.0
+        required: true
+        type: string
+      confirm:
+        description: Carry it out. Without this it only prints the plan.
+        required: false
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Released version, e.g. 1.0.0'
+        required: true
+        type: string
+      confirm:
+        description: Carry it out (leave off for a dry run)
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  # Deleting the superseded tags needs write; the dry run does not, but one
+  # permission block for both beats two jobs that differ only in this.
+  contents: write
+  id-token: write
+
+concurrency:
+  group: npm-retire
+  cancel-in-progress: false
+
+jobs:
+  retire:
+    name: Retire the pre-releases of ${{ inputs.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          # Whole history and every tag: the script refuses to delete a tag
+          # whose commit is not reachable from origin/main, and cannot tell on
+          # a shallow clone.
+          fetch-depth: 0
+
+      - name: Set up Node.js 24 and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Retire
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin 'refs/heads/main:refs/remotes/origin/main'
+          node scripts/retire-prereleases.mjs '${{ inputs.version }}' \
+            ${{ inputs.confirm && '--yes' || '' }}
