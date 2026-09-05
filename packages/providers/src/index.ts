@@ -54,3 +54,6 @@ export type { InstallLlamaOptions, InstallLlamaResult } from './provision/llamaI
 
 export { NpmRegistry } from './update/npmRegistry.js';
 export type { NpmRegistryOptions } from './update/npmRegistry.js';
+
+export { detectInstallMethod, installCommandFor } from './update/installMethod.js';
+export type { InstallMethod, DetectOptions } from './update/installMethod.js';
