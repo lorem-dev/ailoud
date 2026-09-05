@@ -14,7 +14,7 @@ import { registerSearch } from './commands/search.js';
 import { registerMcp } from './commands/mcp.js';
 import { attachLetters, group, inGroupAndTopLevel } from './commands/groups.js';
 import { registerTranscribe } from './commands/transcribe.js';
-import { registerSelfCheck } from './commands/self.js';
+import { registerSelfCheck, registerSelfSync } from './commands/self.js';
 import type { CliContext } from './wiring.js';
 import { VERSION } from './version.js';
 
@@ -105,6 +105,7 @@ export function buildProgram(context: CliContext): Command {
 
   const self = group(program, 'self', undefined, 'Manage this installation of ailoud');
   inGroupAndTopLevel(program, self, registerSelfCheck, context);
+  inGroupAndTopLevel(program, self, registerSelfSync, context);
   attachLetters(self);
 
   return program;

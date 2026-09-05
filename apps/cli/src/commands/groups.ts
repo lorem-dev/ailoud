@@ -99,6 +99,7 @@ const LETTER: Record<string, string> = {
   // most often after `ls`.
   search: 'f',
   check: 'c',
+  sync: 's',
 };
 
 /** Every letter this build assigns, for the collision test to read. */
