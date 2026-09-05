@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { FailureError } from '@ailoud/core';
+import { FailureError, UsageError } from '@ailoud/core';
 import type { PublishedVersion, VersionSource } from '@ailoud/core';
 import { MemFs, FakeClock } from '@ailoud/core/testing';
+import type { RunOptions, RunResult } from '@ailoud/providers';
 import { buildProgram, exitCodeFor } from '../program.js';
 import { context } from './testContext.js';
 import { findAgent } from '../mcp/agents.js';
 import { install } from '../mcp/install.js';
 import { readProjects, rememberProject } from '../projects.js';
 import type { SyncDeps } from './self.js';
-import { syncProjects } from './self.js';
+import { boundedDetectRun, syncProjects, updateSelf } from './self.js';
+import type { SelfUpdateDeps } from './self.js';
 import { updateLogPath } from '../updateLog.js';
 import { VERSION } from '../version.js';
 
@@ -324,6 +326,265 @@ describe('ailoud self sync (CLI)', () => {
     expect(ctx.lines.some((line) => line.startsWith('failed:') && line.includes('/proj/a'))).toBe(
       true,
     );
+  });
+});
+
+describe('boundedDetectRun', () => {
+  it('gives detectInstallMethod a run bounded to 10 seconds', async () => {
+    const seen: Array<{ command: string; args: readonly string[]; options?: RunOptions }> = [];
+    const fakeRunImpl = async (
+      command: string,
+      args: readonly string[],
+      options?: RunOptions,
+    ): Promise<RunResult> => {
+      seen.push({ command, args, ...(options === undefined ? {} : { options }) });
+      return { code: 0, stdout: '', stderr: '' };
+    };
+
+    const bounded = boundedDetectRun(fakeRunImpl);
+    await bounded('npm', ['root', '-g']);
+
+    expect(seen).toEqual([
+      { command: 'npm', args: ['root', '-g'], options: { timeoutMs: 10_000 } },
+    ]);
+  });
+});
+
+describe('updateSelf', () => {
+  /** `npm root -g` answers this root; `pnpm` is never installed on this fake machine. */
+  function fakeDetectRun(roots: { npm?: string; pnpm?: string }) {
+    return async (command: string, _args: readonly string[]): Promise<RunResult> => {
+      const root = command === 'npm' ? roots.npm : command === 'pnpm' ? roots.pnpm : undefined;
+      if (root === undefined) return { code: 1, stdout: '', stderr: `${command}: not found` };
+      return { code: 0, stdout: root, stderr: '' };
+    };
+  }
+
+  /** A fake global npm install: packageRoot sits under the root `run` reports. */
+  function npmGlobalDeps(
+    ctx: ReturnType<typeof context>,
+    overrides: Partial<SelfUpdateDeps> = {},
+  ): SelfUpdateDeps {
+    return {
+      context: ctx,
+      execPath: '/usr/local/bin/node',
+      packageRoot: '/opt/homebrew/lib/node_modules/ailoud',
+      realpath: async (p: string) => p,
+      run: fakeDetectRun({ npm: '/opt/homebrew/lib/node_modules' }),
+      spawn: async () => 0,
+      interactive: true,
+      ...overrides,
+    };
+  }
+
+  function withTarget(): ReturnType<typeof context> {
+    return { ...context(), versionSource: source([{ version: '1.0.1', deprecated: false }]) };
+  }
+
+  it('says so and changes nothing when there is nothing newer', async () => {
+    const ctx = context(); // default versionSource reports the current VERSION
+    const calls: Array<[string, readonly string[]]> = [];
+    const deps = npmGlobalDeps(ctx, {
+      spawn: async (command, args) => {
+        calls.push([command, args]);
+        return 0;
+      },
+    });
+
+    await updateSelf(deps, {});
+
+    expect(ctx.lines).toEqual([
+      `ailoud ${VERSION} is already the newest version you can update to`,
+    ]);
+    expect(calls).toEqual([]);
+  });
+
+  it('prints a plan and changes nothing with --dry-run', async () => {
+    const ctx = withTarget();
+    const calls: Array<[string, readonly string[]]> = [];
+    const deps = npmGlobalDeps(ctx, {
+      spawn: async (command, args) => {
+        calls.push([command, args]);
+        return 0;
+      },
+    });
+
+    await updateSelf(deps, { dryRun: true });
+
+    expect(calls).toEqual([]);
+    expect(ctx.lines.some((line) => line.includes('1.0.0'))).toBe(true);
+    expect(ctx.lines.some((line) => line.includes('1.0.1'))).toBe(true);
+    expect(ctx.lines.some((line) => line.includes('npm install -g ailoud@1.0.1'))).toBe(true);
+    expect(ctx.lines.some((line) => line.toLowerCase().includes('dry run'))).toBe(true);
+    expect(await ctx.fs.exists(updateLogPath(ctx.paths.userDataDir))).toBe(false);
+  });
+
+  it('refuses an npx install and prints the npx command, exiting 0', async () => {
+    const ctx = withTarget();
+    const deps = npmGlobalDeps(ctx, {
+      packageRoot: '/Users/x/.npm/_npx/abcd1234/node_modules/ailoud',
+    });
+
+    await expect(updateSelf(deps, {})).resolves.toBeUndefined();
+
+    expect(ctx.lines).toContain('npx ailoud@<version>');
+  });
+
+  it('refuses a project dependency, naming the project', async () => {
+    const ctx = withTarget();
+    const deps = npmGlobalDeps(ctx, {
+      packageRoot: '/Users/x/code/some-app/node_modules/ailoud',
+    });
+
+    await expect(updateSelf(deps, {})).resolves.toBeUndefined();
+
+    expect(ctx.lines.some((line) => line.includes('/Users/x/code/some-app'))).toBe(true);
+  });
+
+  it('exits non-zero when --force meets an install method it cannot use', async () => {
+    // A refusal is information; a forced update that cannot happen is an error.
+    const ctx = withTarget();
+    const deps = npmGlobalDeps(ctx, {
+      packageRoot: '/Users/x/code/some-app/node_modules/ailoud',
+    });
+
+    const error: unknown = await updateSelf(deps, { force: true }).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(FailureError);
+    expect(exitCodeFor(error)).toBe(1);
+  });
+
+  it('refuses without a terminal and names --force', async () => {
+    // The rule the shared confirmation helper already enforces for `rm`.
+    const ctx = withTarget();
+    const deps = npmGlobalDeps(ctx, { interactive: false });
+
+    const error: unknown = await updateSelf(deps, {}).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(UsageError);
+    expect((error as Error).message).toContain('--force');
+  });
+
+  it('declines when the user says no at the prompt, changing nothing', async () => {
+    const ctx = withTarget();
+    const calls: Array<[string, readonly string[]]> = [];
+    const deps = npmGlobalDeps(ctx, {
+      spawn: async (command, args) => {
+        calls.push([command, args]);
+        return 0;
+      },
+      confirmImpl: async () => false,
+    });
+
+    await updateSelf(deps, {});
+
+    expect(calls).toEqual([]);
+    expect(ctx.lines).toContain('Nothing was changed.');
+  });
+
+  it('spawns the detected manager with an argument array', async () => {
+    const ctx = withTarget();
+    const calls: Array<[string, readonly string[]]> = [];
+    const deps = npmGlobalDeps(ctx, {
+      spawn: async (command, args) => {
+        calls.push([command, args]);
+        return 0;
+      },
+    });
+
+    await updateSelf(deps, { force: true });
+
+    expect(calls[0]).toEqual(['npm', ['install', '-g', 'ailoud@1.0.1']]);
+  });
+
+  it('runs the NEW binary for the rules sweep, not this one', async () => {
+    // The rules text is compiled in, so the process being replaced holds the
+    // old text. This asserts the spawned command is the installed binary's
+    // `self sync`, and it is the reason the sweep is a subprocess at all.
+    const ctx = withTarget();
+    const calls: Array<[string, readonly string[]]> = [];
+    const deps = npmGlobalDeps(ctx, {
+      spawn: async (command, args) => {
+        calls.push([command, args]);
+        return 0;
+      },
+    });
+
+    await updateSelf(deps, { force: true });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toEqual(['ailoud', ['self', 'sync']]);
+  });
+
+  it('prints the command to run by hand when the sweep cannot be spawned', async () => {
+    const ctx = withTarget();
+    const deps = npmGlobalDeps(ctx, {
+      spawn: async (command) => {
+        if (command === 'ailoud') throw new Error('ailoud: command not found');
+        return 0;
+      },
+    });
+
+    await expect(updateSelf(deps, { force: true })).resolves.toBeUndefined();
+
+    expect(ctx.lines.some((line) => line.includes('ailoud self sync'))).toBe(true);
+  });
+
+  it('does not sweep when the install failed', async () => {
+    const ctx = withTarget();
+    const calls: Array<[string, readonly string[]]> = [];
+    const deps = npmGlobalDeps(ctx, {
+      spawn: async (command, args) => {
+        calls.push([command, args]);
+        return 1;
+      },
+    });
+
+    const error: unknown = await updateSelf(deps, { force: true }).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(FailureError);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('logs the outcome', async () => {
+    const ctx = withTarget();
+    const deps = npmGlobalDeps(ctx, { spawn: async () => 0 });
+
+    await updateSelf(deps, { force: true });
+
+    const log = await ctx.fs.readTextFile(updateLogPath(ctx.paths.userDataDir));
+    expect(log).toContain('self update');
+    expect(log).toContain('1.0.1');
+  });
+});
+
+describe('ailoud self update (CLI wiring)', () => {
+  it('is already the newest version, printed through the real command', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'self', 'update']);
+    expect(ctx.lines).toEqual([
+      `ailoud ${VERSION} is already the newest version you can update to`,
+    ]);
+  });
+
+  it('answers to its one-letter alias inside the group', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'self', 'u']);
+    expect(ctx.lines).toEqual([
+      `ailoud ${VERSION} is already the newest version you can update to`,
+    ]);
+  });
+
+  it('exists as a hidden top-level alias, "ailoud update"', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'update']);
+    expect(ctx.lines).toEqual([
+      `ailoud ${VERSION} is already the newest version you can update to`,
+    ]);
   });
 });
 

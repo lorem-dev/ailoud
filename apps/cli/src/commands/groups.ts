@@ -99,6 +99,7 @@ const LETTER: Record<string, string> = {
   // most often after `ls`.
   search: 'f',
   check: 'c',
+  update: 'u',
   sync: 's',
 };
 
