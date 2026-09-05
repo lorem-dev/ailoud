@@ -408,9 +408,26 @@ succeeds -- deprecating first would, if the publish then failed, leave every
 installable thing.
 
 ```
-node scripts/retire-prereleases.mjs 1.0.0          # prints the plan
-node scripts/retire-prereleases.mjs 1.0.0 --yes    # carries it out
+pnpm retire 1.0.0                       # prints the plan, changes nothing
+NPM_TOKEN=npm_... pnpm retire 1.0.0 --yes   # carries it out
 ```
+
+**Do this after every final release, by hand.** Nothing prompts for it: the
+release workflow cannot, and a release that is otherwise complete looks
+finished. Until it runs, the superseded snapshots stay undeprecated and `@dev`
+still resolves to the last one -- someone installing `ailoud@dev` gets an older
+build than `ailoud`.
+
+`NPM_TOKEN` is **required** for `--yes`, not merely preferred. Falling back on
+the ambient `npm login` sounds accommodating and is not: with 2FA on writes --
+the default -- npm asks for a one-time code on every write, and this makes
+twelve of them, and without a usable credential it drops into an interactive
+web login and waits, so the script looks hung. Refusing up front is the
+difference between one authentication and twelve prompts.
+
+Use a granular access token with read-and-write on the three packages. It goes
+into a temporary 0600 npmrc and never onto a command line. The plan (no
+`--yes`) needs no credential at all.
 
 This is a manual step, run under `npm login`. Automating it was tried and
 removed: the OIDC token cannot deprecate (above). If the npm side does not
@@ -418,8 +435,11 @@ complete, the script leaves the tags alone and exits non-zero -- the tags are
 what name which pre-releases to retire, so deleting them after a failed
 deprecation would destroy the only record of what was missed.
 
-It deprecates every `1.0.0-dev.*` of all three packages, drops the `dev`
-dist-tag, and deletes the tags. Two things it deliberately does not do:
+It deprecates every `1.0.0-dev.*` of all three packages, moves the `dev`
+dist-tag onto the release, and deletes the tags. Which versions exist comes
+from the registry, not from the git tags: the tags used to be the list, which
+made them the only record of what still needed retiring, and a tag is a thing
+that gets deleted. Three things it deliberately does not do:
 
 - **Unpublish.** Allowed for 72 hours only, the version number can never be
   reused after, and anyone who pinned it has their install broken. A deprecated
@@ -427,6 +447,9 @@ dist-tag, and deletes the tags. Two things it deliberately does not do:
 - **Delete a tag whose commit is not on `origin/main`.** The published
   provenance attests that commit; unreachable, it can be collected, leaving the
   attestation pointing at nothing. Those tags are reported and kept.
+- **Remove the `dev` dist-tag.** `npm dist-tag rm` makes `install <pkg>@dev`
+  fail outright for anyone who uses it. It is pointed at the release instead,
+  so `@dev` keeps working and never hands out something older than `latest`.
 
 ### npm facts that constrain all of the above
 

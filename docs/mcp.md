@@ -73,8 +73,9 @@ Your own files are safe:
   is not JSON at all is refused with a message rather than rewritten.
 
 !!! note
-Comments in a JSON or `.jsonc` MCP config do not survive an edit -- the file
-is parsed and re-serialised. TOML and YAML keep theirs.
+
+    Comments in a JSON or `.jsonc` MCP config do not survive an edit -- the
+    file is parsed and re-serialised. TOML and YAML keep theirs.
 
 ### Supported agents
 

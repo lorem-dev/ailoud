@@ -23,7 +23,10 @@
     "test:watch": "vitest",
     "test:cov": "NODE_OPTIONS=--disable-warning=ExperimentalWarning vitest run --coverage",
     "test:e2e": "pnpm build && jest --config jest.config.cjs",
-    "test:e2e:no-tools": "pnpm build && jest --config jest.config.cjs --selectProjects no-tools"
+    "test:e2e:no-tools": "pnpm build && jest --config jest.config.cjs --selectProjects no-tools",
+    "retire": "node scripts/retire-prereleases.mjs",
+    "docs:build": "uv run --with-requirements docs/requirements.txt mkdocs build --strict",
+    "docs:serve": "uv run --with-requirements docs/requirements.txt mkdocs serve"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

@@ -13,8 +13,9 @@ subdirectories.
 The file you point at is never moved or changed. AILoud keeps its own copy.
 
 !!! tip "Always pass `--tag`"
-Tags are how you find a recording later by context. The easiest moment to
-add one is now, while you know what the file is. See [Tags](#tags).
+
+    Tags are how you find a recording later by context. The easiest moment to
+    add one is now, while you know what the file is. See [Tags](#tags).
 
 ## Transcribe
 

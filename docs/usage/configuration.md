@@ -125,9 +125,10 @@ ailoud setup --llm claude-api --llm-model claude-opus-5 --yes
 ```
 
 !!! warning "Context size is not adjusted for you"
-No provider reports a model's context window, so switching to a
-small-context model needs `contextTokens` set by hand. The symptom is a
-context error from the API on a long transcript.
+
+    No provider reports a model's context window, so switching to a
+    small-context model needs `contextTokens` set by hand. The symptom is a
+    context error from the API on a long transcript.
 
 ## When doctor is unhappy
 

@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/ailoud"><img src="https://img.shields.io/npm/v/ailoud" alt="npm"></a>
   <a href="https://lorem-dev.github.io/ailoud/"><img src="https://img.shields.io/badge/docs-online-blue" alt="Documentation"></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/github/license/lorem-dev/ailoud" alt="License"></a>
+  <a href="https://github.com/lorem-dev/ailoud/blob/main/LICENSE"><img src="https://img.shields.io/github/license/lorem-dev/ailoud" alt="License"></a>
   <a href="https://github.com/lorem-dev/ailoud/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/coverage-90%25-brightgreen" alt="Coverage"></a>
   <a href="https://github.com/lorem-dev/ailoud/actions/workflows/ci.yml"><img src="https://github.com/lorem-dev/ailoud/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
@@ -130,10 +130,10 @@ See the
 [Development guide](https://lorem-dev.github.io/ailoud/latest/development/development/)
 and [Architecture](https://lorem-dev.github.io/ailoud/latest/development/architecture/).
 Commit rules and the dependency licence policy are in
-[CONTRIBUTING.md](./CONTRIBUTING.md).
+[CONTRIBUTING.md](https://github.com/lorem-dev/ailoud/blob/main/CONTRIBUTING.md).
 
 ---
 
 ## License
 
-Apache-2.0. See [LICENSE](./LICENSE).
+Apache-2.0. See [LICENSE](https://github.com/lorem-dev/ailoud/blob/main/LICENSE).

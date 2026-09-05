@@ -114,3 +114,18 @@ If the gate is PASS, confirm: "All checks passed. The release may
 proceed." If the gate is FAIL, list every blocking issue with enough
 detail for the developer to act immediately. Do not tag or publish a
 release while any required check is failing.
+
+## After the release lands
+
+The gate ends at the tag. One step remains that no workflow performs, and a
+release looks complete without it -- so report it as outstanding whenever this
+skill runs for a final version:
+
+```
+pnpm retire <version>                             # prints the plan
+NPM_TOKEN=npm_... pnpm retire <version> --yes      # carries it out
+```
+
+It deprecates the `<version>-dev.*` snapshots on npm, moves the `dev` dist-tag
+onto the release, and deletes the superseded tags. Until it runs, someone
+installing `ailoud@dev` gets an older build than `ailoud`.

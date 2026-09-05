@@ -64,8 +64,9 @@ v1.2.3` writes them to `RELEASE_NOTES.md`. The release itself does not need
    ```
 
    The tag is what starts everything else: `publish.yml` publishes the three
-   packages, creates the GitHub release from CHANGES.md, and retires the
-   superseded snapshots; `docs.yml` then publishes the site.
+   packages and creates the GitHub release from CHANGES.md; `docs.yml` then
+   publishes the site. Retiring the superseded snapshots is the one step left
+   to a human -- see below.
 
 ## Publishing to npm
 
@@ -119,9 +120,14 @@ reviewed is dismissed with its reason and does not block.
 After a final release, retire the snapshots it supersedes:
 
 ```
-node scripts/retire-prereleases.mjs 1.0.0          # prints the plan
-node scripts/retire-prereleases.mjs 1.0.0 --yes    # carries it out
+pnpm retire 1.0.0                             # prints the plan
+NPM_TOKEN=npm_... pnpm retire 1.0.0 --yes     # carries it out
 ```
+
+Run it after every final release. Nothing prompts for it, and until it runs
+`npm install ailoud@dev` hands out an older build than `npm install ailoud`.
+`NPM_TOKEN` is a granular access token with read-and-write on the three
+packages; without it npm asks for a 2FA code on each of the twelve writes.
 
 Deprecating, not unpublishing: a deprecated version keeps every pinned install
 working and prints a notice on the next one. It also drops the `dev` dist-tag,

@@ -80,16 +80,23 @@ what introduces a package to the registry -- as v1.0.0-dev.1 was -- then
 A dev version cannot be unpublished after 72 hours and its number can never be
 reused, so use a fresh `-dev.<n>` each time rather than retrying one.
 
-Once the final release is out, retire every snapshot it supersedes in one step:
+Once the final release is out, retire every snapshot it supersedes in one step.
+**By hand, and nothing will remind you** -- the release workflow cannot do it,
+and a release looks finished without it:
 
 ```
-node scripts/retire-prereleases.mjs 1.2.3          # prints the plan
-node scripts/retire-prereleases.mjs 1.2.3 --yes    # carries it out
+pnpm retire 1.2.3                             # prints the plan
+NPM_TOKEN=npm_... pnpm retire 1.2.3 --yes     # carries it out
 ```
 
-It deprecates the versions rather than unpublishing them, drops the `dev`
-dist-tag, and deletes the tags -- but only those whose commit is reachable from
-`main`. The provenance of a published package names both the commit and the tag
+`NPM_TOKEN` is a granular access token with read-and-write on the three
+packages, and it is required for `--yes`: without one npm asks for a 2FA code
+on each of the twelve writes, or waits on an interactive login. The plan needs
+no credential.
+
+It deprecates the versions rather than unpublishing them, moves the `dev`
+dist-tag onto the release rather than removing it, and deletes the tags -- but
+only those whose commit is reachable from `main`. The provenance of a published package names both the commit and the tag
 it was built from: delete the tag and the name stops resolving, which costs
 convenience; delete a tag holding the only reference to its commit and the
 commit itself can be collected, which costs the attestation its subject. Tags

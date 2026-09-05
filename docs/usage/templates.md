@@ -89,5 +89,6 @@ A template needs a `context` sentence and at least two headings. One heading
 is a title, not a shape.
 
 !!! tip
-Before writing a template, try `--context` on an existing one. It adjusts
-a summary without adding a shape you then have to maintain.
+
+    Before writing a template, try `--context` on an existing one. It adjusts
+    a summary without adding a shape you then have to maintain.
