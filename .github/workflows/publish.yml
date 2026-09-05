@@ -191,9 +191,25 @@ jobs:
         # Order matters: the CLI's manifest names exact versions of the two
         # libraries, so they have to exist first. --provenance records which
         # workflow and which commit produced each tarball, verifiable from the
-        # package page.
+        # package page -- it works under either credential below.
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
+          # BOOTSTRAP ONLY. Trusted publishing is configured per package on
+          # npmjs.com, which cannot be done for a package that does not exist
+          # yet -- so the first version of each of the three has to go out on a
+          # token, and npm answers ENEEDAUTH without one however complete the
+          # OIDC setup is. Once the trusted publisher is attached to all three
+          # package pages, delete the NPM_TOKEN secret: with it gone this
+          # branch is skipped and npm does the OIDC exchange instead, which is
+          # the arrangement with nothing to expire.
+          if [ -n "${NPM_TOKEN:-}" ]; then
+            echo "using the NPM_TOKEN secret; remove it once trusted publishing is attached"
+            npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+          else
+            echo "no NPM_TOKEN secret; publishing through trusted publishing"
+          fi
           tag="$TAG"
           version="${tag#v}"
           # Three kinds of tag, three destinations. See the dev-tag skill.
