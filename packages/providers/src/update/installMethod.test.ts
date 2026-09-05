@@ -17,6 +17,7 @@ describe('detectInstallMethod', () => {
     // realpath.
     const method = await detectInstallMethod({
       packageRoot: '/Users/x/.local/share/pnpm/global/5/node_modules/ailoud',
+      execPath: '/usr/local/bin/node',
       realpath: async (p) => p.replace('/link/', '/real/'),
       run: fakeRoots({
         npm: '/opt/homebrew/lib/node_modules',
@@ -32,6 +33,7 @@ describe('detectInstallMethod', () => {
     // /_npx/ check were not evaluated first.
     const method = await detectInstallMethod({
       packageRoot: '/Users/x/.npm/_npx/abcd1234/node_modules/ailoud',
+      execPath: '/usr/local/bin/node',
       realpath: async (p) => p,
       run: fakeRoots({
         npm: '/opt/homebrew/lib/node_modules',
@@ -44,6 +46,7 @@ describe('detectInstallMethod', () => {
   it('refuses a project dependency and names the project', async () => {
     const method = await detectInstallMethod({
       packageRoot: '/Users/x/code/some-app/node_modules/ailoud',
+      execPath: '/usr/local/bin/node',
       realpath: async (p) => p,
       run: fakeRoots({
         npm: '/opt/homebrew/lib/node_modules',
@@ -60,6 +63,7 @@ describe('detectInstallMethod', () => {
   it('is unknown when neither manager claims the root', async () => {
     const method = await detectInstallMethod({
       packageRoot: '/opt/custom/ailoud',
+      execPath: '/usr/local/bin/node',
       realpath: async (p) => p,
       run: fakeRoots({
         npm: '/opt/homebrew/lib/node_modules',
@@ -77,6 +81,7 @@ describe('detectInstallMethod', () => {
     // answering. Detection must still resolve via npm rather than throwing.
     const method = await detectInstallMethod({
       packageRoot: '/opt/homebrew/lib/node_modules/ailoud',
+      execPath: '/usr/local/bin/node',
       realpath: async (p) => p,
       run: async (command) => {
         if (command === 'pnpm') throw new Error('spawn pnpm ENOENT');
@@ -111,6 +116,7 @@ describe('installCommandFor', () => {
     // the user to run their add command in `.../.pnpm/ailoud@1.0.0`.
     const method = await detectInstallMethod({
       packageRoot: '/Users/x/repo/node_modules/.pnpm/ailoud@1.0.0/node_modules/ailoud',
+      execPath: '/usr/local/bin/node',
       realpath: async (path: string) => path,
       run: async () => ({ code: 0, stdout: '/nowhere\n', stderr: '' }),
     });
@@ -119,5 +125,37 @@ describe('installCommandFor', () => {
       projectDir: '/Users/x/repo',
       hint: "run your package manager's add command in /Users/x/repo",
     });
+  });
+
+  it('detects a global install under a version manager, where PATH npm is a different Node', async () => {
+    // nvm, fnm, asdf and volta all do this: the npm on PATH belongs to another
+    // Node version, so `npm root -g` reports THAT version's root, ours never
+    // matches, and an ordinary global install used to read as a project
+    // dependency -- telling the user to run an add command inside
+    // `~/.nvm/versions/node/v18.20.4/lib`.
+    const method = await detectInstallMethod({
+      execPath: '/home/x/.nvm/versions/node/v18.20.4/bin/node',
+      packageRoot: '/home/x/.nvm/versions/node/v18.20.4/lib/node_modules/ailoud',
+      realpath: async (path: string) => path,
+      run: async () => ({
+        code: 0,
+        stdout: '/home/x/.nvm/versions/node/v20.11.0/lib/node_modules\n',
+        stderr: '',
+      }),
+    });
+    expect(method).toEqual({ kind: 'npm-global' });
+  });
+
+  it('does not mistake a sibling directory for the global root', async () => {
+    // `startsWith` compares characters, not path components, so
+    // `/usr/lib/node_modules-other` used to read as living under
+    // `/usr/lib/node_modules`.
+    const method = await detectInstallMethod({
+      execPath: '/usr/bin/node',
+      packageRoot: '/usr/lib/node_modules-other/ailoud',
+      realpath: async (path: string) => path,
+      run: async () => ({ code: 0, stdout: '/usr/lib/node_modules\n', stderr: '' }),
+    });
+    expect(method.kind).not.toBe('npm-global');
   });
 });

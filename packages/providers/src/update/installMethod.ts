@@ -1,3 +1,4 @@
+import { dirname } from 'node:path';
 import type { RunResult } from '../process/run.js';
 
 /**
@@ -12,6 +13,18 @@ export type InstallMethod =
   | { readonly kind: 'unknown'; readonly hint: string };
 
 export interface DetectOptions {
+  /**
+   * The Node binary running this process, i.e. `process.execPath`.
+   *
+   * Used to locate the global `node_modules` of the Node that is RUNNING us,
+   * which is the one ailoud was installed into. `npm root -g` cannot answer
+   * that on its own: under nvm, fnm, asdf and volta the npm on PATH often
+   * belongs to a different Node version, so it reports that version's root,
+   * our own root never matches it, and an ordinary global install is then
+   * misread as a project dependency -- with a hint telling the user to run an
+   * add command inside `~/.nvm/versions/node/v18.20.4/lib`.
+   */
+  readonly execPath: string;
   /** Where the installed package sits, resolved from `import.meta.url`. */
   readonly packageRoot: string;
   readonly realpath: (path: string) => Promise<string>;
@@ -32,8 +45,22 @@ export async function detectInstallMethod(options: DetectOptions): Promise<Insta
     globalRoot(options, 'npm'),
     globalRoot(options, 'pnpm'),
   ]);
-  if (npmRoot !== null && root.startsWith(npmRoot)) return { kind: 'npm-global' };
-  if (pnpmRoot !== null && root.startsWith(pnpmRoot)) return { kind: 'pnpm-global' };
+  if (npmRoot !== null && isUnder(root, npmRoot)) return { kind: 'npm-global' };
+  if (pnpmRoot !== null && isUnder(root, pnpmRoot)) return { kind: 'pnpm-global' };
+
+  // The global root of the Node running us, checked after the managers and
+
+  // before the project fallback: it is the layout npm itself uses
+
+  // (`<prefix>/lib/node_modules`), and it is version-correct by
+
+  // construction because it comes from our own interpreter.
+
+  const ownRoot = await options
+    .realpath(`${dirname(dirname(options.execPath))}/lib/node_modules`)
+    .catch(() => null);
+
+  if (ownRoot !== null && isUnder(root, ownRoot)) return { kind: 'npm-global' };
 
   // Whatever is left inside a node_modules is somebody's dependency. The
   // FIRST `/node_modules/` is the project boundary, not the last: pnpm installs
@@ -81,4 +108,16 @@ export function installCommandFor(method: InstallMethod, target: string): readon
     case 'unknown':
       return null;
   }
+}
+
+/**
+ * Whether `path` sits inside `directory`.
+ *
+ * The separator is required, so `/usr/lib/node_modules-other/ailoud` does not
+ * read as living under `/usr/lib/node_modules`. A bare `startsWith` compares
+ * characters, not path components.
+ */
+function isUnder(path: string, directory: string): boolean {
+  const base = directory.endsWith('/') ? directory : `${directory}/`;
+  return path.startsWith(base);
 }
