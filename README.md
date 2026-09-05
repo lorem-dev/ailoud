@@ -15,21 +15,6 @@ summarises it. Speech-to-text runs on your machine; summaries can too.
 
 ---
 
-## Overview
-
-One CLI (`ailoud`) over a local library:
-
-- **Transcribe** audio and video with whisper.cpp, including recordings that
-  switch between languages, and attribute lines to speakers.
-- **Search** the whole library full-text and get back the matching lines with
-  timestamps, not whole transcripts.
-- **Summarise** one recording or a tagged group into a saved report, shaped by
-  a template for the kind of conversation it was.
-- **Serve** the library to an AI agent over
-  [MCP](https://lorem-dev.github.io/ailoud/latest/mcp/).
-
-Nothing leaves your machine unless you choose a hosted model for summaries.
-
 ## Install
 
 Needs [Node.js](https://nodejs.org/) 24 or newer.
@@ -38,14 +23,15 @@ Needs [Node.js](https://nodejs.org/) 24 or newer.
 npm install -g ailoud
 ```
 
-Then install the tools it drives -- ffmpeg, whisper.cpp, the models:
+`setup` installs the tools it drives -- ffmpeg, whisper.cpp, the models --
+and `doctor` checks them:
 
 ```shell
 ailoud setup
 ailoud doctor
 ```
 
-See [Getting Started](https://lorem-dev.github.io/ailoud/latest/getting-started/).
+Nothing leaves your machine unless you choose a hosted model for summaries.
 
 ## Update
 
@@ -58,71 +44,78 @@ A snapshot moves only to a newer snapshot of the same version, or to a release.
 
 ---
 
-## CLI quick start
-
-Import, transcribe, read:
+## Use it with an agent
 
 ```shell
-ailoud audio import ~/Recordings --tag standup
-ailoud audio transcribe
-ailoud audio ls
-ailoud audio show 01M1B2
+ailoud mcp install
 ```
 
-Find where something was said, without reading a transcript:
+It configures one or more agents, at project or global scope:
+
+| Agent      | Scopes          |
+| ---------- | --------------- |
+| `claude`   | project, global |
+| `codex`    | project, global |
+| `opencode` | project, global |
+| `gemini`   | project, global |
+| `hermes`   | global only     |
+| `copilot`  | global only     |
+
+It writes the MCP registration and a rules block the agent reads before its
+first call. The agent then gets these tools:
 
 ```shell
-ailoud audio search rollback
-ailoud audio f "before sunrise" --tag standup
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | ailoud mcp | jq -r '.result.tools[].name'
 ```
 
-Summarise, with a shape and the context the transcript does not carry:
-
-```shell
-ailoud audio summarize 01M1B2 --template one-on-one \
-  --context "Ann is Ben's manager; this is their fortnightly."
-ailoud report ls
+```
+list_recordings
+list_untagged
+list_tags
+search_transcripts
+get_transcript
+list_speakers
+list_reports
+get_report
+list_templates
+annotate
+import_recording
+transcribe
+summarize
+create_template
+delete_recording
+delete_report
 ```
 
-Every verb has a one-letter alias, and the letter means the same in every
-group -- `l` list, `v` view, `r` remove, `f` find:
-
-```shell
-ailoud audio l
-ailoud report l
-```
-
-Run `ailoud --help` or `<command> --help` for the full set, also in the
-[CLI Reference](https://lorem-dev.github.io/ailoud/latest/usage/cli/).
+Reading tools return matches and file paths, never a whole transcript in one
+call; deleting needs a second call carrying a confirmation token. See
+[MCP](https://lorem-dev.github.io/ailoud/latest/mcp/).
 
 ---
 
-## Templates
+## The CLI
 
-A template decides a summary's headings, because different conversations
-divide differently: `one-on-one`, `performance-review`,
-`architecture-planning`, `solution-decision`, `offsite`, `meeting`.
+| Command                                                    | Does                                      |
+| ---------------------------------------------------------- | ----------------------------------------- |
+| `audio import\|transcribe\|annotate\|search\|ls\|show\|rm` | the library and everything over it        |
+| `audio summarize`                                          | writes a summary and saves it as a report |
+| `report ls\|show\|rm`                                      | saved reports                             |
+| `template ls\|new`                                         | what shape a summary of a kind takes      |
+| `mcp` and `mcp install\|uninstall\|update`                 | serve the library to an agent             |
+| `doctor`, `setup`                                          | check and provision the machine           |
+| `self check\|update\|sync`                                 | this installation of ailoud               |
 
-```shell
-ailoud template ls
-ailoud template new sprint-retro --from one-on-one
-```
-
-They are YAML files in `~/.config/ailoud/templates/`. Edit one and the change
-takes effect; AILoud never overwrites a file you have edited. See
-[Templates](https://lorem-dev.github.io/ailoud/latest/usage/templates/).
+Every verb also works at the top level, and has a one-letter alias. Full
+reference: [CLI Reference](https://lorem-dev.github.io/ailoud/latest/usage/cli/).
 
 ---
 
-## MCP
+## Documentation
 
-```json
-{ "mcpServers": { "ailoud": { "command": "ailoud", "args": ["mcp"] } } }
-```
-
-Sixteen tools over the same library the CLI uses. Deleting takes two calls: the
-first describes what would go and returns a confirmation token, the second
-carries it out. See [MCP](https://lorem-dev.github.io/ailoud/latest/mcp/).
+- [Getting Started](https://lorem-dev.github.io/ailoud/latest/getting-started/)
+- [Usage](https://lorem-dev.github.io/ailoud/latest/usage/recordings/)
+- [MCP](https://lorem-dev.github.io/ailoud/latest/mcp/)
+- [Development](https://lorem-dev.github.io/ailoud/latest/development/development/)
 
 ---
 
@@ -135,9 +128,6 @@ A pnpm workspace: `packages/core` (domain and ports, no I/O),
 pnpm build && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:cov
 ```
 
-See the
-[Development guide](https://lorem-dev.github.io/ailoud/latest/development/development/)
-and [Architecture](https://lorem-dev.github.io/ailoud/latest/development/architecture/).
 Commit rules and the dependency licence policy are in
 [CONTRIBUTING.md](https://github.com/lorem-dev/ailoud/blob/main/CONTRIBUTING.md).
 
