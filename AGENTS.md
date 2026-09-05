@@ -302,12 +302,19 @@ version.
 Use the `dev-tag` skill for a snapshot; `bump-version` then `pre-release-check`
 for a release.
 
-Cutting a final tag folds its pre-release sections back into one:
+Cutting a final tag folds its pre-release sections back into one. The order
+matters, and it is the opposite of what reads naturally:
 
 ```
-node scripts/fold-prereleases.mjs 1.0.0   # merges 1.0.0-dev.* and Development
+node scripts/bump-version.mjs 1.0.0       # FIRST: promotes Development
+node scripts/fold-prereleases.mjs 1.0.0   # then merges the 1.0.0-dev.* sections in
 node scripts/check-changelog.mjs v1.0.0   # refuses if anything is left over
 ```
+
+`bump-version` promotes `## Development` into a `## Version <v>` section, so
+folding first leaves it a second, empty one to create -- two `## Version 1.0.0`
+headings, and `check-changelog` then fails on the empty one with "has no
+entries". Tested both ways in a sandbox before the first release.
 
 `publish.yml` runs that check on every tag before it builds anything. The
 limits live in `scripts/lib/changelog.mjs` and are quoted, not restated,

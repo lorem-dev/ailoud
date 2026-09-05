@@ -34,25 +34,38 @@ bug, there is nothing to say. See
 ## Steps
 
 1. Run the `pre-release-check` skill. It runs the whole gate plus the
-   documentation, changelog and version checks.
+   documentation, dependency, changelog and version checks.
+
 2. Run the `bump-version` skill. It sets the version across every
-   `package.json`, promotes the CHANGES.md Development section, and makes the
-   release commit. It does not tag or push.
-3. Extract the release body:
+   `package.json` and promotes the CHANGES.md Development section. It does not
+   tag or push.
+
+3. Fold the pre-release sections in. `bump-version` comes first:
 
    ```
-   node scripts/release-notes.mjs v1.2.3
+   node scripts/fold-prereleases.mjs 1.2.3
+   node scripts/check-changelog.mjs v1.2.3
    ```
 
-   It reads the `## Version 1.2.3` section and writes `RELEASE_NOTES.md`. It
-   exits non-zero if that section is missing, empty, or over the hard limit.
+   Folding first would leave `bump-version` an empty Development section to
+   promote, giving a second `## Version 1.2.3` heading that fails the check.
 
-4. Merge to `main` and tag:
+   To read the notes as they will appear, `node scripts/release-notes.mjs
+v1.2.3` writes them to `RELEASE_NOTES.md`. The release itself does not need
+   this -- `publish.yml` runs the same script.
+
+4. Commit, tag and push:
 
    ```
+   git commit -am "chore: 1.2.3"
    git tag -s v1.2.3 -m "v1.2.3"
-   git push origin main --tags
+   git push origin main
+   git push origin v1.2.3
    ```
+
+   The tag is what starts everything else: `publish.yml` publishes the three
+   packages, creates the GitHub release from CHANGES.md, and retires the
+   superseded snapshots; `docs.yml` then publishes the site.
 
 ## Publishing to npm
 
