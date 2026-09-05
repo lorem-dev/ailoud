@@ -103,3 +103,24 @@ describe('hasBlock', () => {
     expect(hasBlock(`${END}\n${START}`)).toBe(false);
   });
 });
+
+describe('a rules file that mentions our marker', () => {
+  it('does not swallow the text between a mention and the real block', () => {
+    // Pairing the FIRST start marker with the first end marker destroyed user
+    // text: a file that merely mentions the marker made the range run from
+    // that sentence to the end of our block.
+    const mention =
+      '# My Project\n\nWe wrap our rules in <!-- AILOUD_START --> markers.\n\n' +
+      '## Keep me\n\nImportant instructions.\n';
+    const once = withBlock(mention);
+    expect(withBlock(once)).toContain('Important instructions.');
+    expect(withoutBlock(once)).toContain('Important instructions.');
+    expect(withoutBlock(once)).toContain('## Keep me');
+  });
+
+  it('stays idempotent with such a mention present', () => {
+    const mention = `# P\n\nWe use ${START} markers.\n`;
+    const once = withBlock(mention);
+    expect(withBlock(once)).toBe(once);
+  });
+});

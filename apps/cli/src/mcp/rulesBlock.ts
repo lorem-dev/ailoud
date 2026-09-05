@@ -42,9 +42,27 @@ export function rulesBlock(): string {
   ].join('\n');
 }
 
+/**
+ * Where our block sits, or null.
+ *
+ * The START taken is the LAST one before the first END, not the first one in
+ * the file. Pairing the first START with the first END destroyed user text:
+ * a rules file that merely MENTIONS the marker -- "we wrap our rules in
+ * <!-- AILOUD_START --> markers" -- made the range run from that sentence to
+ * the end of our real block, and everything in between was replaced or
+ * deleted.
+ */
+export function blockRange(text: string): { readonly from: number; readonly to: number } | null {
+  const end = text.indexOf(END);
+  if (end === -1) return null;
+  const from = text.lastIndexOf(START, end);
+  if (from === -1) return null;
+  return { from, to: end + END.length };
+}
+
 /** Whether a rules file already carries our block. */
 export function hasBlock(text: string): boolean {
-  return text.includes(START) && text.includes(END, text.indexOf(START));
+  return blockRange(text) !== null;
 }
 
 /**
@@ -56,13 +74,12 @@ export function hasBlock(text: string): boolean {
  * only what actually changed.
  */
 export function withBlock(text: string, block = rulesBlock()): string {
-  if (!hasBlock(text)) {
+  const range = blockRange(text);
+  if (range === null) {
     const base = text.trimEnd();
     return base === '' ? `${block}\n` : `${base}\n\n${block}\n`;
   }
-  const start = text.indexOf(START);
-  const end = text.indexOf(END, start) + END.length;
-  return `${text.slice(0, start)}${block}${text.slice(end)}`;
+  return `${text.slice(0, range.from)}${block}${text.slice(range.to)}`;
 }
 
 /**
@@ -74,11 +91,10 @@ export function withBlock(text: string, block = rulesBlock()): string {
  * distrust it.
  */
 export function withoutBlock(text: string): string | null {
-  if (!hasBlock(text)) return null;
-  const start = text.indexOf(START);
-  const end = text.indexOf(END, start) + END.length;
-  const before = text.slice(0, start).replace(/\n+$/, '');
-  const after = text.slice(end).replace(/^\n+/, '');
+  const range = blockRange(text);
+  if (range === null) return null;
+  const before = text.slice(0, range.from).replace(/\n+$/, '');
+  const after = text.slice(range.to).replace(/^\n+/, '');
   if (before === '' && after === '') return '';
   if (before === '') return `${after.trimEnd()}\n`;
   if (after === '') return `${before}\n`;

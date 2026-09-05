@@ -12,9 +12,13 @@ export type Register = (parent: Command, context: CliContext) => void;
  * `gh pr list`, `kubectl get pod`): `ailoud report rm SUM0` reads as removing one
  * report, while `ailoud reports rm SUM0` reads as removing all of them.
  *
- * `showHelpAfterError` and the help-on-empty behaviour matter here: `ailoud
- * audio` on its own is someone who does not yet know the verbs, and printing
- * the list is the answer to that, where an error is not.
+ * No `.action()` handler, deliberately. A bare `ailoud audio` already prints
+ * its verb list -- commander does that for any command with subcommands and
+ * no action of its own -- and adding one to force it cost two behaviours that
+ * matter more: commander gates its implicit `help` subcommand on there being
+ * no action handler, so `ailoud audio help ls` became "too many arguments for
+ * 'audio'", and a typo'd verb got that same message instead of "unknown
+ * command 'lsit' (Did you mean ls?)".
  */
 export function group(
   program: Command,
@@ -22,14 +26,7 @@ export function group(
   plural: string,
   description: string,
 ): Command {
-  return program
-    .command(name)
-    .alias(plural)
-    .description(description)
-    .showHelpAfterError()
-    .action(function (this: Command) {
-      this.help();
-    });
+  return program.command(name).alias(plural).description(description).showHelpAfterError();
 }
 
 /**
@@ -56,7 +53,14 @@ export function inGroupAndTopLevel(
 ): void {
   register(parent, context);
 
-  const holder = new Command();
+  // Settings copied from the group, not defaulted: commander's `addCommand`
+  // does not inherit them the way `.command()` does, so every hidden alias
+  // lacked `exitOverride()` and `configureOutput()`. `ailoud ls --bogus`
+  // exited 1 with no usage while `ailoud audio ls --bogus` exited 2 with it,
+  // and failure-versus-usage is the exit-code contract. Worse, without
+  // `exitOverride` commander called `process.exit()` directly, skipping the
+  // `finally` that closes the database.
+  const holder = new Command().copyInheritedSettings(parent);
   register(holder, context);
   const [aliased] = holder.commands;
   if (aliased !== undefined) program.addCommand(aliased, { hidden: true });

@@ -78,6 +78,23 @@ interface SegmentRow {
   language: string | null;
 }
 
+/**
+ * Whether a prefix is safe to put in front of a LIKE.
+ *
+ * Checked HERE rather than trusted from the caller, which is the difference
+ * between an invariant and a hope. The CLI does validate -- `resolveId.ts`
+ * enforces the ULID alphabet -- but the MCP resource handler passes a raw URI
+ * variable straight through, so `ailoud://report/_Z` reached this line with a
+ * LIKE wildcard in it and returned a report's body for a URI that identifies
+ * no report. An empty prefix would have matched the whole table.
+ *
+ * Ids are Crockford base32, which contains neither % nor _, so requiring that
+ * alphabet also removes every wildcard by construction.
+ */
+function usableIdPrefix(prefix: string): boolean {
+  return prefix !== '' && /^[0-9A-Za-z]+$/.test(prefix);
+}
+
 const toRecording = (row: RecordingRow): Recording => ({
   id: row.id,
   sha256: row.sha256,
@@ -285,11 +302,7 @@ export class SqliteStore implements ManagedRecordingStore {
   }
 
   async findRecordingsByIdPrefix(prefix: string): Promise<Recording[]> {
-    // The caller validates the prefix against the ULID alphabet before we
-    // get here, which is also what makes this LIKE safe: Crockford base32
-    // contains neither % nor _, so no input that reaches this line can carry
-    // a wildcard. Left as a belt: an empty prefix would match everything.
-    if (prefix === '') return [];
+    if (!usableIdPrefix(prefix)) return [];
     const rows = this.db
       .prepare(`SELECT * FROM recording WHERE id LIKE ? || '%' ORDER BY id`)
       .all(prefix) as unknown as RecordingRow[];
@@ -297,7 +310,7 @@ export class SqliteStore implements ManagedRecordingStore {
   }
 
   async findTranscriptsByIdPrefix(prefix: string): Promise<Transcript[]> {
-    if (prefix === '') return [];
+    if (!usableIdPrefix(prefix)) return [];
     const rows = this.db
       .prepare(`SELECT * FROM transcript WHERE id LIKE ? || '%' ORDER BY id`)
       .all(prefix) as unknown as TranscriptRow[];
@@ -480,11 +493,10 @@ export class SqliteStore implements ManagedRecordingStore {
   }
 
   async findSummariesByIdPrefix(prefix: string): Promise<Summary[]> {
-    // ESCAPE is not needed: the caller has already rejected anything that is
-    // not a letter or a digit, so neither % nor _ can reach here.
+    if (!usableIdPrefix(prefix)) return [];
     const rows = this.db
-      .prepare('SELECT * FROM summary WHERE id LIKE ? ORDER BY id')
-      .all(`${prefix}%`) as unknown as SummaryRow[];
+      .prepare(`SELECT * FROM summary WHERE id LIKE ? || '%' ORDER BY id`)
+      .all(prefix) as unknown as SummaryRow[];
     return rows.map((row) => this.toSummary(row));
   }
 

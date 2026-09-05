@@ -1,4 +1,5 @@
 import { parseDocument } from 'yaml';
+import { FailureError } from '@ailoud/core';
 import type { ConfigFormat } from './agents.js';
 
 /** The key AILoud registers itself under, in every agent's configuration. */
@@ -72,13 +73,33 @@ export function removeServer(format: ConfigFormat, previous: string): string | n
   }
 }
 
+/**
+ * Whether our server is registered in this text.
+ *
+ * Parsed per format, never pattern-matched over the whole file. A regexp for
+ * the server name matched it inside ordinary data -- Claude Code stores prompt
+ * history in `~/.claude.json`, so a user who had once typed "run ailoud: hi"
+ * made `mcp update` believe that agent was configured and install into it,
+ * which is the single thing `update` exists not to do.
+ */
 export function hasServer(format: ConfigFormat, text: string): boolean {
   switch (format) {
     case 'toml-codex':
-      return tomlTableRange(text) !== null;
-    default:
-      // Enough for every other format: the server name appears as a key.
-      return new RegExp(`["\\s]${SERVER_NAME}["\\s]?\\s*[:=]`).test(text);
+      return tomlServerForm(text) !== 'absent';
+    case 'yaml-hermes': {
+      try {
+        return parseDocument(text).hasIn(['mcp_servers', SERVER_NAME]);
+      } catch {
+        return false;
+      }
+    }
+    default: {
+      const container = format === 'jsonc-opencode' ? 'mcp' : 'mcpServers';
+      const root = tryParseJson(text);
+      if (root === null) return false;
+      const servers = root[container];
+      return servers !== null && typeof servers === 'object' && SERVER_NAME in servers;
+    }
   }
 }
 
@@ -133,17 +154,40 @@ export function stripJsonComments(text: string): string {
   return out;
 }
 
+/**
+ * JSON.parse over a JSONC-ish file, or null.
+ *
+ * Tolerates the two things an editor leaves behind that `JSON.parse` refuses
+ * and every JSONC reader accepts: a trailing comma and a byte-order mark.
+ * Without them, one agent's hand-edited file threw mid-install, after earlier
+ * agents had already been written and before anything was reported.
+ */
+export function tryParseJson(text: string): Json | null {
+  const cleaned = stripJsonComments(text)
+    .replace(/^\uFEFF/, '')
+    .replace(/,(\s*[}\]])/g, '$1');
+  if (cleaned.trim() === '') return {};
+  try {
+    return (JSON.parse(cleaned) ?? {}) as Json;
+  } catch {
+    return null;
+  }
+}
+
 function editJson(previous: string | null, mutate: (root: Json) => void): string {
-  const root: Json =
-    previous === null || previous.trim() === ''
-      ? {}
-      : ((JSON.parse(stripJsonComments(previous)) ?? {}) as Json);
+  const root = previous === null ? {} : tryParseJson(previous);
+  if (root === null) {
+    throw new FailureError(
+      'that configuration file is not valid JSON, so AILoud will not rewrite it. Fix it by hand, or move it aside.',
+    );
+  }
   mutate(root);
   return `${JSON.stringify(root, null, 2)}\n`;
 }
 
 function removeJsonKey(previous: string, container: string): string | null {
-  const root = (JSON.parse(stripJsonComments(previous)) ?? {}) as Json;
+  const root = tryParseJson(previous);
+  if (root === null) return null;
   const servers = root[container];
   if (servers === null || typeof servers !== 'object') return null;
   const map = servers as Json;
@@ -158,25 +202,86 @@ function removeJsonKey(previous: string, container: string): string | null {
 // --- TOML ------------------------------------------------------------------
 
 const TOML_HEADER = `[mcp_servers.${SERVER_NAME}]`;
+const TOML_SUBTABLE = `[mcp_servers.${SERVER_NAME}.`;
+const MULTILINE_DELIMS = ['"""', "'''"];
 
 /**
- * Where our table sits, as a line range, or null.
+ * Which lines begin a table, ignoring anything inside a multi-line string.
  *
- * A targeted text edit rather than a parse-and-regenerate: `config.toml` is a
- * file people write by hand, with comments, and no TOML serialiser preserves
- * those. The table runs from its header to the next line that begins a new
- * table, which is all this needs to know.
+ * A line starting with `[` is a table header only outside a string. Without
+ * this, a value holding a line like `[not a table]` inside a `"""` block ended
+ * our table early, and removing it left an orphaned delimiter at top level --
+ * unparseable TOML produced by a tidy-up.
  */
+function tableHeaderLines(lines: readonly string[]): boolean[] {
+  const headers: boolean[] = [];
+  let open: string | null = null;
+  for (const line of lines) {
+    if (open !== null) {
+      headers.push(false);
+      if (line.includes(open)) open = null;
+      continue;
+    }
+    headers.push(/^\s*\[/.test(line));
+    for (const delim of MULTILINE_DELIMS) {
+      const first = line.indexOf(delim);
+      if (first !== -1 && line.indexOf(delim, first + 3) === -1) open = delim;
+    }
+  }
+  return headers;
+}
+
+/**
+ * How our server is defined in this file, if at all.
+ *
+ * `other` covers every spelling that is not the canonical table AILoud writes:
+ * an inline table under `[mcp_servers]`, a quoted key, a spaced header. Those
+ * are refused rather than edited, because appending our table beside an
+ * existing definition of the same key is a hard TOML error -- which costs the
+ * user their WHOLE Codex configuration, not just this server.
+ */
+export function tomlServerForm(text: string): 'absent' | 'canonical' | 'other' {
+  const lines = text.split('\n');
+  const headers = tableHeaderLines(lines);
+  for (const [at, line] of lines.entries()) {
+    if (headers[at] !== true) continue;
+    const header = line.trim();
+    if (header === TOML_HEADER || header.startsWith(TOML_SUBTABLE)) return 'canonical';
+    if (new RegExp(`^\\[\\s*mcp_servers\\s*\\.\\s*"?${SERVER_NAME}"?\\s*[.\\]]`).test(header)) {
+      return 'other';
+    }
+  }
+  let inServers = false;
+  for (const [at, line] of lines.entries()) {
+    if (headers[at] === true) {
+      inServers = line.trim() === '[mcp_servers]';
+      continue;
+    }
+    if (inServers && new RegExp(`^\\s*"?${SERVER_NAME}"?\\s*=`).test(line)) return 'other';
+  }
+  return 'absent';
+}
+
+/** The line range our table and its sub-tables occupy, or null. */
 function tomlTableRange(text: string): { from: number; to: number } | null {
   const lines = text.split('\n');
-  const from = lines.findIndex((line) => line.trim() === TOML_HEADER);
+  const headers = tableHeaderLines(lines);
+  const from = lines.findIndex(
+    (line, at) =>
+      headers[at] === true &&
+      (line.trim() === TOML_HEADER || line.trim().startsWith(TOML_SUBTABLE)),
+  );
   if (from === -1) return null;
+
   let to = lines.length;
   for (let at = from + 1; at < lines.length; at += 1) {
-    if (/^\s*\[/.test(lines[at]!)) {
-      to = at;
-      break;
-    }
+    if (headers[at] !== true) continue;
+    // Our own sub-tables go with the parent. Left behind, a table like
+    // `[mcp_servers.ailoud.env]` still implicitly defines the server -- with
+    // an env and no command -- and no later command could see or clean it.
+    if (lines[at]!.trim().startsWith(TOML_SUBTABLE)) continue;
+    to = at;
+    break;
   }
   return { from, to };
 }
@@ -191,6 +296,14 @@ function tomlTable(): string {
 
 function addTomlTable(previous: string | null): string {
   const text = previous ?? '';
+  if (tomlServerForm(text) === 'other') {
+    throw new FailureError(
+      'that config.toml already defines an "ailoud" MCP server in another form (an inline ' +
+        'table, or a differently spelled header). AILoud will not add a second definition: ' +
+        'two definitions of one key is a TOML error that would break the whole file. Remove ' +
+        'the existing entry, or leave it as it is.',
+    );
+  }
   const range = tomlTableRange(text);
   if (range === null) {
     const base = text.trimEnd();
@@ -213,10 +326,16 @@ function removeTomlTable(previous: string): string | null {
   if (range === null) return null;
   const lines = previous.split('\n');
   const kept = [...lines.slice(0, range.from), ...lines.slice(range.to)];
-  const out = kept
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trimEnd();
+  // Only the seam is tidied -- the blank lines that surrounded the table just
+  // taken out. A global collapse of blank runs rewrote the user's own values:
+  // a multi-line string value lost the blank lines inside it.
+  while (kept.length > range.from && kept[range.from]?.trim() === '') {
+    kept.splice(range.from, 1);
+  }
+  while (range.from > 0 && kept[range.from - 1]?.trim() === '' && kept.length > range.from) {
+    kept.splice(range.from - 1, 1);
+  }
+  const out = kept.join('\n').replace(/\n+$/, '');
   return out === '' ? '' : `${out}\n`;
 }
 
@@ -291,24 +410,29 @@ function removeHermesYaml(previous: string): string | null {
  */
 export function isEmptyConfig(format: ConfigFormat, text: string): boolean {
   const trimmed = text.trim();
+  // Handles TOML entirely: removeTomlTable returns exactly '' when nothing is
+  // left, so that format needs no case of its own below.
   if (trimmed === '') return true;
   switch (format) {
-    case 'toml-codex':
-      return trimmed === '';
     case 'yaml-hermes': {
+      // Only the two keys AILoud itself adds may remain, and each must be
+      // empty. Treating any null-valued key as "no information" deleted a
+      // user's config.yaml: `default_model:` with no value parses to null, and
+      // a comment parses to nothing at all, so a file full of the user's own
+      // settings and notes looked empty and was removed.
       const doc = parseDocument(trimmed);
       const asJson = doc.toJSON() as Record<string, unknown> | null;
-      if (asJson === null) return true;
-      return isEmptyValue(asJson);
+      if (asJson === null) {
+        // Nothing but comments. Not ours to delete.
+        return trimmed === '';
+      }
+      const ours = new Set(['mcp_servers', 'platform_toolsets']);
+      return Object.entries(asJson).every(([key, value]) => ours.has(key) && isEmptyValue(value));
     }
     default: {
-      let root: Record<string, unknown>;
-      try {
-        root = (JSON.parse(stripJsonComments(trimmed)) ?? {}) as Record<string, unknown>;
-      } catch {
-        // Unparseable: not ours to delete.
-        return false;
-      }
+      const root = tryParseJson(trimmed);
+      // Unparseable: not ours to delete.
+      if (root === null) return false;
       // `$schema` alone is scaffolding -- opencode's file is created with it
       // and nothing else when AILoud is the only server.
       const keys = Object.keys(root).filter((key) => key !== '$schema');

@@ -144,3 +144,31 @@ describe('loadTemplates', () => {
     expect(await loadTemplate(fs, DIR, 'nope')).toBeUndefined();
   });
 });
+
+describe('a template file name with unusual case or extension', () => {
+  it('is selectable by the name the listing shows', () => {
+    // Taken verbatim, `Retro.yaml` was listed as `Retro` and selectable by
+    // neither `Retro` nor `retro` -- the error offered the name it had just
+    // rejected.
+    const fs = new MemFs({});
+    return (async () => {
+      await materializeBuiltIns(fs, DIR);
+      await fs.writeTextFile(`${DIR}/Retro.yaml`, 'context: A retro.\nheadings: [A, B]\n');
+      const listed = (await loadTemplates(fs, DIR)).map((t) => t.name);
+      expect(listed).toContain('retro');
+      for (const asked of ['retro', 'Retro', ' RETRO ']) {
+        expect(await loadTemplate(fs, DIR, asked), asked).toBeDefined();
+      }
+    })();
+  });
+
+  it('accepts a .yml file, rather than ignoring it silently', () => {
+    // Ignored, it looked exactly like the template not existing.
+    const fs = new MemFs({});
+    return (async () => {
+      await materializeBuiltIns(fs, DIR);
+      await fs.writeTextFile(`${DIR}/standup.yml`, 'context: A standup.\nheadings: [A, B]\n');
+      expect(await loadTemplate(fs, DIR, 'standup')).toBeDefined();
+    })();
+  });
+});

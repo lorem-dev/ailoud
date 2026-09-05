@@ -546,3 +546,81 @@ show`, `ailoud rm`, `ailoud annotate`. `docker ps` still works years after
 - The e2e sandbox gained an isolated working directory. Without it a spec for
   `mcp install --location local` would have edited this repository's own
   `CLAUDE.md` and `.mcp.json`.
+
+### Fixed
+
+Found by review of the newest subsystems, each reproduced before being changed.
+
+- `get_transcript` built its file name by interpolating the speaker name, which
+  is user-supplied and arrives as a tool argument. `speaker:
+"../../../../tmp/PWNED"` wrote the transcript to `/tmp/PWNED.txt` -- an
+  arbitrary file write driven by an MCP argument. The name is sanitised to one
+  path segment now, with a hash so two names that sanitise alike stay apart.
+- A group summary was ALWAYS fed to the model one recording at a time and the
+  answers folded, because the single-pass test counted chunks across sources
+  and two recordings summed to two. That is the "one at a time and stapled"
+  the feature exists to avoid, and the combining instruction called two
+  different meetings "consecutive portions of the same material". The test is
+  now whether the assembled body fits the budget.
+- A rules file that merely mentioned `<!-- AILOUD_START -->` in prose lost
+  everything between that sentence and the end of the real block, on the second
+  install and on uninstall. The end marker is found first now, and the start
+  paired backwards from it.
+- `mcp uninstall` deleted a Hermes `config.yaml` that held the user's own
+  settings: a key written `default_model:` with no value parsed to null, and
+  the emptiness test called any null-valued key "no information". Only a file
+  holding nothing but AILoud's own two keys is removed now, and a file of
+  comments is never removed.
+- `mcp update` installed into agents the user had never chosen. Presence was
+  detected by a regexp for the server name over the whole file, and Claude Code
+  stores prompt history in `~/.claude.json` -- so anyone who had once typed
+  "run ailoud: hi" had it installed for them. Presence is parsed per format now.
+- `mcp install` corrupted a `config.toml` that already defined an `ailoud`
+  server as an inline table: it appended a second definition of the same key,
+  which is a hard TOML error, costing the user their whole Codex configuration.
+  Non-canonical definitions are refused with a message instead.
+- `mcp uninstall` rewrote unrelated TOML values, because it collapsed every run
+  of blank lines in the file to tidy the seam it had left; a multi-line string
+  value lost the blank lines inside it. Only the seam is tidied now.
+- A `[mcp_servers.ailoud.env]` sub-table survived uninstall, leaving TOML that
+  still defined the server -- with an env and no command -- which no later
+  command could see or clean. Sub-tables go with their parent.
+- A line beginning with `[` inside a multi-line TOML string was read as a table
+  header, ending our table early and leaving an orphaned delimiter. The scan
+  tracks string state.
+- `mcp install` threw part-way through a multi-agent run, after earlier agents
+  had been written and before anything was reported, on a `.jsonc` with a
+  trailing comma or a byte-order mark. Both are tolerated; a file that is not
+  JSON at all is refused with a message.
+- `ailoud://report/_Z` returned a report's full body for a URI identifying no
+  report, and `ailoud://report/` would have returned the whole table: the MCP
+  resource handler passed a raw URI variable into a `LIKE` prefix. The store
+  validates every prefix itself now rather than trusting its caller.
+- An exported-but-empty `XDG_DATA_HOME` rooted every path at `/`, so every
+  command died on `mkdir /ailoud`; an empty `XDG_CONFIG_HOME` silently read no
+  config while naming `/ailoud/config.yaml` as the file to fix. A relative
+  value gave a library that moved with every `cd`. Both are ignored now, as the
+  XDG spec requires.
+- The hidden top-level aliases did not inherit commander's settings, so
+  `ailoud ls --bogus` exited 1 with no usage while `ailoud audio ls --bogus`
+  exited 2 with it -- and without `exitOverride` commander called
+  `process.exit()`, skipping the `finally` that closes the database.
+- `ailoud audio help ls` reported "too many arguments", and a typo'd verb got
+  that same message instead of "unknown command (Did you mean ls?)". The
+  `.action()` handler added to force a bare group to print help was suppressing
+  commander's own help subcommand and unknown-command handling; commander
+  prints the verb list without it.
+- A template file named with any uppercase letter was listed but selectable by
+  no spelling, and the error offered the name it had just rejected. Names are
+  lowercased on load, and `.yml` is accepted.
+- Two concurrent MCP tool calls each created a run directory and one was left
+  in `/tmp` with a transcript in it after the server stopped.
+- The in-memory test store disagreed with SQLite about which summary is newest
+  and in what order summaries list -- so tests could prove the wrong thing.
+
+### Changed
+
+- The summarisation pipeline was written twice, once for the CLI and once for
+  the MCP tool, and the copies had already drifted: the rule that a single
+  recording is never summarised from its own stored report was fixed in one and
+  had to be remembered in the other. Both call one implementation now.

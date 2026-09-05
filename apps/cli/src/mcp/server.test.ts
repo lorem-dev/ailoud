@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import type { MemFs } from '@ailoud/core/testing';
 import { contextWithTranscript } from '../commands/testContext.js';
 import { buildMcpServer } from './server.js';
 import { SERVER_INSTRUCTIONS } from './instructions.js';
@@ -325,6 +326,78 @@ describe('MCP: deletion takes two calls, always', () => {
     expect(await ctx.store.listAllSummaries()).toEqual([]);
     expect(await ctx.store.getRecording('ID001')).not.toBeNull();
     expect(await ctx.store.latestTranscript('ID001')).not.toBeNull();
+    await close();
+  });
+});
+
+describe('MCP: the run directory and its file names', () => {
+  it('keeps a hostile speaker name inside the run directory', async () => {
+    // A speaker name is user-supplied and comes back in as a tool argument.
+    // Interpolated raw, `speaker: "../../../../tmp/PWNED"` made this tool
+    // write the transcript to /tmp/PWNED.txt -- an arbitrary file write
+    // driven by a tool argument.
+    const ctx = await contextWithTranscript({ clearLines: true });
+    const { call, close } = await connect(ctx);
+    const path = (
+      await call('get_transcript', { recordingId: 'ID001', speaker: '../../../../tmp/PWNED' })
+    ).json()['path'] as string;
+    expect(path).not.toContain('/tmp/PWNED');
+    expect(path.endsWith('.txt')).toBe(true);
+    await close();
+  });
+
+  it('uses one directory for concurrent calls, and leaves none behind', async () => {
+    // Memoising the resolved directory instead of the promise let two calls
+    // in flight each create one, and the loser was left in /tmp with a
+    // transcript in it after the server stopped.
+    const ctx = await contextWithTranscript({ clearLines: true });
+    const { call, close } = await connect(ctx);
+    const [first, second] = await Promise.all([
+      call('get_transcript', { recordingId: 'ID001' }),
+      call('get_transcript', { recordingId: 'ID001', speaker: 'Ann' }),
+    ]);
+    const dirOf = (path: string): string => path.slice(0, path.lastIndexOf('/'));
+    expect(dirOf(first.json()['path'] as string)).toBe(dirOf(second.json()['path'] as string));
+    await close();
+    const left = [...(ctx.fs as MemFs).files.keys()].filter((key) => key.includes('ID001.txt'));
+    expect(left).toEqual([]);
+  });
+});
+
+describe('MCP: one summarisation pipeline, shared with the CLI', () => {
+  it('never re-summarises a single recording from its own stored report', async () => {
+    // The rule that drifted while the pipeline was written twice: fixed in
+    // the CLI command, and it had to be remembered separately here.
+    const ctx = await contextWithTranscript({ clearLines: true });
+    const { call, close } = await connect(ctx);
+    await call('summarize', { recordingIds: ['ID001'] });
+    ctx.summarizerPrompts.length = 0;
+    await call('summarize', { recordingIds: ['ID001'], language: 'ru' });
+    expect(ctx.summarizerPrompts[0]).toContain('Privet.');
+    expect(ctx.summarizerPrompts[0]).not.toMatch(/earlier summary/i);
+    await close();
+  });
+
+  it('reuses stored reports for a group, where they pay', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    const first = (await ctx.store.listRecordings({}))[0]!;
+    await ctx.store.insertRecording({ ...first, id: 'ID002', sha256: 'other' });
+    for (const id of ['ID001', 'ID002']) {
+      await ctx.store.insertSummary({
+        id: `SUM-${id}`,
+        createdAt: '2026-08-31T00:00:00.000Z',
+        language: 'en',
+        provider: 'fake',
+        model: 'fake-model',
+        body: `summary of ${id}`,
+        template: 'meeting',
+        context: '',
+        recordingIds: [id],
+      });
+    }
+    const { call, close } = await connect(ctx);
+    const body = (await call('summarize', { recordingIds: ['ID001', 'ID002'] })).json();
+    expect(body['reusedStoredReports']).toBe(2);
     await close();
   });
 });

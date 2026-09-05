@@ -1,6 +1,6 @@
 import type { Recording, Segment, SpeakerName } from '../domain/model.js';
 import { speakerNameMap } from '../transcribe/speakers.js';
-import { chunkTranscript, transcriptLine } from './chunk.js';
+import { chunkTranscript, estimateTokens, transcriptLine } from './chunk.js';
 import { transcriptFileHeader, transcriptFileName } from './transcriptFile.js';
 import { DEFAULT_TEMPLATE, findTemplate } from './templates.js';
 import type { SummaryTemplate } from './templates.js';
@@ -233,13 +233,27 @@ export function buildSummaryRequest(
     return { name: names[index]!, header: transcriptFileHeader(source), chunks };
   });
 
-  const totalChunks = blocks.reduce((sum, block) => sum + block.chunks.length, 0);
+  // One pass when everything fits, portioned only when it does not.
+  //
+  // Counting chunks and asking for `<= 1` was wrong in the case this function
+  // exists for: two recordings each producing one chunk summed to two, so
+  // EVERY group summary took the portioned path -- each recording answered
+  // alone and the answers folded, which is the "one at a time and stapled"
+  // the doc comment above rejects. It also made the combine instruction lie,
+  // calling two different recordings "consecutive portions of the same
+  // material".
+  //
+  // The real question is whether the assembled body fits, so that is what is
+  // measured: no source needed splitting, and the whole thing is within
+  // budget.
+  const anySplit = blocks.some((block) => block.chunks.length > 1);
+  const assembled = blocks
+    .map((block) => `=== ${block.name} ===\n${block.header}\n\n${block.chunks[0] ?? ''}`)
+    .join('\n\n');
+  const fits = !anySplit && estimateTokens(`${head}\n\n${assembled}`) <= options.budgetTokens;
 
-  if (totalChunks <= 1) {
-    const body = blocks
-      .map((block) => `=== ${block.name} ===\n${block.header}\n\n${block.chunks[0] ?? ''}`)
-      .join('\n\n');
-    return { files, parts: [`${head}\n\n${body}`], combine: '' };
+  if (fits) {
+    return { files, parts: [`${head}\n\n${assembled}`], combine: '' };
   }
 
   // One request per portion. The header is repeated on every portion, not only

@@ -88,3 +88,31 @@ describe('resolvePaths', () => {
     expect(() => resolvePaths({ HOME: '' })).toThrow(/HOME is not set/);
   });
 });
+
+describe('resolvePaths: XDG variables the spec calls invalid', () => {
+  it('treats an exported-but-empty variable as unset', () => {
+    // It rooted every path at `/`: `XDG_DATA_HOME= ailoud audio ls` died
+    // trying to mkdir `/ailoud`, and an empty XDG_CONFIG_HOME silently read
+    // no config while naming `/ailoud/config.yaml` as the file to fix.
+    const paths = resolvePaths({ ...HOME, XDG_CONFIG_HOME: '', XDG_DATA_HOME: '' });
+    expect(paths.configFile).toBe('/home/ann/.config/ailoud/config.yaml');
+    expect(paths.dataDir).toBe('/home/ann/.local/share/ailoud');
+  });
+
+  it('ignores a relative value, as the spec requires', () => {
+    // Left in, it gave a library that moved with every `cd`.
+    const paths = resolvePaths({ ...HOME, XDG_DATA_HOME: 'relativedir' });
+    expect(paths.dataDir).toBe('/home/ann/.local/share/ailoud');
+  });
+
+  it('ignores whitespace-only, and trims a usable one', () => {
+    expect(resolvePaths({ ...HOME, XDG_DATA_HOME: '   ' }).dataDir).toBe(
+      '/home/ann/.local/share/ailoud',
+    );
+    expect(resolvePaths({ ...HOME, XDG_DATA_HOME: ' /data ' }).dataDir).toBe('/data/ailoud');
+  });
+
+  it('still honours an absolute value', () => {
+    expect(resolvePaths({ ...HOME, XDG_DATA_HOME: '/data' }).dataDir).toBe('/data/ailoud');
+  });
+});

@@ -105,11 +105,18 @@ export async function loadTemplates(fs: Fs, dir: string): Promise<SummaryTemplat
   await materializeBuiltIns(fs, dir);
   // listFiles hands back full paths, not bare names.
   const paths = (await fs.listFiles(dir))
-    .filter((path) => path.endsWith('.yaml'))
+    .filter((path) => /\.ya?ml$/.test(path))
     .sort((a, b) => a.localeCompare(b));
   const templates: SummaryTemplate[] = [];
   for (const path of paths) {
-    const name = basename(path).replace(/\.yaml$/, '');
+    // Lowercased, matching how `loadTemplate` looks a name up. Taken verbatim,
+    // a file called `Retro.yaml` was listed as `Retro` and then selectable by
+    // neither `Retro` nor `retro` -- the error offered the very name it had
+    // just rejected. `.yml` is accepted too; silently ignoring it looked
+    // exactly like the template not existing.
+    const name = basename(path)
+      .replace(/\.ya?ml$/, '')
+      .toLowerCase();
     templates.push(parseTemplate(name, await fs.readTextFile(path)));
   }
   return templates;

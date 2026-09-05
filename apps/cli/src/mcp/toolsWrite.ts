@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { DEFAULT_TEMPLATE, buildSummaryRequest, transcribeRecording } from '@ailoud/core';
-import type { SummarySource } from '@ailoud/core';
+import { DEFAULT_TEMPLATE, transcribeRecording } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecording, resolveRecordings } from '../resolveId.js';
 import { parseTags } from '../tags.js';
@@ -13,7 +12,7 @@ import {
   templatesDir,
   validateTemplateName,
 } from '../templateStore.js';
-import { transcriptBudget } from '../commands/summarize.js';
+import { runSummary } from '../summarizeRun.js';
 import type { McpDeps } from './deps.js';
 import { fail, ok } from './reply.js';
 
@@ -268,7 +267,7 @@ export function registerWriteTools(server: McpServer, context: CliContext, _deps
         });
       }
       if (ids.length > 0 && tags.length > 0) {
-        return ok({ error: 'pass recordingIds or tags, not both' });
+        return fail({ error: 'pass recordingIds or tags, not both' });
       }
 
       const dir = templatesDir(context.paths.configFile);
@@ -286,78 +285,29 @@ export function registerWriteTools(server: McpServer, context: CliContext, _deps
           ? await resolveRecordings(context.store, ids)
           : await context.store.listRecordings({ tags });
       if (recordings.length === 0) {
-        return ok({ error: `no recordings carry ${tags.join(' and ')}` });
+        return fail({ error: `no recordings carry ${tags.join(' and ')}` });
       }
 
-      const summarizer = context.createSummarizer();
-      const reuse = args.fresh !== true && recordings.length > 1;
-      const sources: SummarySource[] = [];
-      for (const recording of recordings) {
-        const transcript = await context.store.latestTranscript(recording.id);
-        const prior = reuse ? await context.store.latestSummaryOf(recording.id) : null;
-        const speakers = await context.store.listSpeakerNames(recording.id);
-        const carried = await context.store.listTags(recording.id);
-        if (prior !== null) {
-          sources.push({
-            recording,
-            segments: [],
-            speakers,
-            tags: carried,
-            priorSummary: prior.body,
-          });
-          continue;
-        }
-        if (transcript === null) {
-          return fail({
-            error: `${recording.id} has no transcript yet`,
-            fix: 'call transcribe first',
-          });
-        }
-        sources.push({
-          recording,
-          segments: await context.store.listSegments(transcript.id),
-          speakers,
-          tags: carried,
-        });
-      }
-
-      const request = buildSummaryRequest(sources, {
-        budgetTokens: transcriptBudget(summarizer),
+      // The same pipeline the CLI runs. Written twice before this, and the
+      // copies drifted: the rule that a single recording is never summarised
+      // from its own stored summary was fixed in the command and had to be
+      // remembered separately here.
+      const result = await runSummary(context, {
+        recordings,
         template,
         ...(args.language === undefined ? {} : { language: args.language }),
         ...(args.context === undefined ? {} : { context: args.context }),
-      });
-
-      let body: string;
-      if (request.parts.length === 1) {
-        body = await summarizer.complete(request.parts[0]!);
-      } else {
-        const partial: string[] = [];
-        for (const part of request.parts) partial.push(await summarizer.complete(part));
-        body = await summarizer.complete(`${request.combine}\n\n${partial.join('\n\n')}`);
-      }
-
-      const id = context.ids.next();
-      await context.store.insertSummary({
-        id,
-        createdAt: context.clock.nowIso(),
-        language: args.language ?? 'auto',
-        provider: summarizer.name,
-        model: summarizer.model,
-        body,
-        template: template.name,
-        context: args.context ?? '',
-        recordingIds: recordings.map((recording) => recording.id),
+        ...(args.fresh === true ? { fresh: true } : {}),
       });
 
       return ok({
-        reportId: id,
+        reportId: result.reportId,
         template: template.name,
-        model: `${summarizer.name} ${summarizer.model}`,
+        model: `${result.provider} ${result.model}`,
         recordingIds: recordings.map((recording) => recording.id),
-        portions: request.parts.length,
-        reusedStoredReports: sources.filter((source) => source.priorSummary !== undefined).length,
-        summary: body,
+        portions: result.portions,
+        reusedStoredReports: result.reused,
+        summary: result.body,
       });
     },
   );

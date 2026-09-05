@@ -137,11 +137,6 @@ export function agentIds(): string {
   return AGENTS.map((agent) => agent.id).join(', ');
 }
 
-/** Agents that support a scope. Used to narrow the scope question to what is possible. */
-export function agentsForScope(agents: readonly AgentTarget[], scope: Scope): AgentTarget[] {
-  return agents.filter((agent) => agent.scopes.includes(scope));
-}
-
 /** True when every chosen agent reads only a machine-wide configuration. */
 export function globalOnly(agents: readonly AgentTarget[]): boolean {
   return agents.length > 0 && agents.every((agent) => !agent.scopes.includes('local'));

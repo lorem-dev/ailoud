@@ -355,7 +355,10 @@ export class InMemoryStore implements ManagedRecordingStore {
 
       const transcripts = [...this.transcripts.values()]
         .filter((transcript) => transcript.recordingId === recording.id)
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        // createdAt then id, matching the real store's subquery AND this fake's
+        // own latestTranscript. Without the id tie-break the fake contradicted
+        // itself on two transcripts sharing a timestamp.
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
       const chosen = filter.allTranscripts === true ? transcripts : transcripts.slice(0, 1);
       for (const transcript of chosen) {
         for (const segment of this.segments.get(transcript.id) ?? []) {
@@ -388,21 +391,35 @@ export class InMemoryStore implements ManagedRecordingStore {
   async latestSummaryOf(recordingId: string): Promise<Summary | null> {
     // Covering this recording and nothing else: a group summary of ten
     // meetings is not the summary of the third one.
-    const own = this.summaries.filter(
-      (summary) => summary.recordingIds.length === 1 && summary.recordingIds[0] === recordingId,
-    );
-    return own.length === 0 ? null : own[own.length - 1]!;
+    const own = this.summaries
+      .filter(
+        (summary) => summary.recordingIds.length === 1 && summary.recordingIds[0] === recordingId,
+      )
+      // Newest by createdAt then id, as the real store orders it. Returning
+      // the last INSERTED one diverged: insert a 2026-01-02 summary then a
+      // 2026-01-01 one and the two stores disagreed about which was newest.
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+    return own[0] ?? null;
   }
 
   async listSummaries(recordingId: string): Promise<Summary[]> {
-    return this.summaries.filter((s) => s.recordingIds.includes(recordingId)).reverse();
+    // Same order as the real store: newest first by createdAt then id, not
+    // reverse insertion order.
+    return this.summaries
+      .filter((summary) => summary.recordingIds.includes(recordingId))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
   }
 
   async listAllSummaries(): Promise<Summary[]> {
-    return [...this.summaries].reverse();
+    return [...this.summaries].sort(
+      (a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
+    );
   }
 
   async findSummariesByIdPrefix(prefix: string): Promise<Summary[]> {
+    // Same guard the real store applies, or a test would prove the wrong
+    // thing: the real one refuses a prefix carrying a LIKE wildcard.
+    if (prefix === '' || !/^[0-9A-Za-z]+$/.test(prefix)) return [];
     return this.summaries
       .filter((summary) => summary.id.startsWith(prefix))
       .sort((a, b) => a.id.localeCompare(b.id));

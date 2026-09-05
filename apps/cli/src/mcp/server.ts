@@ -29,10 +29,14 @@ export function buildMcpServer(context: CliContext, version: string): AiloudMcpS
   // Created on first use, so a run that only lists things creates nothing, and
   // removed when the server stops. Transcripts handed to an agent are scratch:
   // the library in the database is the copy that outlives the process.
-  let dir: TempDir | null = null;
+  // The PROMISE is memoised, not the resolved directory. Two tool calls can be
+  // in flight at once, and `dir ??= await tempDir()` let both see null, both
+  // create a directory, and the second assignment win -- leaving the first
+  // directory, transcript and all, behind after the server stopped.
+  let pending: Promise<TempDir> | null = null;
   const runDir = async (): Promise<string> => {
-    dir ??= await context.fs.tempDir();
-    return dir.path;
+    pending ??= context.fs.tempDir();
+    return (await pending).path;
   };
 
   const confirmations = new Confirmations(context.clock);
@@ -46,8 +50,9 @@ export function buildMcpServer(context: CliContext, version: string): AiloudMcpS
   return {
     server,
     close: async () => {
-      await dir?.remove();
-      dir = null;
+      const opened = pending;
+      pending = null;
+      if (opened !== null) await (await opened).remove();
     },
   };
 }

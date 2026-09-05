@@ -213,13 +213,11 @@ export async function ensureProjectLibrary(fs: Fs, cwd: string): Promise<FileOut
   const dir = join(cwd, PROJECT_DIR);
   const ignore = join(dir, '.gitignore');
   await fs.ensureDir(dir);
-  if (await fs.exists(ignore)) {
-    const current = await fs.readTextFile(ignore);
-    if (current === PROJECT_GITIGNORE) return { path: dir, action: 'unchanged' };
-    // Left as the user has it: they may have added a rule of their own, and
-    // the directory works either way.
-    return { path: dir, action: 'unchanged' };
-  }
+  // Never rewritten once it exists: the user may have added a rule of their
+  // own, and the directory works either way. (Both branches of an earlier
+  // version returned the same thing, so the read and the comparison were pure
+  // cost.)
+  if (await fs.exists(ignore)) return { path: dir, action: 'unchanged' };
   await fs.writeTextFile(ignore, PROJECT_GITIGNORE);
   return { path: dir, action: 'created' };
 }

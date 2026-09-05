@@ -14,6 +14,7 @@ import type { CliContext } from '../wiring.js';
 import { resolveRecording, resolveSummary } from '../resolveId.js';
 import { loadTemplates, templatesDir } from '../templateStore.js';
 import type { McpDeps } from './deps.js';
+import { safePathComponent } from './safePath.js';
 import { fail, ok } from './reply.js';
 
 const ID = z
@@ -248,7 +249,11 @@ export function registerReadTools(server: McpServer, context: CliContext, deps: 
       const body = segments.map((segment) => transcriptLine(segment, names)).join('\n');
       const header = transcriptFileHeader({ recording, segments: all, speakers, tags });
       const dir = await deps.runDir();
-      const path = join(dir, `${recording.id}${speaker === undefined ? '' : `-${speaker}`}.txt`);
+      // The speaker name is sanitised, never interpolated raw: it comes from a
+      // tool argument, and `speaker: "../../tmp/x"` wrote the transcript
+      // outside the run directory.
+      const suffix = speaker === undefined ? '' : `-${safePathComponent(speaker)}`;
+      const path = join(dir, `${recording.id}${suffix}.txt`);
       await context.fs.writeTextFile(path, `${header}\n\n${body}\n`);
 
       return ok({

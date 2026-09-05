@@ -122,6 +122,14 @@ export function findProjectDir(from: string, exists: (path: string) => boolean):
   }
 }
 
+/** An XDG base directory, honoured only when it is set and absolute, per the spec. */
+function absoluteOr(value: string | undefined, fallback: string): string {
+  if (value === undefined) return fallback;
+  const trimmed = value.trim();
+  if (trimmed === '' || !trimmed.startsWith('/')) return fallback;
+  return trimmed;
+}
+
 export interface ResolvePathsOptions {
   /** Where to start looking for a project library. Absent means: do not look. */
   readonly cwd?: string;
@@ -152,8 +160,15 @@ export function resolvePaths(
         'shell environment, then run "ailoud doctor" to confirm ailoud is ready.',
     );
   }
-  const configHome = env['XDG_CONFIG_HOME'] ?? `${home}/.config`;
-  const dataHome = env['XDG_DATA_HOME'] ?? `${home}/.local/share`;
+  // `??` alone was wrong twice over. An exported-but-empty variable is not
+  // "set" -- the XDG basedir spec says an empty value means use the default --
+  // and it rooted every path at `/`, so `XDG_DATA_HOME= ailoud audio ls` died
+  // trying to mkdir `/ailoud` and `XDG_CONFIG_HOME=` silently read no config
+  // at all while reporting `/ailoud/config.yaml` as the file to fix. The spec
+  // also says a RELATIVE value is invalid and must be ignored; left in, it
+  // gave a library that moved with every `cd`.
+  const configHome = absoluteOr(env['XDG_CONFIG_HOME'], `${home}/.config`);
+  const dataHome = absoluteOr(env['XDG_DATA_HOME'], `${home}/.local/share`);
 
   const project =
     options.cwd === undefined || options.exists === undefined

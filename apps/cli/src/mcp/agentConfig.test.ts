@@ -184,3 +184,79 @@ describe('isEmptyConfig', () => {
     expect(isEmptyConfig('json-mcp-servers', '{ not json')).toBe(false);
   });
 });
+
+describe('a config file AILoud did not write', () => {
+  it('refuses a TOML file that defines our server another way, rather than corrupting it', () => {
+    // Appending our table beside an inline definition of the same key is a
+    // hard TOML error, which costs the user their WHOLE Codex config.
+    const inline = '[mcp_servers]\nailoud = { command = "ailoud", args = ["mcp"] }\n';
+    expect(() => addServer('toml-codex', inline)).toThrow(/another form/);
+    for (const spelling of ['[ mcp_servers.ailoud ]', '[mcp_servers."ailoud"]']) {
+      expect(() => addServer('toml-codex', `${spelling}\ncommand = "x"\n`), spelling).toThrow(
+        /another form/,
+      );
+    }
+  });
+
+  it('leaves blank lines inside a multi-line TOML value alone', () => {
+    // A global collapse of blank runs rewrote the user's own values.
+    const before =
+      '[model]\ninstructions = """\nline one\n\n\nline four\n"""\n\n' +
+      '[mcp_servers.ailoud]\ncommand = "ailoud"\nargs = ["mcp"]\n';
+    expect(removeServer('toml-codex', before)!).toContain('line one\n\n\nline four');
+  });
+
+  it('does not mistake a bracket inside a TOML string for a table header', () => {
+    const before =
+      '[mcp_servers.ailoud]\ncommand = "ailoud"\nnote = """\n[not a table]\n"""\n\n[model]\nn = 1\n';
+    const after = removeServer('toml-codex', before)!;
+    expect(after).not.toContain('not a table');
+    expect(after).toContain('[model]');
+  });
+
+  it('removes our TOML sub-tables with their parent', () => {
+    // Left behind, [mcp_servers.ailoud.env] still implicitly defines the
+    // server -- with an env and no command -- and nothing could clean it.
+    const before =
+      '[mcp_servers.ailoud]\ncommand = "ailoud"\nargs = ["mcp"]\n' +
+      '[mcp_servers.ailoud.env]\nX = "1"\n\n[model]\nn = 1\n';
+    const after = removeServer('toml-codex', before)!;
+    expect(after).not.toContain('ailoud');
+    expect(after).toContain('[model]');
+  });
+
+  it('does not read our name out of ordinary JSON data', () => {
+    // Claude Code stores prompt history in ~/.claude.json. A regexp for the
+    // server name matched "run ailoud: hi" there, and `mcp update` then
+    // installed into an agent the user never chose.
+    const history = JSON.stringify({
+      projects: { '/w': { history: [{ display: 'run ailoud: hi' }] } },
+    });
+    expect(hasServer('json-mcp-servers', history)).toBe(false);
+  });
+
+  it('does not read our name out of a YAML comment', () => {
+    expect(hasServer('yaml-hermes', '# ailoud: not installed\nmcp_servers: {}\n')).toBe(false);
+  });
+
+  it("never calls a Hermes config with the user's own keys empty", () => {
+    // `default_model:` with no value parses to null, and a comment parses to
+    // nothing at all -- so a file full of settings and notes looked empty and
+    // was deleted.
+    const theirs =
+      '# Hermes configuration\ndefault_model:\n\nmcp_servers: {}\nplatform_toolsets:\n  cli: []\n';
+    expect(isEmptyConfig('yaml-hermes', theirs)).toBe(false);
+    expect(isEmptyConfig('yaml-hermes', '# just a note\n')).toBe(false);
+  });
+
+  it('tolerates a trailing comma and a byte-order mark', () => {
+    // Both are legal JSONC and what editors leave behind. JSON.parse threw
+    // mid-install, after earlier agents had already been written.
+    expect(addServer('jsonc-opencode', '{\n  // mine\n  "theme": "dark",\n}\n')).toContain('theme');
+    expect(addServer('json-mcp-servers', '﻿{"mcpServers":{}}')).toContain('ailoud');
+  });
+
+  it('refuses to rewrite a file that is not JSON at all', () => {
+    expect(() => addServer('json-mcp-servers', '{ not json')).toThrow(/not valid JSON/);
+  });
+});
