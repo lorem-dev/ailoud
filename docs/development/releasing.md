@@ -65,6 +65,19 @@ mints a short-lived OIDC token for the run, npm exchanges it for a credential
 good for minutes, and provenance is attached automatically. Nothing long-lived
 is stored, so there is no 90-day expiry to renew.
 
+Except once, per package. A trusted publisher is attached to a package on
+npmjs.com, and there is no page to attach it to until the package exists, so
+the first version of each has to go out on a token in the `NPM_TOKEN` secret --
+npm answers `ENEEDAUTH` without one however complete the OIDC setup is. The
+workflow uses the secret when it is present and OIDC when it is not, so
+deleting the secret is the whole of the switch.
+
+It will not let that drift: a **pre-release** published on the token logs a
+warning, and a **final release** with the secret still set fails before
+publishing anything. Attaching the publisher (organization `lorem-dev`,
+repository `ailoud`, workflow `publish.yml`, environment empty) on all three
+package pages and deleting the secret clears it.
+
 One-time setup on npmjs.com, per package -- Package, then Settings, then
 Trusted publisher, then GitHub Actions:
 

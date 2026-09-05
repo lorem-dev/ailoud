@@ -294,6 +294,13 @@ removed. A package whose first release was a pre-release therefore answers
 Use the `dev-tag` skill for a snapshot; `bump-version` then `pre-release-check`
 for a release.
 
+Publishing is by trusted publishing (OIDC), with no stored credential. The one
+exception is a package's first version: a trusted publisher is attached to a
+package that already exists, so a token in the `NPM_TOKEN` secret has to
+introduce each package to the registry. `publish.yml` uses the secret when it
+is there and OIDC when it is not, warns on a pre-release published with the
+token, and REFUSES a final release while the secret is still set.
+
 Cutting a final tag folds its pre-release sections back into one:
 
 ```

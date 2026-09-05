@@ -205,6 +205,8 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
+          tag="$TAG"
+          version="${tag#v}"
           # BOOTSTRAP ONLY. Trusted publishing is configured per package on
           # npmjs.com, which cannot be done for a package that does not exist
           # yet -- so the first version of each of the three has to go out on a
@@ -214,13 +216,25 @@ jobs:
           # branch is skipped and npm does the OIDC exchange instead, which is
           # the arrangement with nothing to expire.
           if [ -n "${NPM_TOKEN:-}" ]; then
-            echo "using the NPM_TOKEN secret; remove it once trusted publishing is attached"
+            # A final release may not go out on a token. The bootstrap is over
+            # the moment the packages exist, and a token that keeps working is
+            # a token nobody gets round to removing -- so the rule is enforced
+            # here rather than remembered: snapshots may use it and say so, a
+            # release refuses and names the two steps that clear it.
+            case "$version" in
+              *-*) echo "::warning::published with the NPM_TOKEN secret; attach the trusted publisher and delete the secret" ;;
+              *)
+                echo "::error::$version is a final release and NPM_TOKEN is set."
+                echo "::error::Attach the trusted publisher on all three package pages"
+                echo "::error::(organization lorem-dev, repository ailoud, workflow publish.yml,"
+                echo "::error::environment empty), then delete the NPM_TOKEN secret and re-run."
+                exit 1
+                ;;
+            esac
             npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
           else
             echo "no NPM_TOKEN secret; publishing through trusted publishing"
           fi
-          tag="$TAG"
-          version="${tag#v}"
           # Three kinds of tag, three destinations. See the dev-tag skill.
           #   -dev.N  a snapshot to try            -> dev
           #   -rc.N   what the release will be     -> next
