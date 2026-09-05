@@ -54,10 +54,16 @@ jobs:
         uses: ./.github/actions/setup-node-pnpm
 
       - name: Retire
+        # The version goes through env, not through `${{ }}` in the script: an
+        # expression is substituted before the shell parses the line, and a tag
+        # name may contain a quote. publish.yml routes every tag this way; this
+        # was the one place that did not, in a job holding contents: write.
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin 'refs/heads/main:refs/remotes/origin/main'
           # --yes unconditionally: the only caller is a release, and tagging
           # it was the consent. The script's plan-first default is for a
           # laptop, where nothing has been decided yet.
-          node scripts/retire-prereleases.mjs '${{ inputs.version }}' --yes
+          node scripts/retire-prereleases.mjs "$VERSION" --yes

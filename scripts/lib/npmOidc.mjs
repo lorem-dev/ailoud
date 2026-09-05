@@ -53,12 +53,21 @@ export async function tokenForPackage(name, log = console.error) {
   const idUrl = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
   idUrl.searchParams.set('audience', `npm:${new URL(REGISTRY).hostname}`);
 
-  const idResponse = await fetch(idUrl, {
-    headers: {
-      accept: 'application/json',
-      authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}`,
-    },
-  });
+  let idResponse;
+  try {
+    idResponse = await fetch(idUrl, {
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}`,
+      },
+    });
+  } catch (error) {
+    // The contract above says null, not a throw: a caller that can fall back
+    // on an ambient `npm login` should get the chance, and a DNS or TLS
+    // failure is exactly the transient case that fallback is for.
+    log(`npm-oidc: could not reach GitHub for an id token: ${error.message}`);
+    return null;
+  }
   if (!idResponse.ok) {
     log(`npm-oidc: GitHub refused the id token (${idResponse.status})`);
     return null;
@@ -76,10 +85,16 @@ export async function tokenForPackage(name, log = console.error) {
   log(`npm-oidc: identity ${describeClaims(idToken)}`);
 
   const exchange = `${REGISTRY}/-/npm/v1/oidc/token/exchange/package/${escapePackageName(name)}`;
-  const response = await fetch(exchange, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${idToken}`, accept: 'application/json' },
-  });
+  let response;
+  try {
+    response = await fetch(exchange, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${idToken}`, accept: 'application/json' },
+    });
+  } catch (error) {
+    log(`npm-oidc: could not reach the registry to exchange: ${error.message}`);
+    return null;
+  }
   if (!response.ok) {
     // The body carries npm's reason -- usually that no trusted publisher is
     // attached to this package -- and holds no secret.

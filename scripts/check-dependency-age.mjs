@@ -35,12 +35,28 @@ const EXCEPTIONS = 'scripts/dependency-age-exceptions.json';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
 
+/**
+ * When `version` was published, or null if the registry does not know.
+ *
+ * A 404 means the registry has no such package, which is a real answer. Any
+ * other refusal -- a 429, a 502 -- is the registry declining to answer, and
+ * returning null for it turned this whole check into a no-op that reported
+ * success: every entry became "unknown", nothing was young, exit 0. So those
+ * throw, and the rule fails closed.
+ */
 async function publishedAt(name, version) {
   const response = await fetch(`${REGISTRY}/${escapePackageName(name)}`);
-  if (!response.ok) return null;
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`the registry answered ${response.status} for ${name}; cannot judge its age`);
+  }
   const { time } = await response.json();
   const stamp = time?.[version];
-  return typeof stamp === 'string' ? Date.parse(stamp) : null;
+  if (typeof stamp !== 'string') return null;
+  const parsed = Date.parse(stamp);
+  // An unparseable timestamp is not an age. Reported as unknown rather than
+  // compared as NaN, which produced "published NaN days ago".
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 const daysFlag = process.argv.indexOf('--days');
@@ -63,7 +79,7 @@ const { young, exempt, unknown } = classify(entries, now, days, exceptions);
 
 console.log(`${SCOPE}: ${pinned.length} pinned direct dependencies, minimum age ${days} days`);
 
-for (const { name, spec } of unpinned) {
+for (const [name, spec] of unpinned) {
   console.log(`  ${name}@${spec} is not an exact version; its age was not checked`);
 }
 for (const { name, spec } of unknown) {

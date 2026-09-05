@@ -101,6 +101,38 @@ jobs:
           fi
           echo "npm $have"
 
+      - name: Refuse a final release while NPM_TOKEN is set
+        # First, not last. This used to live inside the publish step, after
+        # pnpm install, three checks, apt-get, the whole gate and the
+        # end-to-end suite -- around twenty minutes to learn a fact known at
+        # second zero. Nothing was ever published by it, so the cost was only
+        # time, but the documented order said otherwise and this is the most
+        # likely way a first production release fails.
+        #
+        # The bootstrap is over the moment the packages exist, and a token that
+        # keeps working is a token nobody gets round to removing.
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          if [ -z "${NPM_TOKEN:-}" ]; then
+            echo "no NPM_TOKEN secret; this run will use trusted publishing"
+            exit 0
+          fi
+          case "$version" in
+            *-*)
+              echo "::warning::publishing $version with the NPM_TOKEN secret; attach the trusted publisher and delete the secret"
+              ;;
+            *)
+              echo "::error::$version is a final release and NPM_TOKEN is set."
+              echo "::error::Attach the trusted publisher on all three package pages"
+              echo "::error::(organization lorem-dev, repository ailoud, workflow publish.yml,"
+              echo "::error::environment empty), then delete the NPM_TOKEN secret and re-run."
+              exit 1
+              ;;
+          esac
+
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
@@ -131,15 +163,27 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if ! alerts=$(gh api \
+          # --paginate, because an alert past the first hundred blocked nothing.
+          # jq -s 'add' folds the pages into one array.
+          if ! alerts=$(gh api --paginate \
             "repos/${{ github.repository }}/code-scanning/alerts?state=open&per_page=100" \
-            --jq '[.[] | select(.rule.security_severity_level == "high" or .rule.security_severity_level == "critical")]'); then
+            | jq -s 'add // [] | [.[] | select(.rule.security_severity_level == "high" or .rule.security_severity_level == "critical")]'); then
             echo "::error::could not read code scanning results. A release that cannot check"
             echo "::error::whether it ships a known finding is not one to make blind; fix the"
             echo "::error::access or the analysis, then re-run."
             exit 1
           fi
-          count=$(jq 'length' <<< "$alerts")
+          count=$(jq 'length' <<< "$alerts" || true)
+          # An empty or malformed answer used to pass: `jq length` printed
+          # nothing, `[ "" -gt 0 ]` errored, and a failing `if` condition is not
+          # caught by `set -e`, so the else branch reported "no alerts".
+          case "$count" in
+            '' | *[!0-9]*)
+              echo "::error::could not count the code scanning alerts (got '${count}')."
+              echo "::error::Refusing rather than assuming there are none."
+              exit 1
+              ;;
+          esac
           if [ "$count" -gt 0 ]; then
             jq -r '.[] | "::error::\(.rule.security_severity_level) \(.rule.id) at \(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line)"' <<< "$alerts"
             echo "::error::${count} open high or critical code scanning alert(s). Fix them, or"
@@ -253,25 +297,10 @@ jobs:
           # package pages, delete the NPM_TOKEN secret: with it gone this
           # branch is skipped and npm does the OIDC exchange instead, which is
           # the arrangement with nothing to expire.
+          # Whether a token is allowed here at all was settled in the first
+          # step of this job; this only applies it.
           if [ -n "${NPM_TOKEN:-}" ]; then
-            # A final release may not go out on a token. The bootstrap is over
-            # the moment the packages exist, and a token that keeps working is
-            # a token nobody gets round to removing -- so the rule is enforced
-            # here rather than remembered: snapshots may use it and say so, a
-            # release refuses and names the two steps that clear it.
-            case "$version" in
-              *-*) echo "::warning::published with the NPM_TOKEN secret; attach the trusted publisher and delete the secret" ;;
-              *)
-                echo "::error::$version is a final release and NPM_TOKEN is set."
-                echo "::error::Attach the trusted publisher on all three package pages"
-                echo "::error::(organization lorem-dev, repository ailoud, workflow publish.yml,"
-                echo "::error::environment empty), then delete the NPM_TOKEN secret and re-run."
-                exit 1
-                ;;
-            esac
             npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
-          else
-            echo "no NPM_TOKEN secret; publishing through trusted publishing"
           fi
           # Three kinds of tag, three destinations. See the dev-tag skill.
           #   -dev.N  a snapshot to try            -> dev
@@ -286,18 +315,26 @@ jobs:
             *-*)     dist_tag=next ;;
             *)       dist_tag=latest ;;
           esac
-          echo "publishing $version under dist-tag $dist_tag"
+          # Everything checkable, checked before the first publish. The loop
+          # goes library, library, CLI, and a version number npm has seen can
+          # never be reused -- so a fault found on the third iteration leaves
+          # two packages published at a version the release can no longer use.
           for name in ailoud-core ailoud-providers ailoud; do
             # An ABSOLUTE path. Given `dist-npm/ailoud-core-1.0.0-dev.1.tgz`,
             # npm read the slash as the `owner/repo` GitHub shorthand and tried
             # to `git ls-remote ssh://git@github.com/dist-npm/...git`, which
             # failed on a missing public key rather than on anything to do with
             # publishing.
-            tarball="$PWD/dist-npm/${name}-${version}.tgz"
-            if [ ! -f "$tarball" ]; then
-              echo "::error::$tarball was not packed."
+            if [ ! -f "$PWD/dist-npm/${name}-${version}.tgz" ]; then
+              echo "::error::dist-npm/${name}-${version}.tgz was not packed."
               exit 1
             fi
+          done
+          node scripts/preflight-npm-auth.mjs
+
+          echo "publishing $version under dist-tag $dist_tag"
+          for name in ailoud-core ailoud-providers ailoud; do
+            tarball="$PWD/dist-npm/${name}-${version}.tgz"
             echo "--- $tarball"
             npm publish "$tarball" --provenance --access public --tag "$dist_tag"
           done

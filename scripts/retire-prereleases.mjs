@@ -102,31 +102,62 @@ if (!confirmed) {
   process.exit(0);
 }
 
+// Everything that did not happen. Collected rather than warned about and
+// forgotten, because the tag deletion below is the irreversible half and only
+// worth doing if the npm half actually took.
+const problems = [];
+
 for (const pkg of PACKAGES) {
   const token = await credentialFor(pkg);
   if (token === null && canExchange()) {
-    warn(`${SCOPE}: no credential for ${pkg}; its versions stay as they are`);
+    problems.push(`no credential for ${pkg}; none of its versions were touched`);
     continue;
   }
   for (const prerelease of versions) {
     const result = npm(['deprecate', `${pkg}@${prerelease}`, `superseded by ${version}`], token);
-    // Reported, not fatal: a pre-release that was never published to one of
-    // the three packages is normal, and stopping here would leave the rest
-    // half-retired.
-    if (result.status !== 0) warn(`${SCOPE}: could not deprecate ${pkg}@${prerelease}`);
+    if (result.status !== 0) problems.push(`could not deprecate ${pkg}@${prerelease}`);
   }
 }
 
 // The `dev` dist-tag still points at the last snapshot, so `npm install
 // ailoud@dev` would hand out something older than `latest`.
 const cli = PACKAGES.at(-1);
-const dropped = npm(['dist-tag', 'rm', cli, 'dev'], await credentialFor(cli));
-if (dropped.status !== 0) warn(`${SCOPE}: could not drop the "dev" dist-tag`);
+const cliToken = await credentialFor(cli);
+if (cliToken === null && canExchange()) {
+  problems.push(`no credential for ${cli}; the "dev" dist-tag still points at a snapshot`);
+} else if (npm(['dist-tag', 'rm', cli, 'dev'], cliToken).status !== 0) {
+  problems.push('could not drop the "dev" dist-tag');
+}
 
+if (problems.length > 0) {
+  for (const problem of problems) warn(`${SCOPE}: ${problem}`);
+  // Refusing here is the whole point. Deleting the tags anyway would leave the
+  // versions installable and undeprecated, `dev` pointing at a snapshot, and
+  // nothing left to name what was missed -- on a green release run, because
+  // warnings do not fail anything.
+  fail(
+    SCOPE,
+    `${problems.length} thing(s) above did not happen on npm, so the tags are left in place. ` +
+      'Fix the cause and re-run; nothing here has to be undone first.',
+  );
+}
+
+// origin first, then locally. The remote is the copy others fetch, and the
+// local one is what names the tag on a re-run: deleting locally first and
+// failing to push left the tag on origin with nothing here to retry it by.
+let undeleted = 0;
 for (const tag of deletable) {
-  git(['tag', '-d', tag]);
   const pushed = spawnSync('git', ['push', 'origin', `:refs/tags/${tag}`], { encoding: 'utf8' });
-  if (pushed.status !== 0) warn(`${SCOPE}: could not delete ${tag} on origin`);
+  if (pushed.status !== 0) {
+    warn(`${SCOPE}: could not delete ${tag} on origin: ${pushed.stderr?.trim()}`);
+    undeleted += 1;
+    continue;
+  }
+  git(['tag', '-d', tag]);
+}
+
+if (undeleted > 0) {
+  fail(SCOPE, `${undeleted} tag(s) are still on origin. The npm side is done; re-run to finish.`);
 }
 
 console.log(`${SCOPE}: done.`);

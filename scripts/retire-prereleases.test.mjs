@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { REPO, changes, makeSandbox, run, useSandboxes } from './testing/harness.mjs';
 
@@ -32,8 +34,34 @@ function makeTaggedSandbox() {
   git('commit', '--allow-empty', '-m', 'abandoned');
   git('tag', 'v1.0.0-dev.2');
   git('checkout', 'main');
-  git('update-ref', 'refs/remotes/origin/main', 'main');
+  // A real `origin`, because the script deletes tags there before deleting
+  // them locally -- a sandbox without one makes every push fail and says
+  // nothing about the logic being tested.
+  const remote = join(dir, 'origin.git');
+  spawnSync('git', ['init', '--bare', remote], { encoding: 'utf8' });
+  git('remote', 'add', 'origin', remote);
+  git('push', '--quiet', 'origin', 'main', '--tags');
+  git('fetch', '--quiet', 'origin');
   return dir;
+}
+
+/**
+ * A directory holding an `npm` that records its arguments and exits with
+ * `code`, for putting first on PATH.
+ *
+ * A test must never run the real `npm deprecate`: on a machine that happens to
+ * be logged in it would deprecate the project's actual published versions.
+ */
+function stubNpm(dir, code) {
+  const bin = join(dir, 'stub-bin');
+  mkdirSync(bin, { recursive: true });
+  const script = join(bin, 'npm');
+  writeFileSync(
+    script,
+    `#!/bin/sh\necho "npm $@" >> "${join(dir, 'npm-calls.txt')}"\nexit ${code}\n`,
+  );
+  chmodSync(script, 0o755);
+  return bin;
 }
 
 describe('retire-prereleases', () => {
@@ -64,6 +92,37 @@ describe('retire-prereleases', () => {
     const { stdout, stderr } = run(dir, 'retire-prereleases.mjs', ['1.0.0'], { cwd: dir });
     expect(stdout).not.toContain('delete tag v1.0.0-dev.2');
     expect(stderr).toMatch(/keeping v1\.0\.0-dev\.2/);
+  });
+
+  it('keeps the tags when the npm side fails', () => {
+    // The bug this covers: warnings do not fail anything, so a refused
+    // credential or a rejected deprecate used to leave the versions
+    // installable and undeprecated while the tags -- the irreversible half --
+    // were deleted anyway, on a green run.
+    const dir = makeTaggedSandbox();
+    const stubbedNpm = stubNpm(dir, 1);
+    const before = spawnSync('git', ['tag', '--list'], { cwd: dir, encoding: 'utf8' }).stdout;
+    const result = run(dir, 'retire-prereleases.mjs', ['1.0.0', '--yes'], {
+      cwd: dir,
+      env: { PATH: `${stubbedNpm}:${process.env.PATH ?? ''}` },
+    });
+    expect(result.code).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toMatch(/did not happen on npm/);
+    expect(spawnSync('git', ['tag', '--list'], { cwd: dir, encoding: 'utf8' }).stdout).toBe(before);
+  });
+
+  it('deletes the tags once every npm call has succeeded', () => {
+    const dir = makeTaggedSandbox();
+    const stubbedNpm = stubNpm(dir, 0);
+    const result = run(dir, 'retire-prereleases.mjs', ['1.0.0', '--yes'], {
+      cwd: dir,
+      env: { PATH: `${stubbedNpm}:${process.env.PATH ?? ''}` },
+    });
+    expect(result.code).toBe(0);
+    // v1.0.0-dev.2 is the one whose commit is not on main, so it stays.
+    expect(spawnSync('git', ['tag', '--list'], { cwd: dir, encoding: 'utf8' }).stdout.trim()).toBe(
+      'v1.0.0-dev.2',
+    );
   });
 
   it('changes nothing at all without --yes', () => {

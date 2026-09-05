@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { lockPath, withProvisioningLock } from './setupLock.js';
@@ -131,4 +134,83 @@ describe('withProvisioningLock', () => {
     await expect(withProvisioningLock(dir, async () => 'ok')).resolves.toBe('ok');
     await rm(dir, { recursive: true, force: true });
   });
+});
+
+/**
+ * Two runs at once, against the COMPILED lock, with a stale lock in place.
+ *
+ * Every other test here is single-threaded, which is why none of them caught
+ * that the first two takeover implementations let both runs proceed -- a
+ * concurrency test found 34 overlaps in 60 attempts. This is that test, small
+ * enough to keep in the suite.
+ */
+describe('withProvisioningLock under contention', () => {
+  const ITERATIONS = 12;
+  const HOLD_MS = 120;
+
+  it('lets exactly one of two simultaneous runs into the body', async () => {
+    const dist = fileURLToPath(new URL('../dist/setupLock.js', import.meta.url));
+    expect(existsSync(dist)).toBe(true); // the gate builds before it tests
+
+    const scratch = await mkdtemp(join(tmpdir(), 'ailoud-lock-race-'));
+    const worker = join(scratch, 'worker.mjs');
+    await writeFile(
+      worker,
+      `import { appendFileSync } from "node:fs";
+       import { withProvisioningLock } from ${JSON.stringify(dist)};
+       const [dir, log] = process.argv.slice(2);
+       try {
+         await withProvisioningLock(dir, async () => {
+           appendFileSync(log, \`ENTER \${process.pid}\n\`);
+           await new Promise((r) => setTimeout(r, ${HOLD_MS}));
+           appendFileSync(log, \`LEAVE \${process.pid}\n\`);
+         });
+       } catch {
+         appendFileSync(log, \`REFUSED \${process.pid}\n\`);
+       }`,
+      'utf8',
+    );
+
+    let refusals = 0;
+    for (let round = 0; round < ITERATIONS; round += 1) {
+      const dir = join(scratch, `round-${round}`);
+      await mkdir(dir, { recursive: true });
+      // A stale lock: pid 2^22 is above every default pid_max, so nothing
+      // holds it. This is the state a Ctrl-C or a crash leaves behind, and the
+      // only state in which a takeover happens at all.
+      await writeFile(
+        lockPath(dir),
+        JSON.stringify({ pid: 4_194_304, startedAt: '2020-01-01T00:00:00.000Z' }),
+        'utf8',
+      );
+      const log = join(dir, 'log.txt');
+      await writeFile(log, '', 'utf8');
+
+      await Promise.all(
+        [0, 1].map(
+          () =>
+            new Promise<void>((resolve) => {
+              const child = spawn(process.execPath, [worker, dir, log], { stdio: 'ignore' });
+              child.on('exit', () => resolve());
+            }),
+        ),
+      );
+
+      const lines = (await readFile(log, 'utf8')).split('\n').filter(Boolean);
+      refusals += lines.filter((l) => l.startsWith('REFUSED')).length;
+      // Nesting is the failure: ENTER, ENTER means both are inside the body.
+      let inside = 0;
+      for (const line of lines) {
+        if (line.startsWith('ENTER')) inside += 1;
+        if (line.startsWith('LEAVE')) inside -= 1;
+        expect(inside, `round ${round}: ${lines.join(' | ')}`).toBeLessThanOrEqual(1);
+      }
+      expect(lines.filter((l) => l.startsWith('ENTER'))).toHaveLength(1);
+    }
+
+    // Without this the test could pass by never contending at all.
+    expect(refusals).toBeGreaterThan(0);
+
+    await rm(scratch, { recursive: true, force: true });
+  }, 60_000);
 });
