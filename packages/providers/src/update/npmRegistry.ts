@@ -1,5 +1,5 @@
 import type { PublishedVersion, VersionSource } from '@ailoud/core';
-import { FailureError } from '@ailoud/core';
+import { FailureError, isDeprecated } from '@ailoud/core';
 
 /**
  * Exported so callers report the same host and wait that this class would use
@@ -74,22 +74,4 @@ export class NpmRegistry implements VersionSource {
     }
     return published;
   }
-}
-
-/**
- * Whether the registry says this version is deprecated.
- *
- * The value matters, not the key. npm stores the deprecation MESSAGE here, and
- * `npm deprecate <pkg>@<version> ""` un-deprecates by setting an empty string
- * rather than removing the field. Testing `'deprecated' in entry` therefore
- * reports a revived version as still deprecated, which would refuse a
- * legitimate update and, if a registry emitted the empty form widely, refuse
- * every update.
- */
-function isDeprecated(entry: unknown): boolean {
-  if (typeof entry !== 'object' || entry === null) return false;
-  const flag: unknown = (entry as { deprecated?: unknown }).deprecated;
-  if (typeof flag === 'string') return flag.length > 0;
-  // Not a shape npm documents, but a boolean true is unambiguous if it appears.
-  return flag === true;
 }

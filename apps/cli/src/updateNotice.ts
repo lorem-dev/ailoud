@@ -1,7 +1,7 @@
 import https from 'node:https';
 import { z } from 'zod';
 import type { Clock, Fs, PublishedVersion } from '@ailoud/core';
-import { chooseUpdateTarget } from '@ailoud/core';
+import { chooseUpdateTarget, isDeprecated } from '@ailoud/core';
 
 /** The only package this passive check ever asks the registry about. */
 const PACKAGE_NAME = 'ailoud';
@@ -245,14 +245,4 @@ function parsePublished(body: unknown): readonly PublishedVersion[] {
     version,
     deprecated: isDeprecated(entry),
   }));
-}
-
-/** Same rule `NpmRegistry` uses in packages/providers: the deprecation
- * MESSAGE lives in this field, and an empty string un-deprecates -- so
- * presence alone is not the test. */
-function isDeprecated(entry: unknown): boolean {
-  if (typeof entry !== 'object' || entry === null) return false;
-  const flag: unknown = (entry as { deprecated?: unknown }).deprecated;
-  if (typeof flag === 'string') return flag.length > 0;
-  return flag === true;
 }
