@@ -1,0 +1,32 @@
+# CodeQL configuration for AILoud.
+#
+# Queries are named here rather than in the workflow's `queries:` input so the
+# reason for each exclusion can sit next to it.
+
+name: AILoud
+
+queries:
+  - uses: security-and-quality
+
+query-filters:
+  # js/file-system-race, three times over, always on apps/cli/src/setupLock.ts.
+  #
+  # That file's whole job is to be the thing a file-system race goes through.
+  # It acquires with `open(path, 'wx')` -- one atomic syscall -- and takes over
+  # a stale lock under a SECOND lock file (`provisioning.lock.steal`, also
+  # `wx`), which is what makes the takeover exclusive. The analysis sees a read
+  # of one path followed by a write to it and reports a race; it cannot see
+  # that the exclusion is held by a different file.
+  #
+  # Two of the three reports were nonetheless real, and both are fixed: the
+  # first version deleted a live lock, the second let two runs each read back
+  # their own pid and proceed. What stands in for this query now is a
+  # concurrency test (`setupLock.test.ts`, "under contention") that runs two
+  # processes against the compiled lock and fails on either old implementation
+  # -- an actual measurement rather than a pattern match.
+  #
+  # Excluded by id, so the rule is off everywhere. It has produced nothing but
+  # this file and test code in this repository; if that changes, the honest fix
+  # is to narrow this with a `paths` filter rather than keep the noise.
+  - exclude:
+      id: js/file-system-race

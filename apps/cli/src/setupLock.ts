@@ -142,6 +142,12 @@ export async function withProvisioningLock<T>(dataDir: string, body: () => Promi
       // Still `wx`: a run on the fast path can create the lock in the instant
       // after that `rm`, and it is then the holder. Losing to it is the
       // correct outcome, not something to overwrite.
+      //
+      // CodeQL reads this as a check-then-use race (js/file-system-race) and
+      // cannot see that the exclusion is held by `${path}.steal` above. The
+      // rule is excluded in .github/codeql/codeql-config.yml, where the
+      // reasoning lives; what actually guards this is the two-process test in
+      // setupLock.test.ts.
       try {
         const handle = await open(path, 'wx');
         try {

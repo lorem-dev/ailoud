@@ -41,10 +41,11 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: javascript-typescript
-          # security-and-quality over the default security-extended: this is a
-          # small codebase where the quality queries are worth reading rather
-          # than noise to be filtered.
-          queries: security-and-quality
+          # The query set and the one rule this project excludes live in the
+          # config file, where each can carry its reason. security-and-quality
+          # over the default security-extended: this is a small codebase where
+          # the quality queries are worth reading rather than noise to filter.
+          config-file: .github/codeql/codeql-config.yml
 
       - name: Analyze
         uses: github/codeql-action/analyze@v4
