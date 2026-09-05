@@ -40,6 +40,11 @@
 
 ## Development
 
+### Changed
+
+- Nothing for users. This snapshot is 1.0.0-dev.2 republished through npm's
+  trusted publishing, to check that a release carries no stored credential.
+
 ## Version 1.0.0-dev.2
 
 ### Fixed
