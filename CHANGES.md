@@ -40,6 +40,8 @@
 
 ## Development
 
+## Version 1.0.0-dev.1
+
 ### Added
 
 - `ailoud audio import` adds audio and video files, or whole directories, to a
