@@ -56,6 +56,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
+    env:
+      # The tag being released, resolved once. `github.ref_name` is the tag on
+      # a tag push but the BRANCH on a workflow_dispatch, so a step that let it
+      # default -- the changelog check did -- looked for a "## Version main"
+      # section and failed a re-run of a perfectly good tag.
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -96,14 +103,14 @@ jobs:
         # The scripts' own tests run in ci.yml, on branches and pull requests
         # rather than on tags, so a broken script is caught before a release
         # depends on it.
-        run: node scripts/check-changelog.mjs
+        run: node scripts/check-changelog.mjs "$TAG"
 
       - name: Check that the tag matches the version in the manifests
         # A tag that disagrees with package.json publishes a version nobody
         # asked for, under a tag that points at different code.
         run: |
           set -euo pipefail
-          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag="$TAG"
           want="${tag#v}"
           for manifest in packages/core packages/providers apps/cli; do
             have=$(node -p "require('./$manifest/package.json').version")
@@ -182,7 +189,7 @@ jobs:
         # package page.
         run: |
           set -euo pipefail
-          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag="$TAG"
           version="${tag#v}"
           # Three kinds of tag, three destinations. See the dev-tag skill.
           #   -dev.N  a snapshot to try            -> dev
