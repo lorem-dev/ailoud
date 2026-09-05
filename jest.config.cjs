@@ -39,6 +39,14 @@ const shared = {
 module.exports = {
   maxWorkers: 2,
   detectOpenHandles: true,
+  // Also at the root, not only inside each project. Jest takes the per-test
+  // timeout from the GLOBAL config, and with `projects` a value set only on a
+  // project reaches `configs[].testTimeout` while `globalConfig.testTimeout`
+  // stays undefined -- so every test silently fell back to Jest's 5 s default.
+  // Locally that was masked: the transcribe specs were failing fast for a
+  // missing model, so nothing ran long enough to hit it. On CI, where the
+  // model is there, whisper takes tens of seconds and every one timed out.
+  testTimeout: 600_000,
   projects: [
     {
       ...shared,

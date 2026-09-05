@@ -21,9 +21,25 @@ export default tseslint.config(
       '**/node_modules/**',
       // mkdocs build output: third-party minified JS, not ours to lint.
       'site/**',
-      '**/*.config.{js,mjs,cjs,ts}',
       'scripts/**',
     ],
+  },
+  {
+    // The build's own configuration files. Previously ignored, which meant
+    // every editor reported "File ignored because of a matching ignore
+    // pattern" on opening one -- and meant a mistake in them was caught by
+    // nothing. They are Node, not part of the typed source tree, so they get
+    // the recommended rules and Node globals rather than the type-aware
+    // config that the packages use.
+    files: ['*.config.{js,mjs,cjs,ts}', '**/*.config.{js,mjs,cjs,ts}'],
+    languageOptions: {
+      globals: { module: 'writable', require: 'readonly', __dirname: 'readonly' },
+    },
+    rules: {
+      // A .cjs file uses require/module, which the type-aware rules would
+      // otherwise flag in a "type": "module" workspace.
+      '@typescript-eslint/no-require-imports': 'off',
+    },
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
