@@ -15,6 +15,8 @@ import { SqliteStore } from '@ailoud/providers';
 import { buildProgram, exitCodeFor } from './program.js';
 import type { CliContext } from './wiring.js';
 import { PlainUi } from './ui/plain.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 describe('exitCodeFor', () => {
   it('maps each domain error to its documented code', () => {
@@ -153,6 +155,20 @@ describe('buildProgram', () => {
     const program = buildProgram(makeContext());
     expect(program.name()).toBe('ailoud');
     expect(program.description()).toContain('audio-to-text');
+  });
+
+  it('reports the version in its own manifest', () => {
+    // It used to report the literal 0.0.0, so the published 1.0.0-dev.1
+    // answered `ailoud --version` with 0.0.0 and told MCP clients the same.
+    // Asserting against the manifest rather than a literal keeps this test
+    // from needing an edit at every release -- which is what would make it
+    // rot into agreeing with whatever is there.
+    const manifest: unknown = JSON.parse(
+      readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
+    );
+    const version = (manifest as { version: string }).version;
+    expect(version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(buildProgram(makeContext()).version()).toBe(version);
   });
 
   /**

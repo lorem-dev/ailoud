@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import type { CliContext } from '../wiring.js';
 import { buildMcpServer } from '../mcp/server.js';
 import { registerMcpInstall } from './mcpInstall.js';
+import { VERSION } from '../version.js';
 
 export function registerMcp(program: Command, context: CliContext): void {
   const mcp = program
@@ -25,7 +26,7 @@ export function registerMcp(program: Command, context: CliContext): void {
       // channel. A single stray line of human-facing text would corrupt the
       // JSON-RPC stream and the client would drop the connection. Every other
       // command in this codebase writes through context.ui; this one must not.
-      const { server, close } = buildMcpServer(context, program.version() ?? '0.0.0');
+      const { server, close } = buildMcpServer(context, program.version() ?? VERSION);
       const transport = new StdioServerTransport();
 
       const shutdown = async (): Promise<void> => {

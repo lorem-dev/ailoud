@@ -46,6 +46,8 @@
 
 - Each published package carries a README, so its page on npm describes what it
   is instead of saying it has none.
+- `ailoud --version` reports the installed version. It answered `0.0.0`
+  whatever was installed, and told MCP clients the same.
 
 ## Version 1.0.0-dev.1
 

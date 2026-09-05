@@ -15,6 +15,7 @@ import { registerMcp } from './commands/mcp.js';
 import { attachLetters, group, inGroupAndTopLevel } from './commands/groups.js';
 import { registerTranscribe } from './commands/transcribe.js';
 import type { CliContext } from './wiring.js';
+import { VERSION } from './version.js';
 
 /**
  * Reads the commander error code off an unknown thrown value without
@@ -57,7 +58,7 @@ export function buildProgram(context: CliContext): Command {
   program
     .name('ailoud')
     .description('Multilingual audio-to-text with a local recording library')
-    .version('0.0.0')
+    .version(VERSION)
     .exitOverride(); // throw instead of calling process.exit
   // Commander's own help/version text stays plain in both modes: routed
   // through context.write, not context.ui, so it is never decorated.
