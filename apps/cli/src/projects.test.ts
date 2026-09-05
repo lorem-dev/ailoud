@@ -242,3 +242,73 @@ describe('pruneProjects', () => {
     expect(fs.calls.some((c) => c.startsWith('removeFile:'))).toBe(false);
   });
 });
+
+describe('the three concurrency and throttle defects found in review', () => {
+  it('keeps an entry another process committed while we were writing', async () => {
+    // Two processes registering DIFFERENT projects both read the registry,
+    // both write, and the second rename wins -- so the first project used to
+    // vanish outright, not merely with a stale lastSeen. The merge re-reads
+    // immediately before the rename and keeps paths it had not seen.
+    class RacingFs extends MemFs {
+      private reads = 0;
+      override async readTextFile(path: string): Promise<string> {
+        this.reads += 1;
+        // The second read is the one inside writeRegistry, standing in for a
+        // rival process that committed /proj/b in the meantime.
+        if (this.reads === 2 && path === registryPath(DATA_DIR)) {
+          return `${JSON.stringify([
+            {
+              path: '/proj/b',
+              firstSeen: '2026-01-01T00:00:00.000Z',
+              lastSeen: '2026-01-01T00:00:00.000Z',
+            },
+          ])}\n`;
+        }
+        return super.readTextFile(path);
+      }
+    }
+    const fs = new RacingFs({});
+    await fs.writeTextFile(registryPath(DATA_DIR), '[]\n');
+    const d = deps({ fs });
+
+    await rememberProject(d, { path: '/proj/a' });
+
+    const paths = (await readProjects(d)).map((entry) => entry.path).sort();
+    expect(paths).toEqual(['/proj/a', '/proj/b']);
+  });
+
+  it('does not fail the command when quarantining a corrupt registry fails', async () => {
+    // Two processes meeting one corrupt registry both try to move it aside.
+    // The loser's source is already gone, so rename answers ENOENT. Letting
+    // that escape would turn a bad bookkeeping file into a broken command,
+    // which is the one thing this path exists to prevent.
+    class UnmovableFs extends MemFs {
+      override async rename(): Promise<void> {
+        throw new Error('ENOENT: no such file or directory');
+      }
+    }
+    const fs = new UnmovableFs({});
+    await fs.writeTextFile(registryPath(DATA_DIR), '{ not json');
+    const d = deps({ fs });
+
+    await expect(readProjects(d)).resolves.toEqual([]);
+  });
+
+  it('does not bypass the throttle when the rules version has not changed', async () => {
+    // Presence is not enough: a caller passing the same version on every
+    // touch would write on every command, which is the throttle gone.
+    const fs = new LoggingFs({});
+    const clock = new StubClock(Date.parse('2026-01-01T00:00:00.000Z'));
+    const d = deps({ fs, clock });
+
+    await rememberProject(d, { path: '/proj/a', rulesVersion: '1.0.0' });
+    const afterFirst = fs.calls.length;
+    clock.advance(1000);
+    await rememberProject(d, { path: '/proj/a', rulesVersion: '1.0.0' });
+    expect(fs.calls.length).toBe(afterFirst);
+
+    // A CHANGED version is a real event and must be recorded at once.
+    await rememberProject(d, { path: '/proj/a', rulesVersion: '1.0.1' });
+    expect(fs.calls.length).toBeGreaterThan(afterFirst);
+  });
+});

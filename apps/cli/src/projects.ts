@@ -47,19 +47,56 @@ function quarantinePath(userDataDir: string): string {
 
 /**
  * Writes the registry atomically: a temporary file beside the real one, then
- * a rename over the top. Two `ailoud` processes can register a project at
- * the same moment; writing in place would let a reader see a half-written
- * file. The temporary file's name is randomised per call so two concurrent
- * writers never share -- and corrupt -- the same temporary file; the worst
- * case is that one writer's rename wins and the other's `lastSeen` bump is
- * lost, which is acceptable.
+ * a rename over the top. Writing in place would let a concurrent reader see a
+ * half-written file, and the temporary name is randomised per call so two
+ * writers never share -- and corrupt -- one temporary file.
+ *
+ * `merge` exists because a plain read-modify-write loses more than a
+ * timestamp. Two processes registering DIFFERENT projects both read the
+ * registry, both write, and the second rename wins -- so the first project
+ * disappears entirely, not merely with a stale `lastSeen`. Re-reading
+ * immediately before the rename and keeping any path we had not seen narrows
+ * that window to the rename itself, and a project lost inside it re-registers
+ * the next time ailoud runs there.
+ *
+ * Pruning passes `merge: false`, deliberately: it is REMOVING entries, and
+ * merging would read the very entries it just dropped back in.
  */
-async function writeRegistry(deps: ProjectsDeps, entries: readonly ProjectEntry[]): Promise<void> {
+async function writeRegistry(
+  deps: ProjectsDeps,
+  entries: readonly ProjectEntry[],
+  options: { readonly merge: boolean },
+): Promise<void> {
   const path = registryPath(deps.userDataDir);
+  let next = entries;
+  if (options.merge) {
+    const mine = new Set(entries.map((entry) => entry.path));
+    const latest = await readProjects(deps);
+    const theirs = latest.filter((entry) => !mine.has(entry.path));
+    next = [...entries, ...theirs];
+  }
   const tempPath = `${path}.${randomUUID()}.tmp`;
   await deps.fs.ensureDir(deps.userDataDir);
-  await deps.fs.writeTextFile(tempPath, `${JSON.stringify(entries, null, 2)}\n`);
+  await deps.fs.writeTextFile(tempPath, `${JSON.stringify(next, null, 2)}\n`);
   await deps.fs.rename(tempPath, path);
+}
+
+/**
+ * Moves an unparseable registry aside, and never throws doing it.
+ *
+ * The move itself can fail: two processes reading the same corrupt registry
+ * both try it, and the loser's source is already gone, so `rename` answers
+ * ENOENT. Letting that escape would crash the command -- turning a bad
+ * bookkeeping file into a broken `ailoud ls`, which is exactly what this
+ * whole quarantine path exists to prevent.
+ */
+async function quarantine(deps: ProjectsDeps, path: string): Promise<void> {
+  try {
+    await deps.fs.rename(path, quarantinePath(deps.userDataDir));
+  } catch {
+    // Someone else moved it, or the directory is not writable. Either way the
+    // caller gets an empty list and the command carries on.
+  }
 }
 
 /**
@@ -79,13 +116,13 @@ export async function readProjects(deps: ProjectsDeps): Promise<readonly Project
   try {
     document = JSON.parse(raw);
   } catch {
-    await deps.fs.rename(path, quarantinePath(deps.userDataDir));
+    await quarantine(deps, path);
     return [];
   }
 
   const result = RegistrySchema.safeParse(document);
   if (!result.success) {
-    await deps.fs.rename(path, quarantinePath(deps.userDataDir));
+    await quarantine(deps, path);
     return [];
   }
   return result.data;
@@ -117,13 +154,17 @@ export async function rememberProject(
       ...(project.libraryDir === undefined ? {} : { libraryDir: project.libraryDir }),
       ...(project.rulesVersion === undefined ? {} : { rulesVersion: project.rulesVersion }),
     };
-    await writeRegistry(deps, [...projects, entry]);
+    await writeRegistry(deps, [...projects, entry], { merge: true });
     return;
   }
 
   const existing = projects[index]!;
   const staleMs = Date.parse(now) - Date.parse(existing.lastSeen);
-  const rulesJustWritten = project.rulesVersion !== undefined;
+  // Presence is not enough: a caller that passes the same version on every
+  // touch would bypass the throttle on every command, which is the throttle
+  // gone. Only a CHANGE means rules were just rewritten.
+  const rulesJustWritten =
+    project.rulesVersion !== undefined && project.rulesVersion !== existing.rulesVersion;
   if (staleMs < REFRESH_AFTER_MS && !rulesJustWritten) return;
 
   const updated: ProjectEntry = {
@@ -134,7 +175,7 @@ export async function rememberProject(
   };
   const next = [...projects];
   next[index] = updated;
-  await writeRegistry(deps, next);
+  await writeRegistry(deps, next, { merge: true });
 }
 
 /**
@@ -155,6 +196,8 @@ export async function pruneProjects(deps: ProjectsDeps): Promise<readonly Projec
     if (await deps.fs.isDirectory(entry.path)) kept.push(entry);
     else dropped.push(entry);
   }
-  if (dropped.length > 0) await writeRegistry(deps, kept);
+  // merge: false, deliberately. Pruning REMOVES entries, and merging would
+  // re-read the very entries it just dropped straight back in.
+  if (dropped.length > 0) await writeRegistry(deps, kept, { merge: false });
   return dropped;
 }
