@@ -59,6 +59,14 @@ jobs:
           node-version: '24'
           cache: pnpm
 
+      - name: Install ffmpeg
+        # packages/providers/src/audio/ffmpeg.test.ts spawns the real binary to
+        # build its fixture and then drives FfmpegAudioTool over it. Installing
+        # the tool rather than skipping the test: a suite that goes green by
+        # not running is worse than one that is honestly red, and this is the
+        # adapter whose whole job is talking to ffmpeg.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
