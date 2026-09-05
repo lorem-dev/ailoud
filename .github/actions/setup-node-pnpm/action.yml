@@ -1,0 +1,38 @@
+# The Node and pnpm setup every job shares, in one place because it is four
+# jobs across two workflows and the corepack part needs care.
+#
+# `corepack enable` only writes shims; the pinned pnpm is downloaded lazily by
+# whatever invokes it first, which used to be setup-node's cache probe. That
+# download has failed there -- an undici assertion inside Node 24.20.0 when the
+# connection ends mid-response -- and a failure inside another action's step
+# cannot be retried. Downloading it here instead puts the network call in a
+# step of our own, so a flake costs five seconds rather than the run.
+
+name: Set up Node.js and pnpm
+description: Activate the pinned pnpm, then Node 24 with the pnpm store cached.
+
+runs:
+  using: composite
+  steps:
+    - name: Activate the pnpm pinned in package.json
+      shell: bash
+      env:
+        # Without this corepack prints a download notice that GitHub renders as
+        # an error annotation on a run that is fine.
+        COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+      run: |
+        corepack enable
+        for attempt in 1 2 3; do
+          if corepack install; then break; fi
+          echo "corepack install failed (attempt ${attempt} of 3); retrying in 5s"
+          sleep 5
+        done
+        # Fails the step if all three attempts did, rather than leaving the
+        # next job step to fail with something less specific.
+        pnpm --version
+
+    - name: Set up Node.js 24 with pnpm cache
+      uses: actions/setup-node@v5
+      with:
+        node-version: '24'
+        cache: pnpm

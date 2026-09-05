@@ -18,12 +18,25 @@ resulting text. No microphone or system-audio capture; import only. The CLI
 is the only front end -- there is no GUI, and the interface is English-only.
 The multilingual part of this project is the audio, not the UI.
 
-M1, the current milestone, ships `import`, `transcribe`, `ls`, `show`, and
-`doctor`. The rest of the CLI surface (`search`, `collection`, `tag`,
-`summarize`, `export`, `config`) belongs to later milestones and does not
-exist yet; do not document or assume commands beyond what M1 lists. The full
-design lives in the maintainer's planning notes under `.superpowers/`, which
-is not tracked in git, so treat this file as the authority on what exists.
+The commands, grouped by the noun they act on:
+
+| Command                                                    | Does                                      |
+| ---------------------------------------------------------- | ----------------------------------------- |
+| `audio import\|transcribe\|annotate\|search\|ls\|show\|rm` | the library and everything over it        |
+| `audio summarize`                                          | writes a summary and saves it as a report |
+| `report ls\|show\|rm`                                      | saved reports                             |
+| `template ls\|new`                                         | what shape a summary of a kind takes      |
+| `mcp` and `mcp install\|uninstall\|update`                 | serve the library to an agent             |
+| `doctor`, `setup`                                          | check and provision the machine           |
+
+The verbs also answer at the top level (`ailoud search`, `ailoud transcribe`),
+and each second-level verb has a one-letter alias.
+
+Do not trust a list of commands in prose over the binary. This section was
+wrong for a while -- it described an early milestone and said `search` and
+`summarize` "do not exist yet" long after both shipped -- so check with
+`node apps/cli/dist/bin/ailoud.js --help` after a build, which cannot be
+stale.
 
 ---
 
@@ -257,6 +270,180 @@ Run the `check-docs` skill after changing any command or option.
 
 ---
 
+## Branches and Tags
+
+| Branch    | Is                                      |
+| --------- | --------------------------------------- |
+| `main`    | the release branch                      |
+| `develop` | integration; feature branches land here |
+
+**While the project is pre-release, work happens directly on `main`** and
+`develop` follows it: a push to `main` opens a back-merge PR
+(`.github/workflows/backmerge.yml`). Once releases start that inverts --
+features land on `develop`, only release commits reach `main` -- and the same
+workflow keeps `develop` from falling behind either way. Both branches are
+protected against deletion and force-push with CI required; an admin can still
+push directly, which is what makes the pre-release flow possible.
+
+The three required checks are the ones that run on a pull request. The
+provisioned end-to-end job is deliberately NOT required: it runs only on push,
+so requiring it would leave every PR waiting for a check that never arrives.
+
+| Tag            | Cut from   | npm dist-tag | Docs | Retires snapshots |
+| -------------- | ---------- | ------------ | ---- | ----------------- |
+| `v1.2.3-dev.1` | any branch | `dev`        | no   | no                |
+| `v1.2.3-rc.1`  | `develop`  | `next`       | no   | no                |
+| `v1.2.3`       | `main`     | `latest`     | yes  | yes               |
+
+Only a final tag moves `latest`, publishes the site and retires what it
+supersedes. `publish.yml` refuses a tag that disagrees with any manifest
+version.
+
+Use the `dev-tag` skill for a snapshot; `bump-version` then `pre-release-check`
+for a release.
+
+Cutting a final tag folds its pre-release sections back into one. The order
+matters, and it is the opposite of what reads naturally:
+
+```
+node scripts/bump-version.mjs 1.0.0       # FIRST: promotes Development
+node scripts/fold-prereleases.mjs 1.0.0   # then merges the 1.0.0-dev.* sections in
+node scripts/check-changelog.mjs v1.0.0   # refuses if anything is left over
+```
+
+`bump-version` promotes `## Development` into a `## Version <v>` section, so
+folding first leaves it a second, empty one to create -- two `## Version 1.0.0`
+headings, and `check-changelog` then fails on the empty one with "has no
+entries". Tested both ways in a sandbox before the first release.
+
+`publish.yml` runs that check on every tag before it builds anything. The
+limits live in `scripts/lib/changelog.mjs` and are quoted, not restated,
+everywhere else -- a limit that differs between the script that warns and the
+script that refuses is worse than no limit. The scripts have tests
+(`scripts/**/*.test.mjs`), which run in CI on branches and pull requests but
+not on tags.
+
+---
+
+## Publishing
+
+Nothing long-lived is stored. Publishing authenticates by exchanging the CI
+job's OIDC identity for a short-lived, per-package npm token. Retiring the
+snapshots a release supersedes does NOT -- see below; it is a manual step.
+
+### How the exchange works
+
+`npm publish` does this for itself, and `scripts/lib/npmOidc.mjs` makes the
+same two calls (read out of npm's `lib/utils/oidc.js`) so that
+`preflight-npm-auth.mjs` can establish before publishing that npm will accept
+every package:
+
+```
+GET  $ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm:registry.npmjs.org
+     Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN     -> { value }
+POST /-/npm/v1/oidc/token/exchange/package/<escaped name>
+     Authorization: Bearer <value>                             -> { token }
+```
+
+Three consequences worth knowing before changing any of this:
+
+- **`id-token: write` is required**, or GitHub mints no identity and the first
+  call is skipped entirely.
+- **The token it returns authenticates `npm publish` and nothing else.** It is
+  publish-scoped and spent: `npm deprecate` with it answered `E404 ... or you
+do not have permission`, then `E401 ... token is invalid` on every call
+  after. Measured on the 1.0.0 release. So the exchange can answer "will npm
+  accept us", and cannot be used to do anything but publish.
+- **A trusted publisher is bound to a workflow FILE.** Entering through a
+  reusable workflow leaves `workflow_ref` pointing at the caller and
+  `job_workflow_ref` at the callee; npm matches the caller, which the 1.0.0
+  release also confirmed.
+- **The token never reaches a command line or a log.** It goes into a
+  temporary 0600 `.npmrc` removed in a `finally`; `withNpmToken` is tested
+  both for the normal path and for a body that throws. The id token's claims
+  ARE logged -- `sub`, `workflow_ref`, `job_workflow_ref` -- because a
+  rejection is otherwise indistinguishable from a missing package.
+
+### The bootstrap exception
+
+A trusted publisher is attached to a package that already exists, so the FIRST
+version of each package cannot use one: npm answers `ENEEDAUTH` however
+complete the setup is. A token in the `NPM_TOKEN` secret introduces the
+packages to the registry, and deleting the secret is the whole of the switch --
+`publish.yml` uses it when present and OIDC when not.
+
+The rule is enforced rather than remembered, because a token that keeps working
+is a token nobody removes:
+
+| Tag         | `NPM_TOKEN` set | Result                     |
+| ----------- | --------------- | -------------------------- |
+| pre-release | yes             | publishes, logs a warning  |
+| final       | yes             | **refuses**, names the fix |
+| any         | no              | OIDC exchange              |
+
+### What blocks a release
+
+Enforced by `publish.yml`, all of it before anything is built or published:
+
+| Refuses when                                   | Why                                         |
+| ---------------------------------------------- | ------------------------------------------- |
+| the changelog is unfit (`check-changelog.mjs`) | a release nobody can read the notes for     |
+| an open high or critical code scanning alert   | a finding nobody has looked at, shipped     |
+| a manifest disagrees with the tag              | publishes a version nobody asked for        |
+| `NPM_TOKEN` is set on a final tag              | a stored credential outliving its bootstrap |
+| the gate or the end-to-end suite fails         | the ordinary reasons                        |
+| a tarball lacks its LICENCE or README          | what 1.0.0-dev.1 shipped                    |
+
+A code scanning finding counts only while it is `open`. One reviewed and
+explained is `dismissed` with its reason attached and does not block; fixing
+and dismissing are both answers, ignoring is not. The dependency side of the
+same question is the `check-dependencies` skill, which a human runs before
+tagging.
+
+### Retiring superseded snapshots
+
+Only a production release retires anything, and it happens after the publish
+succeeds -- deprecating first would, if the publish then failed, leave every
+`-dev.N` pointing at a release that does not exist while `dev` is the only
+installable thing.
+
+```
+node scripts/retire-prereleases.mjs 1.0.0          # prints the plan
+node scripts/retire-prereleases.mjs 1.0.0 --yes    # carries it out
+```
+
+This is a manual step, run under `npm login`. Automating it was tried and
+removed: the OIDC token cannot deprecate (above). If the npm side does not
+complete, the script leaves the tags alone and exits non-zero -- the tags are
+what name which pre-releases to retire, so deleting them after a failed
+deprecation would destroy the only record of what was missed.
+
+It deprecates every `1.0.0-dev.*` of all three packages, drops the `dev`
+dist-tag, and deletes the tags. Two things it deliberately does not do:
+
+- **Unpublish.** Allowed for 72 hours only, the version number can never be
+  reused after, and anyone who pinned it has their install broken. A deprecated
+  version keeps working and prints a notice.
+- **Delete a tag whose commit is not on `origin/main`.** The published
+  provenance attests that commit; unreachable, it can be collected, leaving the
+  attestation pointing at nothing. Those tags are reported and kept.
+
+### npm facts that constrain all of the above
+
+None of these can be worked around, so design around them:
+
+- **A version number is used up forever.** `1.0.0-dev.1` cannot be republished
+  even after an unpublish. A botched snapshot needs a new number, not a retry.
+- **`latest` is set on a package's first publish** whatever `--tag` says, and
+  `latest` can be moved but never removed. A package introduced by a
+  pre-release answers `npm install <name>` with it until a final version
+  exists.
+- **`npm publish` is the only thing trusted publishing authenticates.**
+  `deprecate` and `dist-tag` need a real credential, which in practice means a
+  human at a terminal.
+
+---
+
 ## The Changelog
 
 `CHANGES.md` is for someone deciding whether to upgrade. It is not a commit
@@ -319,7 +506,7 @@ about to add an entry will actually see them.
 
 ## Local Development Skills
 
-Seven skills live under `.agents/skills/`. Invoke them when the situation
+Nine skills live under `.agents/skills/`. Invoke them when the situation
 calls for it:
 
 | Skill                   | When to use                                                                                                                                                                                                                      |
@@ -330,7 +517,9 @@ calls for it:
 | `check-licenses`        | After editing any `package.json` -- verify all npm dependencies are license-compliant and update LICENSE.                                                                                                                        |
 | `run-tests-and-linters` | Before marking any task done -- run the full gate (build, format check, lint, typecheck, test:cov at 90%).                                                                                                                       |
 | `check-fixtures`        | After touching import, transcribe, or the audio/STT providers -- drive the built binary against `fixtures/` end to end, in a throwaway `HOME`, `XDG_CONFIG_HOME`, and `XDG_DATA_HOME`, and confirm the working tree stays clean. |
+| `check-dependencies`    | Before every release and after any dependency change -- audit for advisories, report funding, and update what is behind, refusing any version published less than 14 days ago unless it fixes a critical advisory.               |
 | `pre-release-check`     | Before cutting a release -- runs the `check-*` and `run-tests-and-linters` skills above (not `bump-version`) plus version-bump and commit-format checks.                                                                         |
+| `dev-tag`               | To publish a snapshot to npm under the `dev` dist-tag without promising a release -- cuts a `v<version>-dev.<n>` tag.                                                                                                            |
 
 ---
 

@@ -46,18 +46,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           lfs: true
 
-      - name: Enable pnpm via corepack
-        run: corepack enable
-
-      - name: Set up Node.js 24 with pnpm cache
-        uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: pnpm
+      - name: Set up Node.js 24 and pnpm
+        uses: ./.github/actions/setup-node-pnpm
 
       - name: Install ffmpeg
         # packages/providers/src/audio/ffmpeg.test.ts spawns the real binary to
@@ -96,18 +90,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           lfs: true
 
-      - name: Enable pnpm via corepack
-        run: corepack enable
-
-      - name: Set up Node.js 24 with pnpm cache
-        uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: pnpm
+      - name: Set up Node.js 24 and pnpm
+        uses: ./.github/actions/setup-node-pnpm
 
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
@@ -128,20 +116,14 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           # The audio fixtures are LFS-tracked; without this the suite
           # transcribes pointer files.
           lfs: true
 
-      - name: Enable pnpm via corepack
-        run: corepack enable
-
-      - name: Set up Node.js 24 with pnpm cache
-        uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: pnpm
+      - name: Set up Node.js 24 and pnpm
+        uses: ./.github/actions/setup-node-pnpm
 
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
@@ -149,19 +131,78 @@ jobs:
       - name: Cache the whisper models
         # Keyed on the catalogue, which holds the pinned file names, sizes and
         # URLs: a model change invalidates the cache, and nothing else does.
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.local/share/ailoud/models
           key: ailoud-models-${{ runner.os }}-${{ hashFiles('packages/core/src/provision/catalogue.ts') }}
 
+      - name: Dependency age (advisory)
+        # Reports, never blocks. Dependabot's version updates already respect
+        # the same 14 days through `cooldown` in .github/dependabot.yml, so the
+        # two do not argue -- but a Dependabot SECURITY update deliberately
+        # ignores cooldown, and a fresh version that closes an advisory is the
+        # one case where taking it beats waiting. Failing the build there would
+        # make the rule an obstacle to the thing it exists to protect.
+        #
+        # Not run on tags: ci.yml does not trigger on them, and the release
+        # path asks the question through the check-dependencies skill instead.
+        run: |
+          if ! node scripts/check-dependency-age.mjs; then
+            echo "::warning::A direct dependency is younger than 14 days, or its age could not be"
+            echo "::warning::checked. If it closes a critical advisory, record it in"
+            echo "::warning::scripts/dependency-age-exceptions.json with the advisory ID; otherwise"
+            echo "::warning::pin the previous version. See .agents/skills/check-dependencies."
+          fi
+
       - name: Build
         run: pnpm build
 
-      - name: Provision ffmpeg, whisper.cpp and the models
-        # The same command a user runs, which makes this a test of `setup` as
-        # well as a prerequisite for the suite. --llm skip because no spec here
-        # summarises, and it would otherwise download another 2.1 GB.
+      - name: Install ffmpeg
+        # Installed with apt rather than left to `setup`, which correctly
+        # refuses to run `sudo apt-get` with no terminal to answer a password
+        # prompt on -- it reports the exact command instead of hanging. There
+        # is no terminal on a runner, so the sudo step is ours to do.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Provision whisper.cpp and the models
+        # Everything that needs no sudo: the whisper release and the model
+        # files. Still the command a user runs, so this remains a test of
+        # `setup` and not only a prerequisite for the suite. --llm skip because
+        # no spec here summarises, and it would otherwise fetch another 2.1 GB.
         run: node apps/cli/dist/bin/ailoud.js setup --yes --llm skip
+
+      - name: Put the provisioned binaries on PATH
+        # The e2e sandbox writes its own config naming only the MODEL, and
+        # leaves `binary` at its default -- which means whisper-cli has to be
+        # found on PATH. `setup` installs it under the data directory and
+        # records the absolute path in the user's config instead, so doctor was
+        # entirely green while every transcribe spec exited 3.
+        #
+        # The directories are read back out of that config rather than spelled
+        # here, so bumping a pinned release does not silently break this.
+        run: |
+          set -euo pipefail
+          read_dir() {
+            node -e "
+              const { parseConfig } = require('./apps/cli/dist/config.js');
+              const { readFileSync } = require('node:fs');
+              const { homedir } = require('node:os');
+              const { dirname } = require('node:path');
+              const config = parseConfig(
+                readFileSync(homedir() + '/.config/ailoud/config.yaml', 'utf8'),
+              );
+              const value = $1;
+              if (value && value.includes('/')) console.log(dirname(value));
+            "
+          }
+          for dir in \
+            "$(read_dir 'config.stt.whisperCpp.binary')" \
+            "$(read_dir 'config.stt.diarization.binary')"; do
+            if [ -n "$dir" ]; then
+              echo "adding $dir to PATH"
+              echo "$dir" >> "$GITHUB_PATH"
+            fi
+          done
 
       - name: Report what the machine now has
         # Printed whether or not the suite passes: a red e2e run is far quicker
@@ -178,7 +219,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7

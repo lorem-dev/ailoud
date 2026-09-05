@@ -40,6 +40,8 @@
 
 ## Development
 
+## Version 1.0.0
+
 ### Added
 
 - `ailoud audio import` adds audio and video files, or whole directories, to a
@@ -55,10 +57,10 @@
   as a report. `--template` shapes it for the kind of conversation -- a 1:1, a
   performance review, an architecture discussion, a decision between solutions
   -- and `--context` supplies what the transcript does not say. Templates are
-  editable YAML files under the config directory.
-- Four summarisation engines behind one setting: a local GGUF model through
-  llama.cpp, Claude by subscription through the Claude Code CLI, Claude by API,
-  and any OpenAI-compatible endpoint including Ollama and LM Studio.
+  editable YAML files under the config directory. Four engines sit behind one
+  setting: a local GGUF model through llama.cpp, Claude by subscription through
+  the Claude Code CLI, Claude by API, and any OpenAI-compatible endpoint,
+  including Ollama and LM Studio.
 - `ailoud report ls|show|rm` lists, prints and deletes saved reports.
 - `ailoud mcp` serves the library to an AI agent over MCP: sixteen tools, three
   prompts, and transcripts as addressable resources. Deleting takes two calls,

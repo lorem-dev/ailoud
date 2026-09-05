@@ -22,9 +22,9 @@ release, or right after adding or changing a CLI command or option.
    - Confirm every `pnpm` command shown in README.md exists as a script in
      the root `package.json` (`pnpm lint`, `pnpm typecheck`, `pnpm test:cov`,
      `pnpm build`, `pnpm format:check`, `pnpm test:e2e`, etc.).
-   - Confirm every `laud` CLI command shown (`import`, `transcribe`, `ls`,
+   - Confirm every `ailoud` CLI command shown (`import`, `transcribe`, `ls`,
      `show`, `doctor`) is a command M1 actually ships, per the "Project
-     Overview" section of AGENTS.md. `laud` has no `search`, `collection`,
+     Overview" section of AGENTS.md. `ailoud` has no `search`, `collection`,
      `tag`, `summarize`, `export`, or `config` command yet; flag any of
      those names if they appear in README.md or AGENTS.md.
    - Confirm every relative link in README.md and AGENTS.md resolves to a

@@ -1,6 +1,6 @@
 import { access, constants, stat } from 'node:fs/promises';
 import type { Command } from 'commander';
-import { EnvironmentError, installHint } from '@ailoud/core';
+import { EnvironmentError, installHint, isHostedLlm } from '@ailoud/core';
 import type { Remedy } from '@ailoud/core';
 import { run } from '@ailoud/providers';
 import type { CliContext } from '../wiring.js';
@@ -334,8 +334,10 @@ export async function checkLanguageModel(
     const key = apiKeyFrom(env, variable);
     const settings = llm.provider === 'anthropic' ? llm.anthropic : llm.openaiCompatible;
     // A local OpenAI-compatible server needs no key, so its absence is only a
-    // problem when the endpoint is a hosted one.
-    const hosted = /api\.(openai|anthropic)\.com/.test(settings.baseUrl);
+    // problem when the endpoint is a hosted one. By hostname: the pattern this
+    // replaced matched `https://api.openai.com.example.net` and
+    // `https://example.net/?x=api.openai.com` alike.
+    const hosted = isHostedLlm(settings.baseUrl);
     if (key === undefined && hosted) {
       return {
         name,

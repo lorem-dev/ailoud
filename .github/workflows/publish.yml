@@ -43,8 +43,12 @@ on:
 # id-token is what makes trusted publishing work; without it npm has no OIDC
 # token to exchange and falls back to asking for a credential that is not there.
 permissions:
-  contents: read
+  # contents: write is for creating the GitHub release.
+  contents: write
   id-token: write
+  # Reading code scanning results, to refuse a release that ships a finding
+  # nobody has looked at.
+  security-events: read
 
 concurrency:
   group: npm-publish
@@ -56,22 +60,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
+    env:
+      # The tag being released, resolved once. `github.ref_name` is the tag on
+      # a tag push but the BRANCH on a workflow_dispatch, so a step that let it
+      # default -- the changelog check did -- looked for a "## Version main"
+      # section and failed a re-run of a perfectly good tag.
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
           lfs: true
 
-      - name: Enable pnpm via corepack
-        run: corepack enable
-
-      - name: Set up Node.js 24 with pnpm cache
-        uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: pnpm
-          registry-url: 'https://registry.npmjs.org'
+      - name: Set up Node.js 24 and pnpm
+        # Deliberately WITHOUT setup-node's registry-url. Given one, it writes
+        # an .npmrc containing `_authToken=${NODE_AUTH_TOKEN}`; with no token
+        # secret to fill it, npm still saw credentials, sent an empty one, and
+        # never attempted the OIDC exchange -- the registry answered 404 on the
+        # PUT and the log said nothing about trusted publishing at all. With no
+        # .npmrc, npm finds it has no credentials and does the exchange. The
+        # default registry is registry.npmjs.org either way.
+        uses: ./.github/actions/setup-node-pnpm
 
       - name: Require an npm that can do trusted publishing
         # Trusted publishing landed in npm 11.5.1. An older npm fails by asking
@@ -87,15 +98,103 @@ jobs:
           fi
           echo "npm $have"
 
+      - name: Refuse a final release while NPM_TOKEN is set
+        # First, not last. This used to live inside the publish step, after
+        # pnpm install, three checks, apt-get, the whole gate and the
+        # end-to-end suite -- around twenty minutes to learn a fact known at
+        # second zero. Nothing was ever published by it, so the cost was only
+        # time, but the documented order said otherwise and this is the most
+        # likely way a first production release fails.
+        #
+        # The bootstrap is over the moment the packages exist, and a token that
+        # keeps working is a token nobody gets round to removing.
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          if [ -z "${NPM_TOKEN:-}" ]; then
+            echo "no NPM_TOKEN secret; this run will use trusted publishing"
+            exit 0
+          fi
+          case "$version" in
+            *-*)
+              echo "::warning::publishing $version with the NPM_TOKEN secret; attach the trusted publisher and delete the secret"
+              ;;
+            *)
+              echo "::error::$version is a final release and NPM_TOKEN is set."
+              echo "::error::Attach the trusted publisher on all three package pages"
+              echo "::error::(organization lorem-dev, repository ailoud, workflow publish.yml,"
+              echo "::error::environment empty), then delete the NPM_TOKEN secret and re-run."
+              exit 1
+              ;;
+          esac
+
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
+
+      - name: Check the changelog is fit to release
+        # First, and before the gate: a version number can never be reused and
+        # the unpublish window is 72 hours, so every reason to refuse should be
+        # found while refusing is still free. This checks the section exists and
+        # has entries, that it is inside the hard limit, that nothing is
+        # stranded under Development, and -- for a final tag -- that its
+        # pre-release sections were folded.
+        #
+        # The scripts' own tests run in ci.yml, on branches and pull requests
+        # rather than on tags, so a broken script is caught before a release
+        # depends on it.
+        run: node scripts/check-changelog.mjs "$TAG"
+
+      - name: Refuse a release carrying unreviewed high-severity findings
+        # The dependency side of this is already enforced -- a --prod advisory
+        # or a version younger than 14 days blocks a release -- while what
+        # CodeQL finds in our own code did not reach here at all. This closes
+        # that asymmetry.
+        #
+        # Only `state=open` counts. A finding that was reviewed and explained
+        # is `dismissed` with its reason attached, and does not block; one
+        # nobody has looked at does. Fixing it and dismissing it are both
+        # answers -- ignoring it is not.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # --paginate, because an alert past the first hundred blocked nothing.
+          # jq -s 'add' folds the pages into one array.
+          if ! alerts=$(gh api --paginate \
+            "repos/${{ github.repository }}/code-scanning/alerts?state=open&per_page=100" \
+            | jq -s 'add // [] | [.[] | select(.rule.security_severity_level == "high" or .rule.security_severity_level == "critical")]'); then
+            echo "::error::could not read code scanning results. A release that cannot check"
+            echo "::error::whether it ships a known finding is not one to make blind; fix the"
+            echo "::error::access or the analysis, then re-run."
+            exit 1
+          fi
+          count=$(jq 'length' <<< "$alerts" || true)
+          # An empty or malformed answer used to pass: `jq length` printed
+          # nothing, `[ "" -gt 0 ]` errored, and a failing `if` condition is not
+          # caught by `set -e`, so the else branch reported "no alerts".
+          case "$count" in
+            '' | *[!0-9]*)
+              echo "::error::could not count the code scanning alerts (got '${count}')."
+              echo "::error::Refusing rather than assuming there are none."
+              exit 1
+              ;;
+          esac
+          if [ "$count" -gt 0 ]; then
+            jq -r '.[] | "::error::\(.rule.security_severity_level) \(.rule.id) at \(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line)"' <<< "$alerts"
+            echo "::error::${count} open high or critical code scanning alert(s). Fix them, or"
+            echo "::error::dismiss each with a reason, then re-run this workflow on the tag."
+            exit 1
+          fi
+          echo "no open high or critical code scanning alerts"
 
       - name: Check that the tag matches the version in the manifests
         # A tag that disagrees with package.json publishes a version nobody
         # asked for, under a tag that points at different code.
         run: |
           set -euo pipefail
-          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag="$TAG"
           want="${tag#v}"
           for manifest in packages/core packages/providers apps/cli; do
             have=$(node -p "require('./$manifest/package.json').version")
@@ -105,6 +204,13 @@ jobs:
             fi
           done
           echo "all three manifests are at $want"
+
+      - name: Install ffmpeg
+        # The gate includes packages/providers/src/audio/ffmpeg.test.ts, which
+        # spawns the real binary. CI installs it for the same reason; this job
+        # runs the same gate, so it needs the same tool. Without it the release
+        # failed here rather than on anything about the release.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
 
       - name: Run the gate
         # Nothing is published that has not built, linted, typechecked and
@@ -130,27 +236,133 @@ jobs:
           done
           ls -l dist-npm
 
+      - name: Check each tarball carries the licence and no source
+        # pnpm copies the repository's LICENSE into every workspace tarball,
+        # which is why no package directory holds its own copy -- three copies
+        # of a 224-line file would drift. That makes it an invariant worth
+        # checking rather than assuming: if pnpm ever stops, this fails the
+        # release instead of publishing an unlicensed package.
+        #
+        # The same step guards the other packing mistake: shipping `src` and
+        # the tests. Before `files` was set, the CLI tarball carried 82 source
+        # files and 32 test files.
+        run: |
+          set -euo pipefail
+          for tarball in dist-npm/*.tgz; do
+            echo "--- $tarball"
+            contents=$(tar -tzf "$tarball")
+            if ! grep -qiE '^package/LICEN[SC]E' <<< "$contents"; then
+              echo "::error::$tarball has no LICENSE."
+              exit 1
+            fi
+            if grep -qE '^package/src/' <<< "$contents"; then
+              echo "::error::$tarball ships src/; check the \`files\` field."
+              exit 1
+            fi
+            if grep -qE '\.test\.' <<< "$contents"; then
+              echo "::error::$tarball ships tests; check the \`files\` field."
+              exit 1
+            fi
+            # 1.0.0-dev.1 went out with no README, so all three npm pages read
+            # "This package does not have a README" -- the first thing anyone
+            # arriving from a search sees. The libraries hold their own; the
+            # CLI's is the repository's, copied in by its prepack script, which
+            # is the part that could silently stop working.
+            if ! grep -qiE '^package/README' <<< "$contents"; then
+              echo "::error::$tarball has no README."
+              exit 1
+            fi
+            echo "licence, readme, no source, no tests"
+          done
+
       - name: Publish, dependencies first
         # Order matters: the CLI's manifest names exact versions of the two
         # libraries, so they have to exist first. --provenance records which
         # workflow and which commit produced each tarball, verifiable from the
-        # package page.
+        # package page -- it works under either credential below.
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag="$TAG"
           version="${tag#v}"
-          # A pre-release goes out under `next`, so `npm install ailoud` keeps
-          # returning the last stable version until a final tag moves `latest`.
+          # BOOTSTRAP ONLY. Trusted publishing is configured per package on
+          # npmjs.com, which cannot be done for a package that does not exist
+          # yet -- so the first version of each of the three has to go out on a
+          # token, and npm answers ENEEDAUTH without one however complete the
+          # OIDC setup is. Once the trusted publisher is attached to all three
+          # package pages, delete the NPM_TOKEN secret: with it gone this
+          # branch is skipped and npm does the OIDC exchange instead, which is
+          # the arrangement with nothing to expire.
+          # Whether a token is allowed here at all was settled in the first
+          # step of this job; this only applies it.
+          if [ -n "${NPM_TOKEN:-}" ]; then
+            npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+          fi
+          # Three kinds of tag, three destinations. See the dev-tag skill.
+          #   -dev.N  a snapshot to try            -> dev
+          #   -rc.N   what the release will be     -> next
+          #   final   the release                  -> latest
+          # Only the last moves `latest`, so `npm install ailoud` never picks up
+          # a pre-release by accident -- with one exception nothing here can
+          # prevent: npm sets `latest` on a package's first publish whatever
+          # --tag says, and `latest` can be moved but never removed.
           case "$version" in
-            *-*) dist_tag=next ;;
-            *)   dist_tag=latest ;;
+            *-dev.*) dist_tag=dev ;;
+            *-*)     dist_tag=next ;;
+            *)       dist_tag=latest ;;
           esac
+          # Everything checkable, checked before the first publish. The loop
+          # goes library, library, CLI, and a version number npm has seen can
+          # never be reused -- so a fault found on the third iteration leaves
+          # two packages published at a version the release can no longer use.
+          for name in ailoud-core ailoud-providers ailoud; do
+            # An ABSOLUTE path. Given `dist-npm/ailoud-core-1.0.0-dev.1.tgz`,
+            # npm read the slash as the `owner/repo` GitHub shorthand and tried
+            # to `git ls-remote ssh://git@github.com/dist-npm/...git`, which
+            # failed on a missing public key rather than on anything to do with
+            # publishing.
+            if [ ! -f "$PWD/dist-npm/${name}-${version}.tgz" ]; then
+              echo "::error::dist-npm/${name}-${version}.tgz was not packed."
+              exit 1
+            fi
+          done
+          node scripts/preflight-npm-auth.mjs
+
           echo "publishing $version under dist-tag $dist_tag"
           for name in ailoud-core ailoud-providers ailoud; do
-            tarball=$(ls dist-npm/${name}-${version}.tgz)
+            tarball="$PWD/dist-npm/${name}-${version}.tgz"
             echo "--- $tarball"
             npm publish "$tarball" --provenance --access public --tag "$dist_tag"
           done
+
+      - name: Create the GitHub release from CHANGES.md
+        # After the publish, so a release object never advertises a version the
+        # registry refused. `gh release create` rather than a third-party
+        # action: adding one to the release path would sit oddly beside a
+        # 14-day rule for everything else we depend on.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          # Writes RELEASE_NOTES.md from the `## Version <version>` section,
+          # and refuses if that section is missing, empty or over the limit.
+          node scripts/release-notes.mjs "$TAG"
+          prerelease=""
+          case "$version" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists; updating its notes"
+            gh release edit "$TAG" --notes-file RELEASE_NOTES.md
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file RELEASE_NOTES.md \
+              --verify-tag \
+              $prerelease
+          fi
 
       - name: Report what was published
         if: always()

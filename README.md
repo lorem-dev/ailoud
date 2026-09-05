@@ -1,6 +1,7 @@
 <h1 align="center">AILoud</h1>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/ailoud"><img src="https://img.shields.io/npm/v/ailoud" alt="npm"></a>
   <a href="https://lorem-dev.github.io/ailoud/"><img src="https://img.shields.io/badge/docs-online-blue" alt="Documentation"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/lorem-dev/ailoud" alt="License"></a>
   <a href="https://github.com/lorem-dev/ailoud/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/coverage-90%25-brightgreen" alt="Coverage"></a>

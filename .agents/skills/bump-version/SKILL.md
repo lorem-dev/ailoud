@@ -1,14 +1,14 @@
 ---
 name: bump-version
 description: >
-  Set the laud version across every package.json and promote the CHANGES.md
+  Set the ailoud version across every package.json and promote the CHANGES.md
   Development section to a released Version section, then create the release
   commit. Does not tag or push.
 ---
 
 # bump-version
 
-Bump the laud version and prepare the release commit. Tagging and pushing
+Bump the ailoud version and prepare the release commit. Tagging and pushing
 remain separate, deliberate steps.
 
 ## Steps
@@ -44,7 +44,7 @@ Run `git diff` and confirm the version bump touched exactly these files:
   `## Development`).
 
 No other files changed. There is no `Cargo.toml` and no
-`tauri.conf.json` in this project -- laud is a pure TypeScript workspace.
+`tauri.conf.json` in this project -- ailoud is a pure TypeScript workspace.
 
 ### 4. Create the release commit
 

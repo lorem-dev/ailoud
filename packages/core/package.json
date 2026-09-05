@@ -1,6 +1,6 @@
 {
   "name": "@ailoud/core",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -19,6 +19,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "description": "AILoud domain model, ports and pure logic: the layer that does no I/O",
+  "author": "Lorem Dev <contact@lorem.dev>",
   "license": "Apache-2.0",
   "homepage": "https://lorem-dev.github.io/ailoud/",
   "bugs": {

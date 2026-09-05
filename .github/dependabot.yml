@@ -1,0 +1,59 @@
+# Dependabot, held to the same rule as a human: nothing younger than 14 days.
+#
+# `cooldown` is what makes that true. Without it Dependabot opens a pull
+# request the moment a version appears, which is precisely the window
+# `scripts/check-dependency-age.mjs` exists to refuse -- the check would then
+# fail on Dependabot's own branch and the two would be arguing.
+#
+# Security updates deliberately ignore cooldown, and that is the behaviour we
+# want: a known advisory beats an unaudited release, which is the same
+# exception `scripts/dependency-age-exceptions.json` records for a human.
+#
+# See .agents/skills/check-dependencies/SKILL.md for the reasoning, and
+# AGENTS.md for how a dependency change reaches a release.
+
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    # The workspace root: one pnpm-lock.yaml covers all four manifests.
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 14
+    # Exact pins are this project's convention, and `increase` preserves them.
+    # `widen` would turn a pin into a range and hand the choice of version to
+    # whatever resolved last, which no age check can judge.
+    versioning-strategy: increase
+    open-pull-requests-limit: 5
+    groups:
+      # The dev toolchain moves constantly and cannot reach a user, so it
+      # arrives as one reviewable pull request. Anything that ships gets its
+      # own, because a runtime dependency deserves its own reading.
+      dev-toolchain:
+        dependency-type: development
+    ignore:
+      # typescript-eslint 8.67.0 refuses to load against TS 7.0 outright
+      # ("typescript-eslint does not support TS 7.0"), so the bump Dependabot
+      # opened could not lint -- it is blocked by a peer, not by us. Tracked as
+      # typescript-eslint#10940; drop this entry when it supports TS >= 7.1.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+    labels:
+      - dependencies
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 14
+    groups:
+      actions:
+        patterns:
+          - '*'
+    labels:
+      - dependencies

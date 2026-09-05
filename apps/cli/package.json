@@ -1,6 +1,6 @@
 {
   "name": "ailoud",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "bin": {
     "ailoud": "./dist/bin/ailoud.js"
@@ -18,10 +18,12 @@
     "zod": "4.4.3"
   },
   "scripts": {
+    "prepack": "node -e \"require('node:fs').copyFileSync('../../README.md','README.md')\"",
     "build": "tsc -b tsconfig.build.json && chmod +x dist/bin/ailoud.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "description": "Transcribe audio and video into a local library, then search and summarise it",
+  "author": "Lorem Dev <contact@lorem.dev>",
   "license": "Apache-2.0",
   "homepage": "https://lorem-dev.github.io/ailoud/",
   "bugs": {

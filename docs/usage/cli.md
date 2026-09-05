@@ -44,7 +44,7 @@ ailoud report l
 
 The old top-level spellings still work: `ailoud ls`, `ailoud show`,
 `ailoud rm`, `ailoud annotate`, `ailoud import`, `ailoud transcribe`,
-`ailoud summarize`.
+`ailoud summarize`, `ailoud search`.
 
 ## audio import
 

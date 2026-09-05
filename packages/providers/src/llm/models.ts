@@ -1,4 +1,5 @@
 import { EnvironmentError, FailureError } from '@ailoud/core';
+import { withoutTrailingSlashes } from '@ailoud/core';
 
 /** As elsewhere in this directory: a hosted call that has not answered in a minute is not going to. */
 const REQUEST_TIMEOUT_MS = 60_000;
@@ -77,7 +78,7 @@ export async function listOpenAiModels(
   apiKey: string | undefined,
   fetchImpl: typeof fetch = fetch,
 ): Promise<readonly ModelOption[]> {
-  const url = `${baseUrl.replace(/\/+$/, '')}/models`;
+  const url = `${withoutTrailingSlashes(baseUrl)}/models`;
   const body = (await getJson(
     url,
     apiKey === undefined ? {} : { authorization: `Bearer ${apiKey}` },
@@ -104,7 +105,7 @@ export async function listAnthropicModels(
   apiKey: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<readonly ModelOption[]> {
-  const root = `${baseUrl.replace(/\/+$/, '')}/models`;
+  const root = `${withoutTrailingSlashes(baseUrl)}/models`;
   const headers = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' };
   const collected: ModelOption[] = [];
   let after: string | undefined;

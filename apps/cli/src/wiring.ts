@@ -11,7 +11,7 @@ import type {
   TranscriptionProvider,
 } from '@ailoud/core';
 import { existsSync, statSync } from 'node:fs';
-import { EnvironmentError } from '@ailoud/core';
+import { EnvironmentError, isHostedLlm } from '@ailoud/core';
 import {
   AnthropicSummarizer,
   ClaudeCliSummarizer,
@@ -165,7 +165,7 @@ export async function createContext(
       if (llm.provider === 'openai-compatible') {
         const settings = llm.openaiCompatible;
         const apiKey = apiKeyFrom(env, 'OPENAI_API_KEY');
-        if (settings.baseUrl.startsWith('https://api.openai.com') && apiKey === undefined) {
+        if (isHostedLlm(settings.baseUrl) && apiKey === undefined) {
           throw new EnvironmentError(
             'No API key for the language model. Set AILOUD_LLM_API_KEY (or OPENAI_API_KEY) in ' +
               'your environment. It is read from the environment on purpose and never from ' +

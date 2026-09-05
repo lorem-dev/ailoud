@@ -1,0 +1,51 @@
+# CodeQL, GitHub's static analysis, over the TypeScript in this workspace.
+#
+# Committed rather than enabled through the repository's default setup, for the
+# same reason every other check here is a file: what runs, when, and over what
+# should be reviewable in a diff.
+#
+# The weekly run matters as much as the per-push one -- most findings arrive
+# because the queries improved, not because the code changed.
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  schedule:
+    # Monday morning, after Dependabot has opened whatever it is going to.
+    - cron: '30 6 * * 1'
+
+concurrency:
+  group: codeql-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze TypeScript
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      # security-events: write is how the results reach the Security tab; a run
+      # without it analyses the code and then throws the answer away.
+      security-events: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          # The query set and the one rule this project excludes live in the
+          # config file, where each can carry its reason. security-and-quality
+          # over the default security-extended: this is a small codebase where
+          # the quality queries are worth reading rather than noise to filter.
+          config-file: .github/codeql/codeql-config.yml
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4

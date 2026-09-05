@@ -76,22 +76,6 @@ Your own files are safe:
 Comments in a JSON or `.jsonc` MCP config do not survive an edit -- the file
 is parsed and re-serialised. TOML and YAML keep theirs.
 
-Your own config files are safe:
-
-- Only the text between the two markers is ever rewritten. A file that merely
-  _mentions_ `<!-- AILOUD_START -->` in prose keeps everything around it.
-- A `config.toml` that already defines an `ailoud` server some other way is
-  refused, not edited. Two definitions of one key is a TOML error, and it
-  would break your whole Codex config rather than just this server.
-- A Hermes `config.yaml` with your own settings or comments is rewritten, never
-  deleted. Only a file holding nothing but AILoud's own keys is removed.
-- A trailing comma or a byte-order mark in a `.jsonc` is tolerated. A file that
-  is not JSON at all is refused with a message, not rewritten.
-
-!!! note
-Comments in a JSON or `.jsonc` MCP config do not survive an edit -- the
-file is parsed and re-serialised. TOML and YAML keep theirs.
-
 ### Supported agents
 
 | Agent      | Scopes          | Config                         | Rules file                           |

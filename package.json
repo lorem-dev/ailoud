@@ -1,9 +1,10 @@
 {
   "name": "ailoud-workspace",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Multilingual audio-to-text CLI with a recording library and LLM summaries",
+  "author": "Lorem Dev <contact@lorem.dev>",
   "license": "Apache-2.0",
   "packageManager": "pnpm@11.9.0",
   "engines": {
@@ -18,9 +19,9 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "pnpm -r typecheck",
-    "test": "vitest run",
+    "test": "NODE_OPTIONS=--disable-warning=ExperimentalWarning vitest run",
     "test:watch": "vitest",
-    "test:cov": "vitest run --coverage",
+    "test:cov": "NODE_OPTIONS=--disable-warning=ExperimentalWarning vitest run --coverage",
     "test:e2e": "pnpm build && jest --config jest.config.cjs",
     "test:e2e:no-tools": "pnpm build && jest --config jest.config.cjs --selectProjects no-tools"
   },
