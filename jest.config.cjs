@@ -51,13 +51,19 @@ module.exports = {
     {
       ...shared,
       displayName: 'no-tools',
-      testMatch: ['<rootDir>/e2e/tests/mcp-install.spec.ts'],
+      testMatch: [
+        '<rootDir>/e2e/tests/mcp-install.spec.ts',
+        '<rootDir>/e2e/tests/self-update.spec.ts',
+      ],
     },
     {
       ...shared,
       displayName: 'tools',
       testMatch: ['<rootDir>/e2e/tests/**/*.spec.ts'],
-      testPathIgnorePatterns: ['<rootDir>/e2e/tests/mcp-install\\.spec\\.ts'],
+      testPathIgnorePatterns: [
+        '<rootDir>/e2e/tests/mcp-install\\.spec\\.ts',
+        '<rootDir>/e2e/tests/self-update\\.spec\\.ts',
+      ],
     },
   ],
 };

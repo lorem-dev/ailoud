@@ -46,6 +46,34 @@ import { rememberProject } from './projects.js';
 const UPDATE_REGISTRY = DEFAULT_REGISTRY;
 const UPDATE_TIMEOUT_MS = DEFAULT_TIMEOUT_MS;
 
+/**
+ * Stubs the npm registry answer with a JSON fixture, when `AILOUD_PACKUMENTS`
+ * names one, instead of a real network call.
+ *
+ * Same environment variable and the same fixture shape --
+ * `{ "<package>": <packument> }` -- that `scripts/retire-prereleases.mjs`
+ * reads for the identical reason: a file an end-to-end test can point at,
+ * never a server a test could leave open. A thrown test there once skipped
+ * the server's own `close()`, and the leaked handle hung the whole suite
+ * with no failing test to point at, because a per-test timeout does not
+ * apply to a handle nobody closed. This reads a file instead, on every call,
+ * so there is never a handle to leak.
+ */
+function packumentFixtureFetch(fixturePath: string): typeof fetch {
+  const impl: typeof fetch = async (input) => {
+    const name = decodeURIComponent(new URL(String(input)).pathname.slice(1));
+    const raw = await readFile(fixturePath, 'utf8');
+    const all = JSON.parse(raw) as Record<string, unknown>;
+    const packument = all[name];
+    if (packument === undefined) return new Response(null, { status: 404 });
+    return new Response(JSON.stringify(packument), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+  return impl;
+}
+
 export interface CliContext {
   readonly paths: AiloudPaths;
   readonly config: AiloudConfig;
@@ -299,7 +327,13 @@ export async function createContext(
         threads: config.stt.diarization.threads,
       });
     },
-    versionSource: new NpmRegistry({ registry: UPDATE_REGISTRY, timeoutMs: UPDATE_TIMEOUT_MS }),
+    versionSource: new NpmRegistry({
+      registry: UPDATE_REGISTRY,
+      timeoutMs: UPDATE_TIMEOUT_MS,
+      ...(env['AILOUD_PACKUMENTS'] === undefined || env['AILOUD_PACKUMENTS'] === ''
+        ? {}
+        : { fetchImpl: packumentFixtureFetch(env['AILOUD_PACKUMENTS']) }),
+    }),
     updateRegistryHost: new URL(UPDATE_REGISTRY).host,
     updateTimeoutMs: UPDATE_TIMEOUT_MS,
   };
