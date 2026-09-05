@@ -272,8 +272,8 @@ process, and is bound to the exact ids it was issued for. The tools also carry
 Transcripts and reports are addressable, with id completion:
 
 ```
-laud://recording/{id}/transcript
-laud://report/{id}
+ailoud://recording/{id}/transcript
+ailoud://report/{id}
 ```
 
 For clients that let you attach context directly.

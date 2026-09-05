@@ -31,15 +31,10 @@ Nothing leaves your machine unless you choose a hosted model for summaries.
 
 ## Install
 
-> AILoud is not published yet. Build from source; the published install will
-> be documented here.
-
-Needs [Node.js](https://nodejs.org/) 24+ and [pnpm](https://pnpm.io/) 11+.
+Needs [Node.js](https://nodejs.org/) 24 or newer.
 
 ```shell
-git clone https://github.com/lorem-dev/ailoud.git
-cd ailoud
-pnpm install && pnpm build && pnpm link --global
+npm install -g ailoud
 ```
 
 Then install the tools it drives -- ffmpeg, whisper.cpp, the models:

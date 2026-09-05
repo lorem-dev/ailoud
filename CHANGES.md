@@ -82,3 +82,5 @@
 - API keys are read from the environment only, never from the config file and
   never logged.
 - Documentation at https://lorem-dev.github.io/ailoud/, published per release.
+- Published to npm as `ailoud`, with `@ailoud/core` and `@ailoud/providers` for
+  anyone building on the layers underneath.

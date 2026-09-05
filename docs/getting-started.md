@@ -2,33 +2,27 @@
 
 ## Install
 
-!!! note
-AILoud is not published to npm yet. Build from source for now. The
-published install will land here.
+Needs [Node.js](https://nodejs.org/) 24 or newer.
 
-=== "From source"
+```
+npm install -g ailoud
+```
 
-    Needs [Node.js](https://nodejs.org/) 24+ and
-    [pnpm](https://pnpm.io/installation) 11+.
+Check it:
+
+```
+ailoud --version
+```
+
+??? note "Building from source instead"
+
+    Only needed to work on AILoud itself. See the
+    [Development guide](development/development.md).
 
     ```
     git clone https://github.com/lorem-dev/ailoud.git
     cd ailoud
-    pnpm install
-    pnpm build
-    pnpm link --global
-    ```
-
-    Check it:
-
-    ```
-    ailoud --version
-    ```
-
-=== "npm (soon)"
-
-    ```
-    npm install -g ailoud
+    pnpm install && pnpm build && pnpm link --global
     ```
 
 ## Set up the tools

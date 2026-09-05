@@ -1,7 +1,6 @@
 {
   "name": "@ailoud/core",
   "version": "0.0.0",
-  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -18,5 +17,32 @@
   "scripts": {
     "build": "tsc -b tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "description": "AILoud domain model, ports and pure logic: the layer that does no I/O",
+  "license": "Apache-2.0",
+  "homepage": "https://lorem-dev.github.io/ailoud/",
+  "bugs": {
+    "url": "https://github.com/lorem-dev/ailoud/issues"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "keywords": [
+    "ailoud",
+    "transcription",
+    "audio",
+    "domain"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lorem-dev/ailoud.git",
+    "directory": "packages/core"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

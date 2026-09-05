@@ -1,0 +1,157 @@
+# Publish to npm from a release tag, with no long-lived credential.
+#
+# HOW THIS AVOIDS AN ACCESS TOKEN
+#
+# npm trusted publishing: GitHub mints a short-lived OIDC token for this
+# workflow run, npm exchanges it for a publish credential valid for minutes,
+# and provenance is attached automatically. Nothing long-lived is stored, so
+# there is no 90-day expiry to remember and no secret to leak.
+#
+# ONE-TIME SETUP ON NPMJS.COM, per package (ailoud, and each scoped package):
+#   Package -> Settings -> Trusted publisher -> GitHub Actions
+#     Organization or user: lorem-dev
+#     Repository:           ailoud
+#     Workflow filename:    publish.yml
+#     Environment:          (leave empty, this workflow declares none)
+#
+# A package that has never been published may need one classic token for the
+# very first publish, after which the trusted publisher takes over -- check
+# npm's current documentation when you get there, because that detail has been
+# changing.
+#
+# WHY pnpm pack THEN npm publish, and not `pnpm publish`
+#
+# Each tool has exactly half of what is needed. `pnpm publish` rewrites the
+# `workspace:*` dependencies into real versions, which npm requires and npm's
+# own tooling will not do; it has no OIDC or provenance support. `npm publish`
+# has both but leaves `workspace:*` in the manifest, which is not installable.
+# So pnpm packs the tarball (rewriting the manifest and honouring `files`) and
+# npm publishes that tarball.
+
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to publish, e.g. v1.2.3'
+        required: true
+
+# id-token is what makes trusted publishing work; without it npm has no OIDC
+# token to exchange and falls back to asking for a credential that is not there.
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          lfs: true
+
+      - name: Enable pnpm via corepack
+        run: corepack enable
+
+      - name: Set up Node.js 24 with pnpm cache
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Require an npm that can do trusted publishing
+        # Trusted publishing landed in npm 11.5.1. An older npm fails by asking
+        # for a token that this workflow deliberately does not have, and the
+        # error does not say why -- so check it here and say so.
+        run: |
+          set -euo pipefail
+          have=$(npm --version)
+          need=11.5.1
+          if [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -1)" != "$need" ]; then
+            echo "::error::npm $have cannot do trusted publishing; $need or newer is required."
+            exit 1
+          fi
+          echo "npm $have"
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Check that the tag matches the version in the manifests
+        # A tag that disagrees with package.json publishes a version nobody
+        # asked for, under a tag that points at different code.
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          want="${tag#v}"
+          for manifest in packages/core packages/providers apps/cli; do
+            have=$(node -p "require('./$manifest/package.json').version")
+            if [ "$have" != "$want" ]; then
+              echo "::error::$manifest is at $have but the tag says $want. Run the bump-version skill."
+              exit 1
+            fi
+          done
+          echo "all three manifests are at $want"
+
+      - name: Run the gate
+        # Nothing is published that has not built, linted, typechecked and
+        # passed its tests on this runner. An unpublish window is 72 hours and
+        # a version number can never be reused.
+        run: |
+          pnpm build
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test:cov
+
+      - name: End-to-end specs that need no external tools
+        run: pnpm test:e2e:no-tools
+
+      - name: Pack the three packages
+        # pnpm rewrites the workspace protocol and applies each `files` list.
+        run: |
+          set -euo pipefail
+          mkdir -p dist-npm
+          for pkg in packages/core packages/providers apps/cli; do
+            (cd "$pkg" && pnpm pack --pack-destination "$GITHUB_WORKSPACE/dist-npm")
+          done
+          ls -l dist-npm
+
+      - name: Publish, dependencies first
+        # Order matters: the CLI's manifest names exact versions of the two
+        # libraries, so they have to exist first. --provenance records which
+        # workflow and which commit produced each tarball, verifiable from the
+        # package page.
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          version="${tag#v}"
+          # A pre-release goes out under `next`, so `npm install ailoud` keeps
+          # returning the last stable version until a final tag moves `latest`.
+          case "$version" in
+            *-*) dist_tag=next ;;
+            *)   dist_tag=latest ;;
+          esac
+          echo "publishing $version under dist-tag $dist_tag"
+          for name in ailoud-core ailoud-providers ailoud; do
+            tarball=$(ls dist-npm/${name}-${version}.tgz)
+            echo "--- $tarball"
+            npm publish "$tarball" --provenance --access public --tag "$dist_tag"
+          done
+
+      - name: Report what was published
+        if: always()
+        run: ls -l dist-npm || true

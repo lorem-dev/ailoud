@@ -1,7 +1,6 @@
 {
   "name": "@ailoud/providers",
   "version": "0.0.0",
-  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -17,5 +16,32 @@
   "scripts": {
     "build": "tsc -b tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "description": "AILoud port implementations: ffmpeg, sqlite, whisper.cpp, and the LLM adapters",
+  "license": "Apache-2.0",
+  "homepage": "https://lorem-dev.github.io/ailoud/",
+  "bugs": {
+    "url": "https://github.com/lorem-dev/ailoud/issues"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "keywords": [
+    "ailoud",
+    "whisper",
+    "ffmpeg",
+    "sqlite"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lorem-dev/ailoud.git",
+    "directory": "packages/providers"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

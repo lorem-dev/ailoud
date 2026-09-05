@@ -1,7 +1,6 @@
 {
   "name": "ailoud",
   "version": "0.0.0",
-  "private": true,
   "type": "module",
   "bin": {
     "ailoud": "./dist/bin/ailoud.js"
@@ -21,5 +20,37 @@
   "scripts": {
     "build": "tsc -b tsconfig.build.json && chmod +x dist/bin/ailoud.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "description": "Transcribe audio and video into a local library, then search and summarise it",
+  "license": "Apache-2.0",
+  "homepage": "https://lorem-dev.github.io/ailoud/",
+  "bugs": {
+    "url": "https://github.com/lorem-dev/ailoud/issues"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "keywords": [
+    "transcription",
+    "whisper",
+    "speech-to-text",
+    "summarisation",
+    "mcp",
+    "cli",
+    "audio",
+    "video",
+    "meetings"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lorem-dev/ailoud.git",
+    "directory": "apps/cli"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -48,6 +48,36 @@ bug, there is nothing to say. See
    git push origin main --tags
    ```
 
+## Publishing to npm
+
+Pushing a final tag also runs
+[`.github/workflows/publish.yml`](https://github.com/lorem-dev/ailoud/blob/main/.github/workflows/publish.yml),
+which publishes `@ailoud/core`, `@ailoud/providers` and `ailoud` in that order.
+
+No npm token is involved. The workflow uses npm's trusted publishing: GitHub
+mints a short-lived OIDC token for the run, npm exchanges it for a credential
+good for minutes, and provenance is attached automatically. Nothing long-lived
+is stored, so there is no 90-day expiry to renew.
+
+One-time setup on npmjs.com, per package -- Package, then Settings, then
+Trusted publisher, then GitHub Actions:
+
+| Field                | Value         |
+| -------------------- | ------------- |
+| Organization or user | `lorem-dev`   |
+| Repository           | `ailoud`      |
+| Workflow filename    | `publish.yml` |
+| Environment          | leave empty   |
+
+The workflow packs with `pnpm` and publishes with `npm`, because each tool has
+half of what is needed: `pnpm pack` rewrites the `workspace:*` dependencies
+into real versions, which npm requires and will not do itself, and
+`npm publish` is the one with OIDC and provenance.
+
+Before publishing it checks that all three manifests agree with the tag, then
+runs the whole gate. A pre-release tag publishes under the `next` dist-tag, so
+`npm install ailoud` keeps returning the last stable version.
+
 ## What a tag triggers
 
 Pushing a final tag runs
