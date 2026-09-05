@@ -32,14 +32,6 @@ CREATE VIRTUAL TABLE segment_fts USING fts5(
          text, content='segment', content_rowid='rowid'
        );
 
-CREATE TABLE 'segment_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID;
-
-CREATE TABLE 'segment_fts_data'(id INTEGER PRIMARY KEY, block BLOB);
-
-CREATE TABLE 'segment_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB);
-
-CREATE TABLE 'segment_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID;
-
 CREATE TABLE speaker (
          recording_id TEXT NOT NULL REFERENCES recording(id) ON DELETE CASCADE,
          label TEXT NOT NULL,

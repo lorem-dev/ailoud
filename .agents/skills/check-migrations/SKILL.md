@@ -38,6 +38,19 @@ skill and not a third test:
   `user_version` with different schemas -- and neither the fingerprint test
   nor the snapshot test can tell you this from the file alone, because both
   only ever see the current content of `schema.ts`.
+- **Deleting a shipped migration is the same hazard, not a different one.**
+  A database that already ran it does not forget; removing its entry from
+  `MIGRATIONS` just means the promise that entry made is no longer written
+  down anywhere for the next person to honor. Treat "remove this migration"
+  the same as "edit this migration": fine if it never shipped, never fine if
+  it did.
+- **Reordering the `MIGRATIONS` array is the same hazard again**, even with
+  every `version` field left untouched -- a migration's position in the
+  array is not what makes it safe to change, its `version` having already
+  run somewhere is. (The lock-completeness test happens to catch a reorder
+  today, because it compares sorted lock keys against `MIGRATIONS` in
+  array order, but that is not the same as the skill telling you to look
+  for it.)
 - **Only git history tells the two apart.** Before touching an existing
   migration entry, run:
 
