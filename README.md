@@ -275,6 +275,28 @@ laud show ID001
 laud show ID001 --format srt
 ```
 
+Find where something was said, without reading a transcript:
+
+```shell
+laud audio search fuel
+laud audio f "before sunrise"        # a phrase, adjacent
+laud audio f "гаван*"                # a prefix, for an inflected language
+laud audio f rollback --tag release --lang ru
+```
+
+Search returns the matching segments -- a timestamp, the speaker, the line --
+grouped by recording, with each recording's tags in the heading. It never
+returns a whole transcript: "where was this discussed" is answered by a line,
+and handing back a thousand lines to find one is not an answer.
+
+It is full-text search over an index SQLite maintains, so it folds case in
+every language laud is for: `встреча` finds `Встреча`. A trailing `*` is a
+prefix search, which matters far more in an inflected language than in English.
+Everything else is matched literally, so `don't` and `C++` are searches rather
+than syntax errors. By default only each recording's newest transcript is
+searched, since a recording re-transcribed with `--force` holds the same words
+several times; `--all` searches them all.
+
 Summarise one recording, or a tagged group of them in a single pass:
 
 ```shell

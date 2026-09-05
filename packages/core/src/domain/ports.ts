@@ -1,4 +1,12 @@
-import type { RawSegment, Recording, Segment, SpeakerName, Summary, Transcript } from './model.js';
+import type {
+  RawSegment,
+  Recording,
+  Segment,
+  SegmentHit,
+  SpeakerName,
+  Summary,
+  Transcript,
+} from './model.js';
 
 export interface Clock {
   nowIso(): string;
@@ -168,6 +176,25 @@ export interface RecordingListFilter {
   readonly withoutTranscript?: boolean;
 }
 
+export interface SegmentSearchFilter {
+  /** Only recordings carrying all of these. */
+  readonly tags?: readonly string[];
+  /** Only segments spoken in this language. */
+  readonly language?: string;
+  /** Only these recordings. */
+  readonly recordingIds?: readonly string[];
+  /** How many hits at most. The caller is told when it was reached. */
+  readonly limit?: number;
+  /**
+   * Search only each recording's newest transcript, which is the default.
+   *
+   * A recording re-transcribed with `--force` has several, and searching all
+   * of them returns the same sentence two or three times over -- which reads
+   * as three separate occurrences.
+   */
+  readonly allTranscripts?: boolean;
+}
+
 export interface RecordingStore {
   findRecordingBySha(sha256: string): Promise<Recording | null>;
   getRecording(id: string): Promise<Recording | null>;
@@ -188,6 +215,15 @@ export interface RecordingStore {
    * there" instead of guessing.
    */
   deleteRecording(id: string): Promise<boolean>;
+  /**
+   * Segments matching a full-text query, most relevant first.
+   *
+   * Segments rather than recordings, and never whole transcripts: the question
+   * "where was this discussed" is answered by a timestamp and a line, and
+   * returning the transcript would make the caller read a thousand lines to
+   * find the one they asked for.
+   */
+  searchSegments(match: string, filter: SegmentSearchFilter): Promise<SegmentHit[]>;
   /** Stores a summary and the recordings it covers, in one transaction. */
   insertSummary(summary: Summary): Promise<void>;
   /**

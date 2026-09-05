@@ -2,6 +2,7 @@ export type {
   RawSegment,
   Recording,
   Segment,
+  SegmentHit,
   SpeakerName,
   Summary,
   Transcript,
@@ -16,6 +17,7 @@ export type {
   ManagedRecordingStore,
   RecordingListFilter,
   RecordingStore,
+  SegmentSearchFilter,
   SpeakerTurn,
   SpeechSegmenter,
   SpeechSpan,
@@ -98,6 +100,7 @@ export type { Action, PlanOptions } from './provision/plan.js';
 
 export { planProvisioning, planDownloadBytes } from './provision/plan.js';
 
+export { toMatchExpression } from './search/query.js';
 export { chunkTranscript, estimateTokens, transcriptLine } from './summarize/chunk.js';
 export {
   transcriptFileStem,

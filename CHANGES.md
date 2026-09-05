@@ -410,3 +410,28 @@ show`, `laud rm`, `laud annotate`. `docker ps` still works years after
 - `laud template new one-on-one` on a machine that had never listed templates
   created a file shadowing a built-in, silently, because the built-ins had not
   been written out yet. `new` materialises them before it checks.
+- `laud audio search <words>` finds where something was said. It returns the
+  matching segments -- timestamp, speaker, line -- grouped by recording with
+  each recording's tags in the heading, and never a whole transcript: "where
+  was this discussed" is answered by a line, and handing back a thousand lines
+  to find one is not an answer.
+- Full-text, over the FTS index that has existed since schema version 1 and had
+  no reader. It folds case in every language laud is for -- `встреча` finds
+  `Встреча` -- which a `LIKE` search could not have done, since SQLite's
+  `LOWER()` folds ASCII only.
+- A trailing `*` is a prefix search, worth far more in an inflected language
+  than in English, and a `"quoted run"` is a phrase. Everything else is matched
+  literally: FTS5's own syntax has `AND`, `OR`, `NEAR`, `:` and `-` in it, so a
+  raw query turns `don't` and `C++` into syntax errors and makes a transcript
+  containing the word "AND" unsearchable for it.
+- Only each recording's newest transcript is searched by default. One
+  re-transcribed with `--force` holds the same words two or three times, and
+  returning them all reads as several occurrences. `--all` searches every
+  transcript.
+- `--limit` is never silent: a listing that stops at the limit without saying
+  so reads as "that is all there is".
+- Schema version 7 adds the AFTER UPDATE trigger the FTS index never had. A
+  statement rewriting a segment's text in place would have left the index
+  holding the old words -- finding the recording by a phrase nobody says in it
+  any more, and missing it by the phrase they do. Nothing in laud updates
+  segment text today, so this closes a hole rather than fixing a symptom.

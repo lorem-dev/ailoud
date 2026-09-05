@@ -56,6 +56,28 @@ export interface Summary {
   readonly recordingIds: readonly string[];
 }
 
+/**
+ * One segment that matched a search, with enough around it to be useful alone.
+ *
+ * Carries the recording it came from, not just an id: a hit the caller has to
+ * make a second query to understand is a hit that costs two round trips and,
+ * for an agent, two tool calls.
+ */
+export interface SegmentHit {
+  readonly recordingId: string;
+  readonly recordingTitle: string | null;
+  readonly recordedAt: string;
+  readonly tags: readonly string[];
+  readonly transcriptId: string;
+  readonly segmentId: string;
+  readonly startMs: number;
+  readonly endMs: number;
+  /** The diarizer label, or null. Resolve to a name with the recording's speakers. */
+  readonly speaker: string | null;
+  readonly language: string | null;
+  readonly text: string;
+}
+
 export interface Segment {
   readonly id: string;
   readonly transcriptId: string;

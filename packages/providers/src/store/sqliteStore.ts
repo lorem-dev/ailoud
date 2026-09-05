@@ -5,6 +5,8 @@ import type {
   RecordingListFilter,
   Segment,
   SpeakerName,
+  SegmentHit,
+  SegmentSearchFilter,
   Summary,
   Transcript,
 } from '@laud/core';
@@ -31,6 +33,20 @@ interface TranscriptRow {
   language: string;
   text: string;
   created_at: string;
+}
+
+interface SegmentHitRow {
+  segment_id: string;
+  transcript_id: string;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  speaker: string | null;
+  language: string | null;
+  recording_id: string;
+  title: string | null;
+  recorded_at: string | null;
+  imported_at: string;
 }
 
 interface SummaryRow {
@@ -317,6 +333,77 @@ export class SqliteStore implements ManagedRecordingStore {
          ON CONFLICT (recording_id, label) DO UPDATE SET name = excluded.name`,
       )
       .run(recordingId, label, name);
+  }
+
+  /**
+   * Full-text search over segments.
+   *
+   * `bm25` rather than raw `rank` in the order-by so the sort is explicit
+   * about what it means, and the newest recording wins ties -- of two equally
+   * relevant hits, the recent one is almost always the one being looked for.
+   *
+   * The newest-transcript restriction is a correlated subquery rather than a
+   * join on a grouped query: a recording re-transcribed with --force has
+   * several transcripts holding the same words, and without this the same
+   * sentence comes back two or three times, reading as several occurrences.
+   */
+  async searchSegments(match: string, filter: SegmentSearchFilter): Promise<SegmentHit[]> {
+    const where: string[] = ['segment_fts MATCH ?'];
+    const params: (string | number)[] = [match];
+
+    if (filter.allTranscripts !== true) {
+      where.push(`t.id = (
+        SELECT inner_t.id FROM transcript inner_t
+         WHERE inner_t.recording_id = r.id
+         ORDER BY inner_t.created_at DESC, inner_t.id DESC LIMIT 1
+      )`);
+    }
+    if (filter.language !== undefined) {
+      where.push('s.language = ?');
+      params.push(filter.language);
+    }
+    const ids = filter.recordingIds ?? [];
+    if (ids.length > 0) {
+      where.push(`r.id IN (${ids.map(() => '?').join(', ')})`);
+      params.push(...ids);
+    }
+    for (const tag of filter.tags ?? []) {
+      // One EXISTS per tag: several tags narrow rather than widen, so a
+      // recording must carry all of them -- the same rule `ls --tag` follows.
+      where.push('EXISTS (SELECT 1 FROM tag WHERE tag.recording_id = r.id AND tag.tag = ?)');
+      params.push(tag);
+    }
+
+    const limit = filter.limit ?? 50;
+    const rows = this.db
+      .prepare(
+        `SELECT s.id AS segment_id, s.transcript_id, s.start_ms, s.end_ms, s.text,
+                s.speaker, s.language,
+                r.id AS recording_id, r.title, r.recorded_at, r.imported_at
+           FROM segment_fts f
+           JOIN segment s ON s.rowid = f.rowid
+           JOIN transcript t ON t.id = s.transcript_id
+           JOIN recording r ON r.id = t.recording_id
+          WHERE ${where.join('\n            AND ')}
+          ORDER BY bm25(segment_fts), r.imported_at DESC, s.start_ms
+          LIMIT ?`,
+      )
+      .all(...params, limit) as unknown as SegmentHitRow[];
+
+    const tagsOf = this.db.prepare('SELECT tag FROM tag WHERE recording_id = ? ORDER BY tag');
+    return rows.map((row) => ({
+      recordingId: row.recording_id,
+      recordingTitle: row.title,
+      recordedAt: row.recorded_at ?? row.imported_at,
+      tags: (tagsOf.all(row.recording_id) as unknown as { tag: string }[]).map((t) => t.tag),
+      transcriptId: row.transcript_id,
+      segmentId: row.segment_id,
+      startMs: row.start_ms,
+      endMs: row.end_ms,
+      speaker: row.speaker,
+      language: row.language,
+      text: row.text,
+    }));
   }
 
   async insertSummary(summary: Summary): Promise<void> {

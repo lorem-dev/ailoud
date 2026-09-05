@@ -135,6 +135,24 @@ export const MIGRATIONS: readonly Migration[] = [
       `ALTER TABLE summary ADD COLUMN context TEXT NOT NULL DEFAULT ''`,
     ],
   },
+  {
+    version: 7,
+    statements: [
+      // segment_fts has existed since version 1, with insert and delete
+      // triggers. An UPDATE trigger was missing, so a statement that rewrote a
+      // segment's text in place would leave the index holding the old words:
+      // search would find the recording by a phrase nobody says in it any
+      // more, and miss it by the phrase they do. Nothing in laud updates
+      // segment text today -- re-transcribing inserts a new transcript -- so
+      // this is closing a hole rather than fixing a symptom, which is the
+      // cheapest time to do it.
+      `CREATE TRIGGER segment_fts_update AFTER UPDATE ON segment BEGIN
+         INSERT INTO segment_fts(segment_fts, rowid, text)
+         VALUES ('delete', old.rowid, old.text);
+         INSERT INTO segment_fts(rowid, text) VALUES (new.rowid, new.text);
+       END`,
+    ],
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

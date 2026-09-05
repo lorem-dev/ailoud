@@ -10,6 +10,7 @@ import { registerAnnotate } from './commands/annotate.js';
 import { registerSummarize } from './commands/summarize.js';
 import { registerReports } from './commands/reports.js';
 import { registerTemplate } from './commands/template.js';
+import { registerSearch } from './commands/search.js';
 import { attachLetters, group, inGroupAndTopLevel } from './commands/groups.js';
 import { registerTranscribe } from './commands/transcribe.js';
 import type { CliContext } from './wiring.js';
@@ -72,6 +73,7 @@ export function buildProgram(context: CliContext): Command {
     registerImport,
     registerTranscribe,
     registerSummarize,
+    registerSearch,
     registerLs,
     registerShow,
     registerAnnotate,

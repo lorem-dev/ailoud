@@ -84,6 +84,9 @@ const LETTER: Record<string, string> = {
   summarize: 's',
   // `new` rather than `add`, so `n` does not compete with a verb that exists.
   new: 'n',
+  // `f` for find: `s` is summarize, and search is the verb people reach for
+  // most often after `ls`.
+  search: 'f',
 };
 
 /** Every letter this build assigns, for the collision test to read. */

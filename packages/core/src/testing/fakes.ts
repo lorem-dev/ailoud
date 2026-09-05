@@ -6,6 +6,7 @@ import type {
   Ids,
   ManagedRecordingStore,
   RecordingListFilter,
+  SegmentSearchFilter,
   SpeakerTurn,
   SpeechSegmenter,
   SpeechSpan,
@@ -17,6 +18,7 @@ import type {
   RawSegment,
   Recording,
   Segment,
+  SegmentHit,
   SpeakerName,
   Summary,
   Transcript,
@@ -331,6 +333,52 @@ export class InMemoryStore implements ManagedRecordingStore {
     return [...counts.entries()]
       .map(([tag, count]) => ({ tag, count }))
       .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  }
+
+  /**
+   * Substring search, standing in for the real store's FTS5.
+   *
+   * Deliberately not a reimplementation of FTS5 syntax: this fake exists so a
+   * command's behaviour can be tested, and a second search engine here would
+   * be a second thing to keep correct. It strips the quoting that
+   * toMatchExpression adds and matches case-insensitively on each term.
+   */
+  async searchSegments(match: string, filter: SegmentSearchFilter): Promise<SegmentHit[]> {
+    const terms = [...match.matchAll(/"([^"]*)"/g)].map(([, term]) => term!.toLowerCase());
+    const hits: SegmentHit[] = [];
+    for (const recording of this.recordings.values()) {
+      const ids = filter.recordingIds ?? [];
+      if (ids.length > 0 && !ids.includes(recording.id)) continue;
+      const wanted = filter.tags ?? [];
+      const carried = this.tags.get(recording.id) ?? new Set<string>();
+      if (wanted.some((tag) => !carried.has(tag))) continue;
+
+      const transcripts = [...this.transcripts.values()]
+        .filter((transcript) => transcript.recordingId === recording.id)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      const chosen = filter.allTranscripts === true ? transcripts : transcripts.slice(0, 1);
+      for (const transcript of chosen) {
+        for (const segment of this.segments.get(transcript.id) ?? []) {
+          if (filter.language !== undefined && segment.language !== filter.language) continue;
+          const lower = segment.text.toLowerCase();
+          if (!terms.every((term) => lower.includes(term))) continue;
+          hits.push({
+            recordingId: recording.id,
+            recordingTitle: recording.title,
+            recordedAt: recording.recordedAt ?? recording.importedAt,
+            tags: [...carried].sort(),
+            transcriptId: transcript.id,
+            segmentId: segment.id,
+            startMs: segment.startMs,
+            endMs: segment.endMs,
+            speaker: segment.speaker,
+            language: segment.language,
+            text: segment.text,
+          });
+        }
+      }
+    }
+    return hits.slice(0, filter.limit ?? 50);
   }
 
   async insertSummary(summary: Summary): Promise<void> {
