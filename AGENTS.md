@@ -272,6 +272,10 @@ workflow keeps `develop` from falling behind either way. Both branches are
 protected against deletion and force-push with CI required; an admin can still
 push directly, which is what makes the pre-release flow possible.
 
+The three required checks are the ones that run on a pull request. The
+provisioned end-to-end job is deliberately NOT required: it runs only on push,
+so requiring it would leave every PR waiting for a check that never arrives.
+
 | Tag            | Cut from   | npm dist-tag | Docs |
 | -------------- | ---------- | ------------ | ---- |
 | `v1.2.3-dev.1` | any branch | `dev`        | no   |
