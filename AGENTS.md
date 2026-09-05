@@ -358,6 +358,25 @@ is a token nobody removes:
 | final       | yes             | **refuses**, names the fix |
 | any         | no              | OIDC exchange              |
 
+### What blocks a release
+
+Enforced by `publish.yml`, all of it before anything is built or published:
+
+| Refuses when                                   | Why                                         |
+| ---------------------------------------------- | ------------------------------------------- |
+| the changelog is unfit (`check-changelog.mjs`) | a release nobody can read the notes for     |
+| an open high or critical code scanning alert   | a finding nobody has looked at, shipped     |
+| a manifest disagrees with the tag              | publishes a version nobody asked for        |
+| `NPM_TOKEN` is set on a final tag              | a stored credential outliving its bootstrap |
+| the gate or the end-to-end suite fails         | the ordinary reasons                        |
+| a tarball lacks its LICENCE or README          | what 1.0.0-dev.1 shipped                    |
+
+A code scanning finding counts only while it is `open`. One reviewed and
+explained is `dismissed` with its reason attached and does not block; fixing
+and dismissing are both answers, ignoring is not. The dependency side of the
+same question is the `check-dependencies` skill, which a human runs before
+tagging.
+
 ### Retiring superseded snapshots
 
 Only a production release retires anything, and it happens after the publish

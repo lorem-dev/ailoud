@@ -49,6 +49,9 @@ permissions:
   # only in retire.yml -- publishing itself reads and nothing more.
   contents: write
   id-token: write
+  # Reading code scanning results, to refuse a release that ships a finding
+  # nobody has looked at.
+  security-events: read
 
 concurrency:
   group: npm-publish
@@ -113,6 +116,37 @@ jobs:
         # rather than on tags, so a broken script is caught before a release
         # depends on it.
         run: node scripts/check-changelog.mjs "$TAG"
+
+      - name: Refuse a release carrying unreviewed high-severity findings
+        # The dependency side of this is already enforced -- a --prod advisory
+        # or a version younger than 14 days blocks a release -- while what
+        # CodeQL finds in our own code did not reach here at all. This closes
+        # that asymmetry.
+        #
+        # Only `state=open` counts. A finding that was reviewed and explained
+        # is `dismissed` with its reason attached, and does not block; one
+        # nobody has looked at does. Fixing it and dismissing it are both
+        # answers -- ignoring it is not.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! alerts=$(gh api \
+            "repos/${{ github.repository }}/code-scanning/alerts?state=open&per_page=100" \
+            --jq '[.[] | select(.rule.security_severity_level == "high" or .rule.security_severity_level == "critical")]'); then
+            echo "::error::could not read code scanning results. A release that cannot check"
+            echo "::error::whether it ships a known finding is not one to make blind; fix the"
+            echo "::error::access or the analysis, then re-run."
+            exit 1
+          fi
+          count=$(jq 'length' <<< "$alerts")
+          if [ "$count" -gt 0 ]; then
+            jq -r '.[] | "::error::\(.rule.security_severity_level) \(.rule.id) at \(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line)"' <<< "$alerts"
+            echo "::error::${count} open high or critical code scanning alert(s). Fix them, or"
+            echo "::error::dismiss each with a reason, then re-run this workflow on the tag."
+            exit 1
+          fi
+          echo "no open high or critical code scanning alerts"
 
       - name: Check that the tag matches the version in the manifests
         # A tag that disagrees with package.json publishes a version nobody

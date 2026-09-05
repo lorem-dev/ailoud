@@ -93,8 +93,13 @@ half of what is needed: `pnpm pack` rewrites the `workspace:*` dependencies
 into real versions, which npm requires and will not do itself, and
 `npm publish` is the one with OIDC and provenance.
 
-Before publishing it checks that all three manifests agree with the tag, that
-the changelog is fit to release, and then runs the whole gate.
+Before publishing, and before anything is built, it refuses a release that
+should not happen: a changelog unfit to release, an open high or critical code
+scanning alert, a manifest that disagrees with the tag, or the `NPM_TOKEN`
+secret still set on a final tag. Then it runs the whole gate.
+
+A code scanning finding blocks only while it is open. One that has been
+reviewed is dismissed with its reason and does not block.
 
 ## Retiring pre-releases
 
