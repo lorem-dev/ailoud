@@ -11,8 +11,11 @@ coverage/
 .DS_Store
 .idea/
 *.swp
-.claude/
-.codegraph/
+# `.claude/*`, not `.claude/`: git cannot re-include a file whose parent
+# directory is excluded by a pattern ending in a slash, so the negation below
+# was silently doing nothing.
+.claude/*
+!.claude/settings.json
 .worktrees/
 TODO*.md
 .superpowers/
