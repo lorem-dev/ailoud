@@ -1,8 +1,16 @@
 import type { PublishedVersion, VersionSource } from '@ailoud/core';
 import { FailureError } from '@ailoud/core';
 
-const REGISTRY = 'https://registry.npmjs.org';
-const TIMEOUT_MS = 10_000;
+/**
+ * Exported so callers report the same host and wait that this class would use
+ * by default. Two copies of these numbers drift, and then `self check` names a
+ * timeout the registry client never applied.
+ */
+export const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
+export const DEFAULT_TIMEOUT_MS = 10_000;
+
+const REGISTRY = DEFAULT_REGISTRY;
+const TIMEOUT_MS = DEFAULT_TIMEOUT_MS;
 
 export interface NpmRegistryOptions {
   readonly registry?: string;

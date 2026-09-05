@@ -42,9 +42,14 @@ export async function checkForUpdate(context: CliContext): Promise<SelfCheckResu
     published = await context.versionSource.published(PACKAGE_NAME);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
+    // Name the timeout only when it WAS one. NpmRegistry already reports an
+    // HTTP status or an unreadable body accurately, and wrapping those in
+    // "timed out" sends the user to check a network that answered fine.
+    const timedOut =
+      error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+    const how = timedOut ? ` (timed out after ${context.updateTimeoutMs}ms)` : '';
     throw new FailureError(
-      `ailoud could not check ${context.updateRegistryHost} for a newer version ` +
-        `(timed out after ${context.updateTimeoutMs}ms): ${reason}`,
+      `ailoud could not check ${context.updateRegistryHost} for a newer version${how}: ${reason}`,
     );
   }
   const target = chooseUpdateTarget(VERSION, published);

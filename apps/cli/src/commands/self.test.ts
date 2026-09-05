@@ -71,7 +71,11 @@ describe('ailoud self check', () => {
       .catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(FailureError);
     expect((error as Error).message).toContain('registry.npmjs.org');
-    expect((error as Error).message).toContain('10000ms');
+    // NOT asserting a timeout here: "fetch failed" is a refused connection or
+    // a bad name, and calling it a timeout sends the user to the wrong place.
+    // The underlying reason has to survive instead.
+    expect((error as Error).message).toContain('fetch failed');
+    expect((error as Error).message).not.toContain('timed out');
     expect(exitCodeFor(error)).toBe(1);
   });
 
@@ -320,5 +324,43 @@ describe('ailoud self sync (CLI)', () => {
     expect(ctx.lines.some((line) => line.startsWith('failed:') && line.includes('/proj/a'))).toBe(
       true,
     );
+  });
+});
+
+describe('the failure message found in review', () => {
+  const throwing = (error: Error) => ({
+    published: async (): Promise<readonly PublishedVersion[]> => {
+      throw error;
+    },
+  });
+
+  const messageFrom = async (error: Error): Promise<string> => {
+    const ctx = {
+      ...context(),
+      updateRegistryHost: 'registry.npmjs.org',
+      updateTimeoutMs: 10_000,
+      versionSource: throwing(error),
+    };
+    const caught: unknown = await buildProgram(ctx)
+      .parseAsync(['node', 'ailoud', 'self', 'check'])
+      .catch((thrown: unknown) => thrown);
+    expect(caught).toBeInstanceOf(FailureError);
+    return (caught as Error).message;
+  };
+
+  it('does not call an HTTP error a timeout', async () => {
+    // NpmRegistry already reports a status, or an unreadable body, accurately.
+    // Framing every failure as "timed out" sent the user off to check a
+    // network that had answered perfectly well.
+    const message = await messageFrom(new Error('the npm registry answered 503 for ailoud'));
+    expect(message).toContain('503');
+    expect(message).not.toContain('timed out');
+  });
+
+  it('does call an actual timeout a timeout, with the wait', async () => {
+    const timeout = new Error('The operation was aborted due to timeout');
+    timeout.name = 'TimeoutError';
+    const message = await messageFrom(timeout);
+    expect(message).toContain('timed out after 10000ms');
   });
 });

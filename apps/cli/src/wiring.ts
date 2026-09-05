@@ -16,6 +16,8 @@ import { EnvironmentError, isHostedLlm } from '@ailoud/core';
 import {
   AnthropicSummarizer,
   ClaudeCliSummarizer,
+  DEFAULT_REGISTRY,
+  DEFAULT_TIMEOUT_MS,
   FfmpegAudioTool,
   LlamaCppSummarizer,
   NodeFs,
@@ -40,8 +42,8 @@ import { apiKeyFrom } from './apiKey.js';
  * whether to look, never where -- there is one npm registry this project
  * publishes to, and no user has a reason to point ailoud at another one.
  */
-const UPDATE_REGISTRY = 'https://registry.npmjs.org';
-const UPDATE_TIMEOUT_MS = 10_000;
+const UPDATE_REGISTRY = DEFAULT_REGISTRY;
+const UPDATE_TIMEOUT_MS = DEFAULT_TIMEOUT_MS;
 
 export interface CliContext {
   readonly paths: AiloudPaths;
