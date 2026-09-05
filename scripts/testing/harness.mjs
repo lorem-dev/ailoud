@@ -52,11 +52,22 @@ export function makeSandbox(changes) {
  * spawnSync rather than execFileSync: the latter returns stdout only, and
  * throws away stderr on success -- which is exactly where a warning goes. A
  * soft-limit test could never have seen it.
+ *
+ * The environment is scrubbed of every GITHUB_ variable. Two of them change
+ * what the scripts do -- `GITHUB_REF_NAME` is the tag fallback, and
+ * `GITHUB_ACTIONS` moves warnings from stderr to a `::warning::` line on
+ * stdout -- so leaving them in place makes these tests pass on a laptop and
+ * fail on the runner, which is exactly how two of them first went red.
+ * Tests that want that behaviour ask for it through `env`.
  */
-export function run(dir, script, args = [], cwd = REPO) {
+export function run(dir, script, args = [], { cwd = REPO, env = {} } = {}) {
+  const scrubbed = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith('GITHUB_')),
+  );
   const result = spawnSync(process.execPath, [join(dir, 'scripts', script), ...args], {
     encoding: 'utf8',
     cwd,
+    env: { ...scrubbed, ...env },
   });
   return {
     code: result.status ?? 1,

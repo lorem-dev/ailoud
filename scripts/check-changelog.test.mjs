@@ -78,4 +78,27 @@ describe('check-changelog', () => {
     const dir = makeSandbox(changes('## Development\n'));
     expect(run(dir, 'check-changelog.mjs').stderr).toMatch(/no tag given/);
   });
+
+  it('falls back to $GITHUB_REF_NAME, which is how the workflow calls it', () => {
+    const dir = makeSandbox(changes('## Development\n\n## Version 1.0.0\n\n- One.\n'));
+    const result = run(dir, 'check-changelog.mjs', [], { env: { GITHUB_REF_NAME: 'v1.0.0' } });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toMatch(/1\.0\.0 is ready/);
+  });
+
+  it('warns as a GitHub annotation when it runs on a runner', () => {
+    // ::warning:: goes to stdout and shows up on the run summary; the plain
+    // warning goes to stderr. Both paths are exercised because CI once saw
+    // one of them and no test ever had.
+    const body = `## Development\n\n## Version 1.0.0\n\n${entries(12)}\n`;
+    const annotated = run(makeSandbox(body), 'check-changelog.mjs', ['1.0.0'], {
+      env: { GITHUB_ACTIONS: 'true' },
+    });
+    expect(annotated.stdout).toMatch(/::warning::.*soft limit of 10/);
+    expect(annotated.stderr).toBe('');
+
+    const plain = run(makeSandbox(body), 'check-changelog.mjs', ['1.0.0']);
+    expect(plain.stderr).toMatch(/soft limit of 10/);
+    expect(plain.stdout).not.toContain('::warning::');
+  });
 });

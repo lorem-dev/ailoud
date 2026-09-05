@@ -51,7 +51,7 @@ describe('retire-prereleases', () => {
 
   it('plans the deprecations and the deletions it can make safely', () => {
     const dir = makeTaggedSandbox();
-    const { code, stdout } = run(dir, 'retire-prereleases.mjs', ['1.0.0'], dir);
+    const { code, stdout } = run(dir, 'retire-prereleases.mjs', ['1.0.0'], { cwd: dir });
     expect(code).toBe(0);
     expect(stdout).toContain('deprecate ailoud@1.0.0-dev.1');
     expect(stdout).toContain('deprecate @ailoud/core@1.0.0-dev.2');
@@ -61,7 +61,7 @@ describe('retire-prereleases', () => {
 
   it('keeps a tag whose commit is not reachable from main', () => {
     const dir = makeTaggedSandbox();
-    const { stdout, stderr } = run(dir, 'retire-prereleases.mjs', ['1.0.0'], dir);
+    const { stdout, stderr } = run(dir, 'retire-prereleases.mjs', ['1.0.0'], { cwd: dir });
     expect(stdout).not.toContain('delete tag v1.0.0-dev.2');
     expect(stderr).toMatch(/keeping v1\.0\.0-dev\.2/);
   });
@@ -69,7 +69,7 @@ describe('retire-prereleases', () => {
   it('changes nothing at all without --yes', () => {
     const dir = makeTaggedSandbox();
     const before = spawnSync('git', ['tag', '--list'], { cwd: dir, encoding: 'utf8' }).stdout;
-    const result = run(dir, 'retire-prereleases.mjs', ['1.0.0'], dir);
+    const result = run(dir, 'retire-prereleases.mjs', ['1.0.0'], { cwd: dir });
     expect(result.stdout).toMatch(/Re-run with --yes/);
     const after = spawnSync('git', ['tag', '--list'], { cwd: dir, encoding: 'utf8' }).stdout;
     expect(after).toBe(before);

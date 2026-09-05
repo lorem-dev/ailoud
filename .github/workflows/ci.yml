@@ -50,14 +50,8 @@ jobs:
         with:
           lfs: true
 
-      - name: Enable pnpm via corepack
-        run: corepack enable
-
-      - name: Set up Node.js 24 with pnpm cache
-        uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: pnpm
+      - name: Set up Node.js 24 and pnpm
+        uses: ./.github/actions/setup-node-pnpm
 
       - name: Install ffmpeg
         # packages/providers/src/audio/ffmpeg.test.ts spawns the real binary to
@@ -100,14 +94,8 @@ jobs:
         with:
           lfs: true
 
-      - name: Enable pnpm via corepack
-        run: corepack enable
-
-      - name: Set up Node.js 24 with pnpm cache
-        uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: pnpm
+      - name: Set up Node.js 24 and pnpm
+        uses: ./.github/actions/setup-node-pnpm
 
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
@@ -134,14 +122,8 @@ jobs:
           # transcribes pointer files.
           lfs: true
 
-      - name: Enable pnpm via corepack
-        run: corepack enable
-
-      - name: Set up Node.js 24 with pnpm cache
-        uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: pnpm
+      - name: Set up Node.js 24 and pnpm
+        uses: ./.github/actions/setup-node-pnpm
 
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
