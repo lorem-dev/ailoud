@@ -15,6 +15,16 @@
 | `v<version>-rc.<n>` | a release candidate, tagged on `develop` |
 | `v<version>`        | a final release, tagged on `main` only   |
 
+## Changelog limits
+
+`CHANGES.md` has a soft limit of 10 entries per version and a hard limit of 50.
+`scripts/release-notes.mjs` warns past the first and refuses past the second.
+
+Entries describe what a user can now do, or what changed under them. Anything
+fixed before it shipped is left out entirely -- if no released version had the
+bug, there is nothing to say. See
+[AGENTS.md](https://github.com/lorem-dev/ailoud/blob/main/AGENTS.md).
+
 ## Steps
 
 1. Run the `pre-release-check` skill. It runs the whole gate plus the
@@ -22,7 +32,16 @@
 2. Run the `bump-version` skill. It sets the version across every
    `package.json`, promotes the CHANGES.md Development section, and makes the
    release commit. It does not tag or push.
-3. Merge to `main` and tag:
+3. Extract the release body:
+
+   ```
+   node scripts/release-notes.mjs v1.2.3
+   ```
+
+   It reads the `## Version 1.2.3` section and writes `RELEASE_NOTES.md`. It
+   exits non-zero if that section is missing, empty, or over the hard limit.
+
+4. Merge to `main` and tag:
 
    ```
    git tag -s v1.2.3 -m "v1.2.3"

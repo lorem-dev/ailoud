@@ -257,6 +257,66 @@ Run the `check-docs` skill after changing any command or option.
 
 ---
 
+## The Changelog
+
+`CHANGES.md` is for someone deciding whether to upgrade. It is not a commit
+log: how the code got this way belongs in commit messages and code comments,
+which survive and are searchable.
+
+### Limits
+
+Counted per version section, across all its subsections:
+
+| Limit | Count | Means                                                   |
+| ----- | ----- | ------------------------------------------------------- |
+| soft  | 10    | aim for this; over it, look for entries to merge or cut |
+| hard  | 50    | a release must not ship with more                       |
+
+`scripts/release-notes.mjs` enforces both at release time -- it warns past the
+soft limit and exits non-zero past the hard one, because that is the last point
+before the notes reach anyone.
+
+### What goes in
+
+- A feature, option or command a user can now use.
+- A change in behaviour they would otherwise be surprised by.
+- A fix for something that was **broken in a released version**.
+- A removal, or anything needing action on upgrade.
+
+### What stays out
+
+- Anything fixed before it ever shipped. If no released version had the bug,
+  the changelog has nothing to say about it. Before the first release, that is
+  every fix -- and the reason this file is 14 entries rather than 158.
+- Refactoring, test changes, CI, internal renames, dependency bumps with no
+  user-visible effect.
+- The reasoning behind a change. One clause of why is fine where it changes
+  what a reader does; an essay is not.
+
+### Form
+
+One entry per user-visible thing, present tense, active voice. Name the command
+or option in backticks so it is greppable. Wrap at 80 columns, ASCII only.
+
+Merge before you cut: four entries about one feature usually want to be one
+entry that names the feature.
+
+### Sections
+
+`## Development` collects unreleased entries. `bump-version` promotes it to
+`## Version <v>`, and `release-notes.mjs` extracts that section into
+`RELEASE_NOTES.md` for the GitHub release body:
+
+```
+node scripts/release-notes.mjs v1.2.3
+```
+
+That heading format is a contract between the two scripts and the file. The
+same rules are repeated as a comment at the top of `CHANGES.md`, where someone
+about to add an entry will actually see them.
+
+---
+
 ## Local Development Skills
 
 Seven skills live under `.agents/skills/`. Invoke them when the situation
@@ -265,7 +325,7 @@ calls for it:
 | Skill                   | When to use                                                                                                                                                                                                                      |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `bump-version`          | To start a release -- set the version across every `package.json` and promote the CHANGES.md Development section, then make the release commit. Does not tag or push.                                                            |
-| `check-changes`         | After a batch of commits -- verify CHANGES.md (Development section) reflects every change.                                                                                                                                       |
+| `check-changes`         | After a batch of commits -- verify CHANGES.md (Development section) reflects every user-visible change, and stays inside the limits above.                                                                                       |
 | `check-docs`            | Before a release or after updating commands/options -- verify README.md and AGENTS.md are current.                                                                                                                               |
 | `check-licenses`        | After editing any `package.json` -- verify all npm dependencies are license-compliant and update LICENSE.                                                                                                                        |
 | `run-tests-and-linters` | Before marking any task done -- run the full gate (build, format check, lint, typecheck, test:cov at 90%).                                                                                                                       |
