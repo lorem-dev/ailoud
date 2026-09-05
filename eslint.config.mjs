@@ -12,28 +12,36 @@ const LAYER_MAY_IMPORT = {
 
 export default tseslint.config(
   {
-    // scripts/** holds plain Node utility scripts (release tooling, not
-    // part of the typed packages/apps source tree); node --check is their
-    // syntax gate instead.
     ignores: [
       '**/dist/**',
       '**/coverage/**',
       '**/node_modules/**',
       // mkdocs build output: third-party minified JS, not ours to lint.
       'site/**',
-      'scripts/**',
     ],
   },
   {
-    // The build's own configuration files. Previously ignored, which meant
-    // every editor reported "File ignored because of a matching ignore
-    // pattern" on opening one -- and meant a mistake in them was caught by
-    // nothing. They are Node, not part of the typed source tree, so they get
-    // the recommended rules and Node globals rather than the type-aware
-    // config that the packages use.
-    files: ['*.config.{js,mjs,cjs,ts}', '**/*.config.{js,mjs,cjs,ts}'],
+    // The build's configuration and the release scripts. Both were ignored,
+    // which meant every editor reported "File ignored because of a matching
+    // ignore pattern" on opening one, and a mistake in them was caught by
+    // nothing -- `node --check` was the only gate on scripts/, and it sees
+    // syntax, not an unused variable or a misspelled identifier. They are
+    // Node, not part of the typed source tree, so they get the recommended
+    // rules and Node globals rather than the type-aware config.
+    files: ['*.config.{js,mjs,cjs,ts}', '**/*.config.{js,mjs,cjs,ts}', 'scripts/**/*.mjs'],
     languageOptions: {
-      globals: { module: 'writable', require: 'readonly', __dirname: 'readonly' },
+      // The Node globals these files actually use. Spelled out rather than
+      // pulled from a globals package: it is a short list, and a new name
+      // appearing here should be a deliberate addition.
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        module: 'writable',
+        require: 'readonly',
+        __dirname: 'readonly',
+        Buffer: 'readonly',
+        URL: 'readonly',
+      },
     },
     rules: {
       // A .cjs file uses require/module, which the type-aware rules would

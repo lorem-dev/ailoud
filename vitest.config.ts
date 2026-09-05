@@ -16,7 +16,15 @@ export default defineConfig({
     // Jest's e2e config only ever matches e2e/tests/**/*.spec.ts, a
     // different directory and suffix, so the two runners never collect
     // each other's files.
-    include: ['packages/*/src/**/*.test.ts', 'apps/*/src/**/*.test.ts', 'e2e/src/**/*.test.ts'],
+    include: [
+      'packages/*/src/**/*.test.ts',
+      'apps/*/src/**/*.test.ts',
+      'e2e/src/**/*.test.ts',
+      // The release scripts are plain .mjs, so their tests are too -- no TS
+      // project covers scripts/, and adding one for four files would be more
+      // configuration than the files are.
+      'scripts/**/*.test.mjs',
+    ],
     environment: 'node',
     passWithNoTests: true,
     coverage: {

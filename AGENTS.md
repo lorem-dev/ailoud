@@ -289,6 +289,20 @@ install. `publish.yml` refuses a tag that disagrees with any manifest version.
 Use the `dev-tag` skill for a snapshot; `bump-version` then `pre-release-check`
 for a release.
 
+Cutting a final tag folds its pre-release sections back into one:
+
+```
+node scripts/fold-prereleases.mjs 1.0.0   # merges 1.0.0-dev.* and Development
+node scripts/check-changelog.mjs v1.0.0   # refuses if anything is left over
+```
+
+`publish.yml` runs the check on every tag before it builds anything. The limits
+live in `scripts/lib/changelog.mjs` and are quoted, not restated, everywhere
+else -- a limit that differs between the script that warns and the script that
+refuses is worse than no limit. The scripts have tests
+(`scripts/**/*.test.mjs`), which run in CI on branches and pull requests but
+not on tags.
+
 ---
 
 ## The Changelog

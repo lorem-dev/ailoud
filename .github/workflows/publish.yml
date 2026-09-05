@@ -90,6 +90,19 @@ jobs:
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
+      - name: Check the changelog is fit to release
+        # First, and before the gate: a version number can never be reused and
+        # the unpublish window is 72 hours, so every reason to refuse should be
+        # found while refusing is still free. This checks the section exists and
+        # has entries, that it is inside the hard limit, that nothing is
+        # stranded under Development, and -- for a final tag -- that its
+        # pre-release sections were folded.
+        #
+        # The scripts' own tests run in ci.yml, on branches and pull requests
+        # rather than on tags, so a broken script is caught before a release
+        # depends on it.
+        run: node scripts/check-changelog.mjs
+
       - name: Check that the tag matches the version in the manifests
         # A tag that disagrees with package.json publishes a version nobody
         # asked for, under a tag that points at different code.
