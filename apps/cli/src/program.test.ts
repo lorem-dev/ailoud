@@ -1,3 +1,4 @@
+import type { Command } from 'commander';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseConfig } from './config.js';
 import { EnvironmentError, FailureError, UsageError } from '@ailoud/core';
@@ -154,15 +155,27 @@ describe('buildProgram', () => {
     expect(program.description()).toContain('audio-to-text');
   });
 
+  /**
+   * Commander writes its usage errors straight to stderr, which is right for
+   * a CLI and wrong for a test run: two of the tests below made every
+   * `pnpm test` print "error: unknown option", so a real error in the log had
+   * to be picked out of expected noise. Only stderr is silenced -- writeOut is
+   * how buildProgram routes help through context.write, which one of these
+   * tests asserts on.
+   */
+  function quiet(program: Command): Command {
+    return program.configureOutput({ writeErr: () => {} });
+  }
+
   it('throws instead of exiting the process on an unknown flag', async () => {
-    const program = buildProgram(makeContext());
+    const program = quiet(buildProgram(makeContext()));
     await expect(program.parseAsync(['node', 'ailoud', '--bogus'])).rejects.toMatchObject({
       code: 'commander.unknownOption',
     });
   });
 
   it('maps an unknown flag to exit code 2 end to end', async () => {
-    const program = buildProgram(makeContext());
+    const program = quiet(buildProgram(makeContext()));
     const error: unknown = await program
       .parseAsync(['node', 'ailoud', '--bogus'])
       .catch((caught: unknown) => caught);
@@ -186,7 +199,7 @@ describe('buildProgram', () => {
     // raise 'commander.help' with its own exitCode of 1. That is a usage
     // error (nothing was told what to do), not a normal failure, so it must
     // map to 2 here, not fall through as 1.
-    const program = buildProgram(makeContext());
+    const program = quiet(buildProgram(makeContext()));
     const error: unknown = await program
       .parseAsync(['node', 'ailoud'])
       .catch((caught: unknown) => caught);
