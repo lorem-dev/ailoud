@@ -12,6 +12,11 @@ export type Register = (parent: Command, context: CliContext) => void;
  * `gh pr list`, `kubectl get pod`): `ailoud report rm SUM0` reads as removing one
  * report, while `ailoud reports rm SUM0` reads as removing all of them.
  *
+ * `plural` is optional: `self` has no plural. `selves` would put a word in
+ * `--help` nobody would ever type, and passing `self` as both the name and
+ * the alias makes commander throw on an alias equal to the name. A noun
+ * declared without one gets exactly its singular name and nothing else.
+ *
  * No `.action()` handler, deliberately. A bare `ailoud audio` already prints
  * its verb list -- commander does that for any command with subcommands and
  * no action of its own -- and adding one to force it cost two behaviours that
@@ -23,10 +28,12 @@ export type Register = (parent: Command, context: CliContext) => void;
 export function group(
   program: Command,
   name: string,
-  plural: string,
+  plural: string | undefined,
   description: string,
 ): Command {
-  return program.command(name).alias(plural).description(description).showHelpAfterError();
+  const command = program.command(name).description(description).showHelpAfterError();
+  if (plural !== undefined) command.alias(plural);
+  return command;
 }
 
 /**
@@ -91,6 +98,7 @@ const LETTER: Record<string, string> = {
   // `f` for find: `s` is summarize, and search is the verb people reach for
   // most often after `ls`.
   search: 'f',
+  check: 'c',
 };
 
 /** Every letter this build assigns, for the collision test to read. */

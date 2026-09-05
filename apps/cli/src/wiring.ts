@@ -9,6 +9,7 @@ import type {
   SpeechSegmenter,
   Summarizer,
   TranscriptionProvider,
+  VersionSource,
 } from '@ailoud/core';
 import { existsSync, statSync } from 'node:fs';
 import { EnvironmentError, isHostedLlm } from '@ailoud/core';
@@ -18,6 +19,7 @@ import {
   FfmpegAudioTool,
   LlamaCppSummarizer,
   NodeFs,
+  NpmRegistry,
   OpenAiCompatibleSummarizer,
   SherpaDiarizer,
   SystemClock,
@@ -31,6 +33,15 @@ import type { AiloudConfig, AiloudPaths } from './config.js';
 import { createUi } from './ui/index.js';
 import type { Ui } from './ui/index.js';
 import { apiKeyFrom } from './apiKey.js';
+
+/**
+ * Where `ailoud self check` looks for newer versions, and how long it waits.
+ * Not read from AiloudConfig: the schema's `update.check` key is only
+ * whether to look, never where -- there is one npm registry this project
+ * publishes to, and no user has a reason to point ailoud at another one.
+ */
+const UPDATE_REGISTRY = 'https://registry.npmjs.org';
+const UPDATE_TIMEOUT_MS = 10_000;
 
 export interface CliContext {
   readonly paths: AiloudPaths;
@@ -85,6 +96,22 @@ export interface CliContext {
    * missing.
    */
   createDiarizer(): Diarizer;
+  /**
+   * What versions of ailoud are published, for `ailoud self check`. A port,
+   * not `NpmRegistry` directly, the same way every other engine on this
+   * context is: `createContext` is the only place that knows which provider
+   * backs it.
+   */
+  readonly versionSource: VersionSource;
+  /**
+   * The registry host and timeout `versionSource` was built with. Kept
+   * alongside it rather than read back off it: `VersionSource` only
+   * promises `published()`, so a failed lookup could not otherwise name
+   * where it looked or how long it waited before giving up -- exactly what
+   * a check that could not run must report.
+   */
+  readonly updateRegistryHost: string;
+  readonly updateTimeoutMs: number;
 }
 
 async function readConfigFile(path: string): Promise<string | null> {
@@ -235,5 +262,8 @@ export async function createContext(
         threads: config.stt.diarization.threads,
       });
     },
+    versionSource: new NpmRegistry({ registry: UPDATE_REGISTRY, timeoutMs: UPDATE_TIMEOUT_MS }),
+    updateRegistryHost: new URL(UPDATE_REGISTRY).host,
+    updateTimeoutMs: UPDATE_TIMEOUT_MS,
   };
 }

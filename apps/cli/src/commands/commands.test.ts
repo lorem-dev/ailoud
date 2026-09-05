@@ -1,8 +1,25 @@
 import { describe, expect, it } from 'vitest';
+import { Command } from 'commander';
 import { FailureError } from '@ailoud/core';
 import { buildProgram } from '../program.js';
 import { context } from './testContext.js';
 import { parseLanguages } from './transcribe.js';
+import { group } from './groups.js';
+
+describe('group', () => {
+  it('gives a noun without a plural exactly one name', () => {
+    const program = new Command();
+    group(program, 'self', undefined, 'manage this installation');
+    const self = program.commands.find((c) => c.name() === 'self')!;
+    expect(self.aliases()).toEqual([]);
+  });
+
+  it('still aliases a noun that has a plural', () => {
+    const program = new Command();
+    group(program, 'report', 'reports', 'saved reports');
+    expect(program.commands.find((c) => c.name() === 'report')!.aliases()).toEqual(['reports']);
+  });
+});
 
 describe('ailoud import', () => {
   it('prints the id of an imported recording', async () => {

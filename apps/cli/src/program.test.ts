@@ -150,6 +150,11 @@ describe('buildProgram', () => {
         contextTokens: 8192,
         complete: async () => 'x',
       }),
+      // A fixed list, never the network: this suite drives buildProgram
+      // end to end, and no test here exercises `self check` itself.
+      versionSource: { published: async () => [{ version: '1.0.0', deprecated: false }] },
+      updateRegistryHost: 'registry.npmjs.org',
+      updateTimeoutMs: 10_000,
     };
   }
 

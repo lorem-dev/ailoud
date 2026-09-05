@@ -1,4 +1,11 @@
-import type { Diarizer, SpeechSegmenter, Summarizer, TranscriptionProvider } from '@ailoud/core';
+import type {
+  Diarizer,
+  PublishedVersion,
+  SpeechSegmenter,
+  Summarizer,
+  TranscriptionProvider,
+  VersionSource,
+} from '@ailoud/core';
 import { parseConfig } from '../config.js';
 import {
   FakeAudioTool,
@@ -114,6 +121,15 @@ export function context(): CliContext & {
       };
       return summarizer;
     },
+    // Reports no update by default -- a fixed list, never the network.
+    // Specs that care about `self check` override this field directly.
+    versionSource: {
+      published: async (): Promise<readonly PublishedVersion[]> => [
+        { version: '1.0.0', deprecated: false },
+      ],
+    } satisfies VersionSource,
+    updateRegistryHost: 'registry.npmjs.org',
+    updateTimeoutMs: 10_000,
   };
 }
 
