@@ -550,6 +550,7 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
         dbFile: join(scopedDir, 'ailoud.db'),
         mediaRoot: join(scopedDir, 'media'),
         isProjectLibrary: false,
+        userDataDir: scopedDir,
       },
       config: {
         stt: {
@@ -580,6 +581,7 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
             model: join(scopedDir, 'llm-model.gguf'),
           },
         },
+        update: parseConfig(null).update,
       },
     };
   }
@@ -691,6 +693,7 @@ describe('doctor: an unconfigured optional feature does not mean "not ready"', (
         dbFile: join(dataDir, 'ailoud.db'),
         mediaRoot: join(dataDir, 'media'),
         isProjectLibrary: false,
+        userDataDir: dataDir,
       },
       config: {
         stt: {
@@ -710,6 +713,7 @@ describe('doctor: an unconfigured optional feature does not mean "not ready"', (
           },
         },
         llm: parseConfig(null).llm,
+        update: parseConfig(null).update,
       },
     };
   }
@@ -833,6 +837,7 @@ describe('a corrupt database: every entry point must refuse', () => {
         dbFile: join(corruptDir, 'ailoud.db'),
         mediaRoot: join(corruptDir, 'media'),
         isProjectLibrary: false,
+        userDataDir: corruptDir,
       },
       config: {
         stt: {
@@ -864,6 +869,7 @@ describe('a corrupt database: every entry point must refuse', () => {
             model: join(corruptDir, 'llm-model.gguf'),
           },
         },
+        update: parseConfig(null).update,
       },
     };
   }

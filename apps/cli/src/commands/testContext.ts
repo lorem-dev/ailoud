@@ -50,6 +50,7 @@ export function context(): CliContext & {
       dbFile: '/d/ailoud.db',
       mediaRoot: '/d/media',
       isProjectLibrary: false,
+      userDataDir: '/d',
     },
     config: {
       stt: {
@@ -67,6 +68,7 @@ export function context(): CliContext & {
         },
       },
       llm: parseConfig(null).llm,
+      update: parseConfig(null).update,
     },
     store: new InMemoryStore(),
     fs: new MemFs({ [FIXTURE_PATH]: 'AUDIO' }),

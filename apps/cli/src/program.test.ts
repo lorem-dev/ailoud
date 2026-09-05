@@ -112,6 +112,7 @@ describe('buildProgram', () => {
         dbFile: ':memory:',
         mediaRoot: '/fake/data/media',
         isProjectLibrary: false,
+        userDataDir: '/fake/data',
       },
       config: {
         stt: {
@@ -131,6 +132,7 @@ describe('buildProgram', () => {
           },
         },
         llm: parseConfig(null).llm,
+        update: parseConfig(null).update,
       },
       store,
       fs: new MemFs(),

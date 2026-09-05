@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EnvironmentError } from '@ailoud/core';
-import { parseConfig, resolvePaths } from './config.js';
+import { ConfigSchema, parseConfig, resolvePaths } from './config.js';
 
 describe('resolvePaths', () => {
   it('honours both XDG variables', () => {
@@ -10,6 +10,7 @@ describe('resolvePaths', () => {
       dbFile: '/d/ailoud/ailoud.db',
       mediaRoot: '/d/ailoud/media',
       isProjectLibrary: false,
+      userDataDir: '/d/ailoud',
     });
   });
 
@@ -20,12 +21,25 @@ describe('resolvePaths', () => {
       dbFile: '/h/.local/share/ailoud/ailoud.db',
       mediaRoot: '/h/.local/share/ailoud/media',
       isProjectLibrary: false,
+      userDataDir: '/h/.local/share/ailoud',
     });
   });
 
   it('fails clearly when HOME is unset', () => {
     expect(() => resolvePaths({})).toThrow(/HOME/);
     expect(() => resolvePaths({})).toThrow(EnvironmentError);
+  });
+
+  it('reports the per-user data directory even inside a project', () => {
+    const paths = resolvePaths(
+      { HOME: '/home/x', XDG_DATA_HOME: '/home/x/.local/share' },
+      { cwd: '/repo/sub', exists: (p) => p === '/repo/.ailoud' },
+    );
+    // dataDir follows the project; userDataDir must not. The registry, the
+    // update-check cache and the log all live per user, and a registry inside
+    // a project would list only that project.
+    expect(paths.dataDir).toBe('/repo/.ailoud');
+    expect(paths.userDataDir).toBe('/home/x/.local/share/ailoud');
   });
 });
 
@@ -77,7 +91,14 @@ describe('parseConfig', () => {
           contextTokens: 200_000,
         },
       },
+      update: {
+        check: true,
+      },
     });
+  });
+
+  it('defaults the update check to on', () => {
+    expect(ConfigSchema.parse({}).update.check).toBe(true);
   });
 
   it('reads the whisper binary and model', () => {

@@ -9,7 +9,7 @@ import { EnvironmentError, LLM_PROVIDERS, UsageError } from '@ailoud/core';
 // contradicts the requirement that `.default({})` fills in the rest, so
 // nested objects use `.prefault()` instead, which re-parses the default
 // value through the inner schema (the pre-Zod-4 `.default()` behaviour).
-const ConfigSchema = z.object({
+export const ConfigSchema = z.object({
   stt: z
     .object({
       provider: z.enum(['whisper-cpp']).default('whisper-cpp'),
@@ -84,6 +84,12 @@ const ConfigSchema = z.object({
         .prefault({}),
     })
     .prefault({}),
+  update: z
+    .object({
+      /** Look for a newer version once a day and mention it after a command. */
+      check: z.boolean().default(true),
+    })
+    .prefault({}),
 });
 
 export type AiloudConfig = z.infer<typeof ConfigSchema>;
@@ -95,6 +101,14 @@ export interface AiloudPaths {
   readonly mediaRoot: string;
   /** True when the library came from a project's `.ailoud/`, not the user's home. */
   readonly isProjectLibrary: boolean;
+  /**
+   * The user's own `<data home>/ailoud`, regardless of `dataDir`. Things that
+   * are properties of the user rather than of a project -- the registry of
+   * projects ailoud has been used in, the update-check cache, the update log
+   * -- read and write here so that being inside a project library never
+   * scopes them down to that one project.
+   */
+  readonly userDataDir: string;
 }
 
 /** The directory name a project uses to keep its own library. */
@@ -182,6 +196,7 @@ export function resolvePaths(
     dbFile: `${dataDir}/ailoud.db`,
     mediaRoot: `${dataDir}/media`,
     isProjectLibrary: project !== null,
+    userDataDir: `${dataHome}/ailoud`,
   };
 }
 

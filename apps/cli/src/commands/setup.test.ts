@@ -1002,6 +1002,7 @@ describe('runProvisioning', () => {
       },
     },
     llm: parseConfig(null).llm,
+    update: parseConfig(null).update,
   };
 
   /** A failing check carrying `remedy`, shaped the way runChecks would emit it. */
@@ -1044,6 +1045,7 @@ describe('runProvisioning', () => {
       dbFile: join(tmp, 'data', 'ailoud.db'),
       mediaRoot: join(tmp, 'data', 'media'),
       isProjectLibrary: false,
+      userDataDir: join(tmp, 'data'),
     };
     await mkdir(paths.mediaRoot, { recursive: true });
     for (const fn of Object.values(providers)) fn.mockReset();
