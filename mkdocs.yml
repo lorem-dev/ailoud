@@ -1,0 +1,57 @@
+site_name: AILoud
+site_description: Transcribe audio and video into a local library, then search and summarise it
+site_url: https://lorem-dev.github.io/ailoud/
+repo_url: https://github.com/lorem-dev/ailoud
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.tabs.link
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+# The header version switcher is populated from mike's versions.json on the
+# deployed gh-pages branch (see .github/workflows/docs.yml).
+extra:
+  version:
+    provider: mike
+
+# The documentation is English-only.
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Usage:
+      - Recordings: usage/recordings.md
+      - Search: usage/search.md
+      - Summaries: usage/summaries.md
+      - Templates: usage/templates.md
+      - Configuration: usage/configuration.md
+      - CLI Reference: usage/cli.md
+  - MCP: mcp.md
+  - Development:
+      - Architecture: development/architecture.md
+      - Development: development/development.md
+      - Releasing: development/releasing.md

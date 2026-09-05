@@ -14,6 +14,7 @@ CLI is the only front end, and the interface is English-only.
   policy, GPG signing.
 
 <!-- CODEGRAPH_START -->
+
 ## CodeGraph
 
 In repositories indexed by CodeGraph (a `.codegraph/` directory exists at the repo root), reach for it BEFORE grep/find or reading files when you need to understand or locate code:

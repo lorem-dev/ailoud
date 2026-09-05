@@ -19,6 +19,8 @@ export default tseslint.config(
       '**/dist/**',
       '**/coverage/**',
       '**/node_modules/**',
+      // mkdocs build output: third-party minified JS, not ours to lint.
+      'site/**',
       '**/*.config.{js,mjs,cjs,ts}',
       'scripts/**',
     ],

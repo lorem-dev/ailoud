@@ -126,10 +126,16 @@ All source code and documentation are ASCII-only. No Unicode punctuation
 translated interface to carve an exception for -- ailoud is English-only at
 the interface, so the rule has no exceptions there.
 
-The one exception is fixture data: `fixtures/*.txt` reference transcripts
-hold the actual words a fixture's audio says, and `fixtures/ru-short.txt`
-is necessarily Cyrillic. That is data being transcribed, not UI text or
-code, so it is exempt.
+Two exceptions, both the same shape -- content being transcribed or searched
+for, never UI text or code:
+
+- Fixture data: `fixtures/*.txt` reference transcripts hold the actual words a
+  fixture's audio says, and `fixtures/ru-short.txt` is necessarily Cyrillic.
+- Documentation examples of non-English material: a search example showing
+  `ailoud audio f "гаван*"`, or a summary shown in the language of its
+  recording. AILoud exists for recordings that are not in English, and
+  demonstrating prefix search on an inflected language in English defeats the
+  demonstration. Prose around the example stays ASCII.
 
 ### Commit Rules
 
@@ -172,6 +178,54 @@ CONTRIBUTING.md -- not in a plan only the maintainer has.
 
 ---
 
+## Documentation
+
+The site lives in `docs/` and builds with mkdocs + the Material theme. It is
+published per release to the `gh-pages` branch by
+`.github/workflows/docs.yml`; `ci.yml` runs the strict build on every push.
+
+```
+uv run --with-requirements docs/requirements.txt mkdocs serve
+uv run --with-requirements docs/requirements.txt mkdocs build --strict
+```
+
+Python tooling here is driven by `uv`, never `pip` or a hand-rolled venv.
+
+### Structure
+
+Four sections, and new pages belong in one of them:
+
+| Section         | Holds                                            |
+| --------------- | ------------------------------------------------ |
+| Getting Started | install, set up, first transcript, first summary |
+| Usage           | one page per thing you do with the CLI           |
+| MCP             | configuring and using the MCP server             |
+| Development     | architecture, the gate, releasing                |
+
+Every page added to `docs/` must appear in `nav:` in `mkdocs.yml`, or the
+strict build fails.
+
+### Writing rules
+
+- **Examples over prose.** Lead with a command block. Explain after, if at
+  all. A page that is mostly paragraphs is a page nobody reads.
+- **Short text.** One or two sentences between examples. Cut a sentence that
+  restates what the example already shows.
+- **Tables over paragraphs** for options, flags, states and comparisons.
+- **Link generously** -- to other pages, to the CLI reference, to upstream
+  projects. Prefer a link to re-explaining something.
+- **Simple English, and English only.** Short words, short sentences, active
+  voice. No idioms and no jokes: many readers are not native speakers. The
+  exception is example content in another language (see "Text and Encoding").
+- **Show real output** where it helps, copied from an actual run rather than
+  invented. Invented output goes stale silently and is wrong immediately.
+- **No changelogs and no rationale essays.** Reasoning belongs in code
+  comments, commit messages and CHANGES.md, not in the user-facing docs.
+
+Run the `check-docs` skill after changing any command or option.
+
+---
+
 ## Local Development Skills
 
 Seven skills live under `.agents/skills/`. Invoke them when the situation
@@ -203,6 +257,7 @@ calls for it:
   user-supplied path.
 
 <!-- CODEGRAPH_START -->
+
 ## CodeGraph
 
 In repositories indexed by CodeGraph (a `.codegraph/` directory exists at the repo root), reach for it BEFORE grep/find or reading files when you need to understand or locate code:

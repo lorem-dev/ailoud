@@ -1,0 +1,96 @@
+# Docs: build the versioned documentation site with mike (Material for MkDocs)
+# and publish it to the `gh-pages` branch, which GitHub Pages serves.
+#
+# One-time repository setup (Settings -> Pages):
+#   Source: "Deploy from a branch" -> branch `gh-pages`, folder `/ (root)`.
+#
+# mike needs a branch it owns: it keeps one built site per version there and
+# maintains the `versions.json` that the header switcher reads. Neither
+# survives a model where every deploy replaces one whole artifact, which is why
+# this is not an `upload-pages-artifact` + `deploy-pages` pair.
+#
+# Versioning -- RELEASE TAGS ONLY:
+#   - A final release tag (`v1.2.3`) publishes that release under its bare
+#     version number and moves the `latest` alias, which the site root
+#     redirects to.
+#   - A PRE-RELEASE tag (`v1.2.3-rc.1`, or any tag with a `-` qualifier)
+#     publishes nothing. Release candidates exist to exercise the release
+#     pipeline; their documentation is in progress, and publishing it only adds
+#     throwaway entries to the switcher that someone then deletes by hand.
+#   - A push to a branch publishes NOTHING. The site shows released
+#     documentation only, so what is online always describes a version someone
+#     can actually install.
+#   - `workflow_dispatch` re-runs whatever ref it is pointed at, and refuses a
+#     pre-release the same way the tag filter does.
+#
+# Documentation breakage is caught before it gets here: ci.yml runs the strict
+# build on every push and pull request.
+
+name: Docs
+
+on:
+  push:
+    tags:
+      # Final releases only: the negative pattern excludes any pre-release tag
+      # (a `-` qualifier), so an RC never starts this workflow at all.
+      - 'v*'
+      - '!v*-*'
+  workflow_dispatch:
+
+# mike pushes commits to the gh-pages branch.
+permissions:
+  contents: write
+
+# Serialize deploys so two runs never race on pushing gh-pages.
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy versioned docs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          # mike needs full history plus the gh-pages branch it maintains.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Configure git identity for mike
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Make the gh-pages branch available to mike
+        run: git fetch origin gh-pages --depth=1 || true
+
+      - name: Deploy release docs
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "::error::Docs publish only from a release tag; ${GITHUB_REF_NAME} is not one."
+            exit 1
+          fi
+
+          version="${GITHUB_REF_NAME#v}"
+          # The tag filter already keeps pre-releases out, but
+          # workflow_dispatch can be pointed at any ref -- so refuse here too
+          # rather than trusting the trigger alone.
+          case "${version}" in
+            *-*)
+              echo "${version} is a pre-release; skipping docs publication."
+              exit 0
+              ;;
+          esac
+
+          echo "Publishing release docs ${version} (alias: latest)"
+          uv run --with-requirements docs/requirements.txt \
+            mike deploy --push --update-aliases "${version}" latest
+          uv run --with-requirements docs/requirements.txt \
+            mike set-default --push latest

@@ -1,0 +1,23 @@
+# Documentation toolchain, pinned deliberately.
+#
+# Build with uv, never pip or a hand-rolled venv:
+#
+#   uv run --with-requirements docs/requirements.txt mkdocs build --strict
+#   uv run --with-requirements docs/requirements.txt mkdocs serve
+#
+# The upper bounds are not cargo-culted. Material for MkDocs warns that MkDocs
+# 2.0 removes the plugin system, rewrites theming, offers no migration path,
+# and ships "currently unlicensed -- unsuitable for production use". This
+# repository requires every dependency to carry a licence compatible with
+# Apache 2.0, so an unlicensed major arriving silently would put the docs build
+# in breach of the project's own policy. Pin until there is something to
+# evaluate.
+mkdocs>=1.6,<2
+mkdocs-material>=9.7,<10
+
+# Versioned publication: `mike` keeps one built site per release on the
+# `gh-pages` branch and writes the `versions.json` the header switcher reads.
+# Only the Docs workflow calls it; `mkdocs build` and `mkdocs serve` do not
+# need it. It lives here so the workflow installs one requirements file rather
+# than a second list of pins that can drift from this one.
+mike>=2.1,<3

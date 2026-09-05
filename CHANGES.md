@@ -487,3 +487,23 @@ show`, `ailoud rm`, `ailoud annotate`. `docker ps` still works years after
   is a pnpm setting, npm warned about it on every command that read `.npmrc`,
   and pnpm 11 no longer reads it from there at all -- so it was both noisy and
   inert.
+- A documentation site in `docs/`, built with mkdocs and the Material theme:
+  Getting Started, Usage (recordings, search, summaries, templates,
+  configuration, CLI reference), MCP, and Development.
+- The site publishes to the `gh-pages` branch with `mike`, one version per
+  release, and ONLY from a final release tag. A push to a branch publishes
+  nothing, so what is online always describes a version someone can install.
+  A pre-release tag is refused twice: the tag filter never starts the workflow,
+  and the job checks again in case `workflow_dispatch` was pointed at one.
+- `ci.yml` runs `mkdocs build --strict` on every push, so a broken link or a
+  page missing from `nav` fails there rather than at the release tag.
+- README.md is 143 lines, down from 734. It says what AILoud is, how to install
+  it, and enough CLI to start; everything else is a link into the site.
+- AGENTS.md gained the documentation rules: four sections, examples over prose,
+  tables over paragraphs, links over re-explaining, simple English only, real
+  output rather than invented, and no rationale essays in user-facing pages.
+- The ASCII-only rule gained a second exception, the same shape as the fixture
+  one: documentation examples of non-English material. A prefix-search example
+  on an inflected language is the clearest demonstration of why prefix search
+  exists, and writing it in English defeats the demonstration. Prose around
+  such an example stays ASCII.

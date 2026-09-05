@@ -72,3 +72,22 @@ jobs:
         # vitest run --coverage enforces the thresholds defined in
         # vitest.config.ts.
         run: pnpm test:cov
+
+  docs:
+    name: Docs build (strict)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Build the documentation
+        # --strict turns a broken internal link or an unknown nav entry into a
+        # failure. Run here, on every push and pull request, so documentation
+        # breakage surfaces now rather than at the release tag -- where the
+        # docs workflow is the only thing that would have caught it, after the
+        # tag already exists.
+        run: uv run --with-requirements docs/requirements.txt mkdocs build --strict
