@@ -64,13 +64,28 @@ export default tseslint.config(
     files: ['packages/*/src/**/*.ts', 'apps/*/src/**/*.ts'],
     plugins: { boundaries },
     settings: {
+      // Both src and dist. A cross-package import can be written two ways:
+      // `../../providers/src/index.js` resolves to a source file, but
+      // `@ailoud/providers` resolves through node_modules to the built
+      // `dist/index.js` -- which matched no element, so the rule classified it
+      // as unknown and said nothing at all. Listing dist under the same type
+      // makes both forms the same violation. It does mean the second form is
+      // only caught once dist exists, which is why the gate and CI both build
+      // before they lint.
       'boundaries/elements': [
-        { type: 'core', pattern: 'packages/core/src/**' },
-        { type: 'providers', pattern: 'packages/providers/src/**' },
-        { type: 'cli', pattern: 'apps/cli/src/**' },
+        { type: 'core', pattern: ['packages/core/src/**', 'packages/core/dist/**'] },
+        {
+          type: 'providers',
+          pattern: ['packages/providers/src/**', 'packages/providers/dist/**'],
+        },
+        { type: 'cli', pattern: ['apps/cli/src/**', 'apps/cli/dist/**'] },
       ],
+      // The root tsconfig, which includes every package's sources, rather
+      // than a glob over the per-package ones: the resolver warns about
+      // multiple projects, and one project covering the whole workspace is
+      // both quieter and faster.
       'import/resolver': {
-        typescript: { project: ['packages/*/tsconfig.json', 'apps/*/tsconfig.json'] },
+        typescript: { project: 'tsconfig.json' },
       },
     },
     rules: {
@@ -78,10 +93,12 @@ export default tseslint.config(
         'error',
         {
           default: 'disallow',
-          policies: Object.entries(LAYER_MAY_IMPORT).map(([from, to]) => ({
-            from: { element: { type: from } },
-            allow: { to: { element: { types: { anyOf: to } } } },
-          })),
+          policies: [
+            ...Object.entries(LAYER_MAY_IMPORT).map(([from, to]) => ({
+              from: { element: { type: from } },
+              allow: { to: { element: { types: { anyOf: to } } } },
+            })),
+          ],
         },
       ],
     },
