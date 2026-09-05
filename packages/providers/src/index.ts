@@ -55,5 +55,5 @@ export type { InstallLlamaOptions, InstallLlamaResult } from './provision/llamaI
 export { DEFAULT_REGISTRY, DEFAULT_TIMEOUT_MS, NpmRegistry } from './update/npmRegistry.js';
 export type { NpmRegistryOptions } from './update/npmRegistry.js';
 
-export { detectInstallMethod, installCommandFor } from './update/installMethod.js';
+export { detectInstallMethod, installCommandFor, sweepCommandFor } from './update/installMethod.js';
 export type { InstallMethod, DetectOptions } from './update/installMethod.js';

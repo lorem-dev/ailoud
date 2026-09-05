@@ -1,4 +1,4 @@
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { RunResult } from '../process/run.js';
 
 /**
@@ -96,17 +96,89 @@ async function globalRoot(options: DetectOptions, manager: string): Promise<stri
   }
 }
 
-/** The argv for an update, or null when this install method cannot be updated. */
-export function installCommandFor(method: InstallMethod, target: string): readonly string[] | null {
+/**
+ * The argv for an update, or null when this install method cannot be updated.
+ *
+ * `npm-global` is anchored to `join(dirname(execPath), 'npm')` rather than
+ * bare `'npm'`: every npm global install lays its bins out beside `node`
+ * itself, so this is the one npm that is GUARANTEED to belong to the Node
+ * that is running us, unlike a bare name, which PATH resolves and which can
+ * belong to an entirely different Node under nvm/fnm/asdf/volta (see
+ * `DetectOptions.execPath`'s own doc comment, and `self.ts`'s doc comment on
+ * `updateSelf`, for the concrete machine layout that breaks under a bare
+ * name).
+ *
+ * `pnpm-global` deliberately stays bare `'pnpm'`: pnpm's global bin comes
+ * from `PNPM_HOME`/corepack, not from any one Node's install tree, so there
+ * is no execPath-equivalent anchor for it, and bare `pnpm` IS the correct
+ * resolution here. Do not "fix" this into an anchored path -- there is
+ * nothing to anchor it to.
+ */
+export function installCommandFor(
+  method: InstallMethod,
+  target: string,
+  execPath: string,
+): readonly string[] | null {
   switch (method.kind) {
     case 'npm-global':
-      return ['npm', 'install', '-g', `ailoud@${target}`];
+      return [join(dirname(execPath), 'npm'), 'install', '-g', `ailoud@${target}`];
     case 'pnpm-global':
       return ['pnpm', 'add', '-g', `ailoud@${target}`];
     case 'npx':
     case 'project':
     case 'unknown':
       return null;
+  }
+}
+
+/**
+ * The argv for the subprocess that re-syncs rules after a successful
+ * install, or null when it cannot be determined -- the caller then prints
+ * the command for the user to run by hand rather than guessing.
+ *
+ * Anchored the same way `installCommandFor` anchors the install itself, and
+ * for the same reason: a bare `ailoud` resolved off PATH can be an entirely
+ * different install than the one the package manager just wrote.
+ *
+ * `npm-global`: the new binary sits beside `npm` and `node` in the same bin
+ * directory by construction, so `dirname(execPath)` anchors it exactly like
+ * the install command above.
+ *
+ * `pnpm-global`: there is no execPath-equivalent anchor, so this asks pnpm
+ * itself where its global bin lives (`pnpm bin -g`), through the same `run`
+ * detection uses -- bounded to the same 10 second timeout in production
+ * (`boundedDetectRun` in `self.ts`). Null when that query fails or answers
+ * nothing, rather than guessing at a bare `ailoud`.
+ */
+export async function sweepCommandFor(
+  method: InstallMethod,
+  execPath: string,
+  run: (command: string, args: readonly string[]) => Promise<RunResult>,
+): Promise<readonly string[] | null> {
+  switch (method.kind) {
+    case 'npm-global':
+      return [join(dirname(execPath), 'ailoud'), 'self', 'sync'];
+    case 'pnpm-global': {
+      const bin = await pnpmGlobalBin(run);
+      return bin === null ? null : [join(bin, 'ailoud'), 'self', 'sync'];
+    }
+    case 'npx':
+    case 'project':
+    case 'unknown':
+      return null;
+  }
+}
+
+async function pnpmGlobalBin(
+  run: (command: string, args: readonly string[]) => Promise<RunResult>,
+): Promise<string | null> {
+  try {
+    const result = await run('pnpm', ['bin', '-g']);
+    if (result.code !== 0) return null;
+    const bin = result.stdout.trim();
+    return bin === '' ? null : bin;
+  } catch {
+    return null;
   }
 }
 

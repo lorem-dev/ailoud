@@ -372,6 +372,12 @@ describe('updateSelf', () => {
       realpath: async (p: string) => p,
       run: fakeDetectRun({ npm: '/opt/homebrew/lib/node_modules' }),
       spawn: async () => 0,
+      // Every test below is either interactive, or does not reach the
+      // install spawn at all; the two tests that exercise the non-interactive
+      // --force path override this explicitly.
+      runCommand: async () => {
+        throw new Error('runCommand should not be called while deps.interactive is true');
+      },
       interactive: true,
       ...overrides,
     };
@@ -484,7 +490,12 @@ describe('updateSelf', () => {
     expect(ctx.lines).toContain('Nothing was changed.');
   });
 
-  it('spawns the detected manager with an argument array', async () => {
+  it('anchors the npm-global install beside the running node, not to a bare "npm"', async () => {
+    // detectInstallMethod deliberately anchors on execPath because PATH's
+    // npm can belong to a different Node than the one running us (nvm, fnm,
+    // asdf, volta). Throwing that anchor away here and spawning bare 'npm'
+    // would undo the whole reason execPath was threaded through in the first
+    // place -- see this file's own doc comment on updateSelf.
     const ctx = withTarget();
     const calls: Array<[string, readonly string[]]> = [];
     const deps = npmGlobalDeps(ctx, {
@@ -496,13 +507,15 @@ describe('updateSelf', () => {
 
     await updateSelf(deps, { force: true });
 
-    expect(calls[0]).toEqual(['npm', ['install', '-g', 'ailoud@1.0.1']]);
+    expect(calls[0]).toEqual(['/usr/local/bin/npm', ['install', '-g', 'ailoud@1.0.1']]);
   });
 
-  it('runs the NEW binary for the rules sweep, not this one', async () => {
+  it('anchors the npm-global sweep beside the running node, not to a bare "ailoud"', async () => {
     // The rules text is compiled in, so the process being replaced holds the
     // old text. This asserts the spawned command is the installed binary's
-    // `self sync`, and it is the reason the sweep is a subprocess at all.
+    // `self sync`, resolved the same way the install command is -- a bare
+    // 'ailoud' resolved off PATH could be a stale, unrelated install (see the
+    // machine layout in task-8-review.md).
     const ctx = withTarget();
     const calls: Array<[string, readonly string[]]> = [];
     const deps = npmGlobalDeps(ctx, {
@@ -515,14 +528,68 @@ describe('updateSelf', () => {
     await updateSelf(deps, { force: true });
 
     expect(calls).toHaveLength(2);
-    expect(calls[1]).toEqual(['ailoud', ['self', 'sync']]);
+    expect(calls[1]).toEqual(['/usr/local/bin/ailoud', ['self', 'sync']]);
+  });
+
+  it('keeps the pnpm-global install as a bare "pnpm", deliberately', async () => {
+    // pnpm's global bin comes from PNPM_HOME/corepack, not from any one
+    // Node's install tree, so there is no execPath-equivalent anchor for the
+    // install -- bare 'pnpm' IS the right resolution. Asserted explicitly so
+    // nobody "fixes" this into a broken anchor later.
+    const ctx = withTarget();
+    const calls: Array<[string, readonly string[]]> = [];
+    const pnpmRun = async (command: string, args: readonly string[]): Promise<RunResult> => {
+      if (command === 'npm') return { code: 1, stdout: '', stderr: 'npm: not found' };
+      if (args[0] === 'root') {
+        return { code: 0, stdout: '/home/x/.local/share/pnpm/global/5/node_modules', stderr: '' };
+      }
+      return { code: 0, stdout: '/home/x/.local/share/pnpm', stderr: '' };
+    };
+    const deps = npmGlobalDeps(ctx, {
+      packageRoot: '/home/x/.local/share/pnpm/global/5/node_modules/ailoud',
+      run: pnpmRun,
+      spawn: async (command, args) => {
+        calls.push([command, args]);
+        return 0;
+      },
+    });
+
+    await updateSelf(deps, { force: true });
+
+    expect(calls[0]).toEqual(['pnpm', ['add', '-g', 'ailoud@1.0.1']]);
+  });
+
+  it('invokes the pnpm-global sweep at the path "pnpm bin -g" reports', async () => {
+    const ctx = withTarget();
+    const calls: Array<[string, readonly string[]]> = [];
+    const pnpmRun = async (command: string, args: readonly string[]): Promise<RunResult> => {
+      if (command === 'npm') return { code: 1, stdout: '', stderr: 'npm: not found' };
+      if (args[0] === 'root') {
+        return { code: 0, stdout: '/home/x/.local/share/pnpm/global/5/node_modules', stderr: '' };
+      }
+      // args[0] === 'bin': what sweepCommandFor asks to anchor the sweep.
+      return { code: 0, stdout: '/home/x/.local/share/pnpm', stderr: '' };
+    };
+    const deps = npmGlobalDeps(ctx, {
+      packageRoot: '/home/x/.local/share/pnpm/global/5/node_modules/ailoud',
+      run: pnpmRun,
+      spawn: async (command, args) => {
+        calls.push([command, args]);
+        return 0;
+      },
+    });
+
+    await updateSelf(deps, { force: true });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toEqual(['/home/x/.local/share/pnpm/ailoud', ['self', 'sync']]);
   });
 
   it('prints the command to run by hand when the sweep cannot be spawned', async () => {
     const ctx = withTarget();
     const deps = npmGlobalDeps(ctx, {
       spawn: async (command) => {
-        if (command === 'ailoud') throw new Error('ailoud: command not found');
+        if (command === '/usr/local/bin/ailoud') throw new Error('ailoud: command not found');
         return 0;
       },
     });
@@ -559,6 +626,59 @@ describe('updateSelf', () => {
     const log = await ctx.fs.readTextFile(updateLogPath(ctx.paths.userDataDir));
     expect(log).toContain('self update');
     expect(log).toContain('1.0.1');
+  });
+
+  it('--force with no TTY fails rather than hangs when the manager wants input', async () => {
+    // This is given its OWN short vitest timeout, deliberately: if a
+    // regression ever routes this path back through the unbounded
+    // `spawn` (runInteractive), that fake below never resolves, and this
+    // test must show up as a FAILING test rather than hang the whole
+    // suite -- this repository has been bitten by exactly that before.
+    const ctx = withTarget();
+    const deps = npmGlobalDeps(ctx, {
+      interactive: false,
+      // Would hang forever if updateSelf ever called this non-interactively.
+      spawn: () => new Promise<number>(() => undefined),
+      // What run() does when the bounded timeout actually fires: reject,
+      // never resolve with a code -- so the real timeout can never present
+      // as an ordinary non-zero exit.
+      runCommand: async () => {
+        throw new FailureError('pnpm timed out after 600000 ms and was killed');
+      },
+    });
+
+    const error: unknown = await updateSelf(deps, { force: true }).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(FailureError);
+    expect((error as Error).message).toContain('timed out');
+  }, 2000);
+
+  it('logs a throwing install spawn, and does not trigger the sweep', async () => {
+    // If the install spawn THROWS (e.g. the manager binary was not found)
+    // rather than resolving with a non-zero code, the sweep is correctly
+    // skipped -- but this used to leave the failure completely unlogged.
+    const ctx = withTarget();
+    const calls: Array<[string, readonly string[]]> = [];
+    const deps = npmGlobalDeps(ctx, {
+      spawn: async (command, args) => {
+        calls.push([command, args]);
+        throw new Error('npm: command not found');
+      },
+    });
+
+    const error: unknown = await updateSelf(deps, { force: true }).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('command not found');
+    expect(calls).toHaveLength(1); // the install attempt only, never the sweep
+
+    const log = await ctx.fs.readTextFile(updateLogPath(ctx.paths.userDataDir));
+    expect(log).toContain('self update');
+    expect(log).toContain('command not found');
   });
 });
 

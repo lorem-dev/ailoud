@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectInstallMethod, installCommandFor } from './installMethod.js';
+import { detectInstallMethod, installCommandFor, sweepCommandFor } from './installMethod.js';
 import type { DetectOptions } from './installMethod.js';
 
 function fakeRoots(roots: { npm?: string; pnpm?: string }): DetectOptions['run'] {
@@ -93,20 +93,41 @@ describe('detectInstallMethod', () => {
 });
 
 describe('installCommandFor', () => {
-  it('builds the right command per manager', () => {
-    expect(installCommandFor({ kind: 'npm-global' }, '1.0.1')).toEqual([
-      'npm',
+  it('anchors the npm-global install beside the running node, not to a bare "npm"', () => {
+    // A bare 'npm' resolves off PATH, which can belong to an entirely
+    // different Node than the one running us (nvm/fnm/asdf/volta) -- see
+    // this module's own doc comment on DetectOptions.execPath for the
+    // machine layout that breaks under a bare name.
+    const command = installCommandFor(
+      { kind: 'npm-global' },
+      '1.0.1',
+      '/home/x/.nvm/versions/node/v20.11.0/bin/node',
+    );
+    expect(command).toEqual([
+      '/home/x/.nvm/versions/node/v20.11.0/bin/npm',
       'install',
       '-g',
       'ailoud@1.0.1',
     ]);
-    expect(installCommandFor({ kind: 'pnpm-global' }, '1.0.1')).toEqual([
-      'pnpm',
-      'add',
-      '-g',
-      'ailoud@1.0.1',
-    ]);
-    expect(installCommandFor({ kind: 'npx', hint: 'npx ailoud@1.0.1' }, '1.0.1')).toBeNull();
+  });
+
+  it('keeps the pnpm-global install as a bare "pnpm", deliberately', () => {
+    // pnpm's global bin comes from PNPM_HOME/corepack, not from any one
+    // Node's install tree, so there is no execPath-equivalent anchor for it
+    // -- bare 'pnpm' IS the correct resolution. Asserted explicitly so
+    // nobody "fixes" this into a broken anchor later.
+    const command = installCommandFor(
+      { kind: 'pnpm-global' },
+      '1.0.1',
+      '/home/x/.nvm/versions/node/v20.11.0/bin/node',
+    );
+    expect(command).toEqual(['pnpm', 'add', '-g', 'ailoud@1.0.1']);
+  });
+
+  it('refuses to build a command for a method that cannot be updated', () => {
+    expect(
+      installCommandFor({ kind: 'npx', hint: 'npx ailoud@1.0.1' }, '1.0.1', '/usr/local/bin/node'),
+    ).toBeNull();
   });
 
   it('names the project, not the pnpm store entry, for a pnpm-installed dependency', async () => {
@@ -157,5 +178,63 @@ describe('installCommandFor', () => {
       run: async () => ({ code: 0, stdout: '/usr/lib/node_modules\n', stderr: '' }),
     });
     expect(method.kind).not.toBe('npm-global');
+  });
+});
+
+describe('sweepCommandFor', () => {
+  it('anchors the npm-global sweep beside the running node, not to a bare "ailoud"', async () => {
+    // Same reasoning as the install: a bare 'ailoud' resolves off PATH, which
+    // can be a completely different install than the one the package manager
+    // just wrote -- the exact staleness bug the subprocess sweep exists to
+    // prevent.
+    const command = await sweepCommandFor(
+      { kind: 'npm-global' },
+      '/home/x/.nvm/versions/node/v20.11.0/bin/node',
+      async () => ({ code: 1, stdout: '', stderr: 'unused for npm-global' }),
+    );
+    expect(command).toEqual(['/home/x/.nvm/versions/node/v20.11.0/bin/ailoud', 'self', 'sync']);
+  });
+
+  it('anchors the pnpm-global sweep to the path "pnpm bin -g" reports', async () => {
+    const seen: Array<{ command: string; args: readonly string[] }> = [];
+    const command = await sweepCommandFor(
+      { kind: 'pnpm-global' },
+      '/usr/local/bin/node',
+      async (cmd, args) => {
+        seen.push({ command: cmd, args });
+        return { code: 0, stdout: '/home/x/.local/share/pnpm\n', stderr: '' };
+      },
+    );
+    expect(seen).toEqual([{ command: 'pnpm', args: ['bin', '-g'] }]);
+    expect(command).toEqual(['/home/x/.local/share/pnpm/ailoud', 'self', 'sync']);
+  });
+
+  it('answers null, rather than a guess, when "pnpm bin -g" fails', async () => {
+    const command = await sweepCommandFor(
+      { kind: 'pnpm-global' },
+      '/usr/local/bin/node',
+      async () => ({ code: 1, stdout: '', stderr: 'pnpm: command not found' }),
+    );
+    expect(command).toBeNull();
+  });
+
+  it('answers null when "pnpm bin -g" throws rather than exiting non-zero', async () => {
+    const command = await sweepCommandFor(
+      { kind: 'pnpm-global' },
+      '/usr/local/bin/node',
+      async () => {
+        throw new Error('spawn pnpm ENOENT');
+      },
+    );
+    expect(command).toBeNull();
+  });
+
+  it('answers null for a method that cannot be updated', async () => {
+    const command = await sweepCommandFor(
+      { kind: 'unknown', hint: 'npm install -g ailoud@<version>, or pnpm add -g ailoud@<version>' },
+      '/usr/local/bin/node',
+      async () => ({ code: 0, stdout: '/nowhere', stderr: '' }),
+    );
+    expect(command).toBeNull();
   });
 });

@@ -3,7 +3,13 @@ import { realpath } from 'node:fs/promises';
 import type { Command } from 'commander';
 import { confirm, isCancel } from '@clack/prompts';
 import { FailureError, UsageError, chooseUpdateTarget } from '@ailoud/core';
-import { detectInstallMethod, installCommandFor, run, runInteractive } from '@ailoud/providers';
+import {
+  detectInstallMethod,
+  installCommandFor,
+  run,
+  runInteractive,
+  sweepCommandFor,
+} from '@ailoud/providers';
 import type { DetectOptions, RunOptions, RunResult } from '@ailoud/providers';
 import type { CliContext } from '../wiring.js';
 import { VERSION } from '../version.js';
@@ -300,8 +306,25 @@ export interface SelfUpdateDeps {
    * `runInteractive` (from `@ailoud/providers`) in production. This is the
    * one seam that would otherwise run a real package manager, so every test
    * in this file injects a fake here instead of that binding.
+   *
+   * Used for the package-manager install ONLY when `interactive` is true --
+   * `runInteractive` has no timeout by design, which is only safe when a real
+   * terminal is watching and can interrupt it. Also used, unconditionally,
+   * for the post-install `self sync` sweep, which never prompts for input.
    */
   readonly spawn: (command: string, args: readonly string[]) => Promise<number>;
+  /**
+   * Runs the package-manager install BOUNDED, for the one case `spawn`
+   * (`runInteractive`) must never be used non-interactively: `--force` with
+   * no terminal attached. Bound to `run` (from `@ailoud/providers`) in
+   * production, given a generous timeout by `updateSelf` itself -- see its
+   * own doc comment for why an unbounded wait is not safe there.
+   */
+  readonly runCommand: (
+    command: string,
+    args: readonly string[],
+    options?: RunOptions,
+  ) => Promise<RunResult>;
   /**
    * Whether there is a real terminal to confirm on: both ends are a TTY, and
    * this is not CI. See `isInteractive` in `setup.ts`.
@@ -333,6 +356,15 @@ export function boundedDetectRun(
   return (command, args) => runImpl(command, args, { timeoutMs: 10_000 });
 }
 
+/**
+ * How long the FORCED, non-interactive install is allowed to run before it
+ * is treated as hung rather than merely slow. Ten minutes is ample for a
+ * real package install; it exists only to turn "the manager is waiting on a
+ * prompt nobody can answer" into a failure instead of an infinite wait. See
+ * `updateSelf`'s own doc comment for the full reasoning.
+ */
+const FORCE_INSTALL_TIMEOUT_MS = 10 * 60_000;
+
 /** One line in the update log, naming only the action taken. */
 async function logUpdateAction(context: CliContext, status: string): Promise<void> {
   await appendUpdateLog(
@@ -357,14 +389,36 @@ const defaultConfirm = async (message: string): Promise<boolean> => {
  * text. If IT swept the registered projects, it would write the old rules
  * into every one of them -- precisely the staleness `self sync` exists to
  * fix. So the sweep only ever happens by spawning `ailoud self sync` as a
- * subprocess, resolved fresh off PATH after the install succeeded, which is
- * what picks up the binary the package manager just wrote.
+ * subprocess.
+ *
+ * Both the install and the sweep are anchored, never a bare command name
+ * resolved off PATH: under nvm/fnm/asdf/volta, PATH's `npm`/`ailoud` can
+ * belong to an entirely different Node install than the one running us,
+ * which would install the new version into the wrong tree and then sweep
+ * every registered project with a DIFFERENT, possibly older, binary's
+ * compiled-in rules -- both while reporting success. `installCommandFor` and
+ * `sweepCommandFor` (`@ailoud/providers`) are the single places that decide
+ * those two argvs, anchored to `deps.execPath` for `npm-global` and to
+ * `pnpm bin -g` for `pnpm-global` -- see their own doc comments.
+ *
+ * The install itself only ever waits unboundedly (`deps.spawn`, bound to
+ * `runInteractive`) when `deps.interactive` is true, i.e. a real terminal is
+ * attached and can answer a prompt or interrupt it. `--force` with no
+ * terminal is the one path that can still reach the install with nobody able
+ * to answer a prompt -- some package managers do prompt on first global use
+ * (`pnpm add -g` before its bin/PATH setup has run once) -- so that path uses
+ * `deps.runCommand` (bound to the bounded `run`) instead, with a generous but
+ * finite timeout, so a manager stuck waiting on input FAILS after that
+ * timeout rather than hanging forever. This follows the same convention
+ * `provision/llamaInstall.ts` uses for `runInteractive`: gate on
+ * interactivity before ever calling it.
  *
  * Follows the eight steps of the design's `self update` section in order:
  * resolve the target, detect the install method (three of its five kinds are
  * refusals), print the plan, confirm (skipped by `--force`; `--dry-run` stops
  * here, having changed nothing), spawn the package manager, spawn the new
- * binary's `self sync` only on success, and log the outcome.
+ * binary's `self sync` only on success, and log the outcome -- including a
+ * throwing install spawn, which used to vanish unlogged.
  */
 export async function updateSelf(deps: SelfUpdateDeps, options: SelfUpdateOptions): Promise<void> {
   const { context } = deps;
@@ -398,7 +452,7 @@ export async function updateSelf(deps: SelfUpdateDeps, options: SelfUpdateOption
     return;
   }
 
-  const command = installCommandFor(method, target);
+  const command = installCommandFor(method, target, deps.execPath);
   if (command === null) {
     // Unreachable today: installCommandFor only returns null for the three
     // kinds handled above. Kept as a real check rather than a cast, so a
@@ -447,7 +501,34 @@ export async function updateSelf(deps: SelfUpdateDeps, options: SelfUpdateOption
     }
   }
 
-  const code = await deps.spawn(managerCommand, managerArgs);
+  let code: number;
+  try {
+    if (deps.interactive) {
+      code = await deps.spawn(managerCommand, managerArgs);
+    } else {
+      // Only --force reaches here without a terminal (the gate above throws
+      // otherwise). runInteractive has no timeout and would hang forever if
+      // the manager wants to prompt, so this bounds the wait instead -- see
+      // FORCE_INSTALL_TIMEOUT_MS and this function's own doc comment.
+      const bounded = await deps.runCommand(managerCommand, managerArgs, {
+        timeoutMs: FORCE_INSTALL_TIMEOUT_MS,
+      });
+      // run() buffers output rather than streaming it live the way
+      // runInteractive does, so it has to be printed after the fact -- this
+      // is the only way whoever (or whatever) is watching a --force,
+      // no-terminal run sees what the manager actually did.
+      if (bounded.stdout.length > 0) context.write(bounded.stdout);
+      if (bounded.stderr.length > 0) context.write(bounded.stderr);
+      code = bounded.code;
+    }
+  } catch (error) {
+    // The install spawn THROWING (ENOENT, or the bounded run's own timeout)
+    // is different from it exiting non-zero: the sweep is correctly skipped
+    // either way, but a throw used to reach no log line at all.
+    const reason = error instanceof Error ? error.message : String(error);
+    await logUpdateAction(context, `install threw for "${command.join(' ')}": ${reason}`);
+    throw error;
+  }
   if (code !== 0) {
     await logUpdateAction(context, `install failed, "${command.join(' ')}" exited ${code}`);
     throw new FailureError(`ailoud self update: "${command.join(' ')}" exited with code ${code}`);
@@ -456,9 +537,18 @@ export async function updateSelf(deps: SelfUpdateDeps, options: SelfUpdateOption
   context.write(`ailoud updated to ${target}.`);
 
   // The NEW binary, as a fresh subprocess -- never this one. See this
-  // function's own doc comment for why that is not optional.
+  // function's own doc comment for why that is not optional, and for why the
+  // command below is anchored rather than a bare 'ailoud'.
+  const sweep = await sweepCommandFor(method, deps.execPath, deps.run);
+  const sweepCommand = sweep?.[0];
+  if (sweep === null || sweepCommand === undefined) {
+    context.write('Could not determine the command to refresh rules automatically.');
+    context.write('Run it by hand: ailoud self sync');
+    return;
+  }
+  const sweepArgs = sweep.slice(1);
   try {
-    await deps.spawn('ailoud', ['self', 'sync']);
+    await deps.spawn(sweepCommand, sweepArgs);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     context.write(`Could not run "ailoud self sync" automatically (${reason}).`);
@@ -491,6 +581,7 @@ export function registerSelfUpdate(parent: Command, context: CliContext): void {
           realpath,
           run: boundedDetectRun(run),
           spawn: runInteractive,
+          runCommand: run,
           interactive: isInteractive(process.env, process.stdin.isTTY === true),
         };
         await updateSelf(deps, {
