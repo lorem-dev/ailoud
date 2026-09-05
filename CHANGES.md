@@ -40,6 +40,8 @@
 
 ## Development
 
+## Version 1.0.0-dev.3
+
 ### Changed
 
 - Nothing for users. This snapshot is 1.0.0-dev.2 republished through npm's

@@ -1,6 +1,6 @@
 {
   "name": "ailoud",
-  "version": "1.0.0-dev.2",
+  "version": "1.0.0-dev.3",
   "type": "module",
   "bin": {
     "ailoud": "./dist/bin/ailoud.js"

@@ -1,6 +1,6 @@
 {
   "name": "ailoud-workspace",
-  "version": "1.0.0-dev.2",
+  "version": "1.0.0-dev.3",
   "private": true,
   "type": "module",
   "description": "Multilingual audio-to-text CLI with a recording library and LLM summaries",
