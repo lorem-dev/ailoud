@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { PublishedVersion } from '@ailoud/core';
 import { MemFs, FakeClock } from '@ailoud/core/testing';
 import { startUpdateCheck, updateCachePath } from './updateNotice.js';
@@ -56,13 +56,81 @@ describe('startUpdateCheck', () => {
       }),
     });
     // A fetch that would hang forever if it were ever started: a fresh cache
-    // must answer without going anywhere near the network.
+    // must answer without going anywhere near the network. No `await
+    // flush()` here: real usage never performs one between
+    // `startUpdateCheck()` and `finish()`, and a test that needs one to pass
+    // is proving nothing about production -- see `finish()`'s own bounded
+    // wait, which is what actually gives this cache read a chance to win.
     const deps = baseDeps({ fs, published: hangingPublished() });
 
     const notice = startUpdateCheck(deps);
-    await flush();
 
     expect(await notice.finish()).toBe('1.2.3');
+  });
+
+  it('bounds a slow disk read instead of waiting for it', async () => {
+    // Stands in for a slow or momentarily unresponsive filesystem (a
+    // network home directory, a sleeping external drive, a contended or
+    // nearly full disk): the read resolves, but only long after any
+    // budget this module may spend waiting for it. Real usage has no
+    // signal to cancel this with -- `Fs` offers none -- so the only
+    // available fix is bounding how long anything here waits for it,
+    // never assuming the disk itself can be made to stop. Unref'd so this
+    // fixture alone cannot hold the test process open: the property under
+    // test is whether the SOURCE gives up on it, not whether this fake
+    // does.
+    const fs = new MemFs();
+    fs.exists = (): Promise<boolean> =>
+      new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(false), 3000);
+        timer.unref();
+      });
+    let called = false;
+    const deps = baseDeps({
+      fs,
+      published: () => {
+        called = true;
+        return Promise.resolve([{ version: '1.1.0', deprecated: false }]);
+      },
+    });
+
+    const notice = startUpdateCheck(deps);
+    await notice.finish();
+    // Well past this module's own ~50ms budget, but nowhere near the
+    // disk's 3 second delay: if the disk read were still being awaited,
+    // the registry would not have been reached yet, because `readCache`
+    // runs before it on every path.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(called).toBe(true);
+  }, 2500);
+
+  it('unrefs the bounded wait timer, so it alone cannot keep the process alive', async () => {
+    const createdTimers: NodeJS.Timeout[] = [];
+    const realSetTimeout = globalThis.setTimeout;
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    spy.mockImplementation(((...args: Parameters<typeof setTimeout>) => {
+      const timer = realSetTimeout(...args);
+      createdTimers.push(timer);
+      return timer;
+    }) as typeof setTimeout);
+
+    try {
+      // A fetch that never settles, so `finish()` can only ever be answered
+      // by the bounded wait's own timer -- exactly the timer under test.
+      const notice = startUpdateCheck(baseDeps({ published: hangingPublished() }));
+      expect(await notice.finish()).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(createdTimers.length).toBeGreaterThan(0);
+    for (const timer of createdTimers) {
+      // hasRef() is Node's own answer to "does this timer count against the
+      // event loop staying open": false is what lets a command whose own
+      // work is already done exit immediately, unheld by this wait.
+      expect(timer.hasRef()).toBe(false);
+    }
   });
 
   it('caches a failure too, so a broken network costs one attempt a day', async () => {
@@ -102,6 +170,26 @@ describe('startUpdateCheck', () => {
     let called = false;
     const deps = baseDeps({
       argv: ['ls', '--json'],
+      published: () => {
+        called = true;
+        return Promise.resolve([{ version: '1.1.0', deprecated: false }]);
+      },
+    });
+
+    const notice = startUpdateCheck(deps);
+    await flush();
+
+    expect(await notice.finish()).toBeNull();
+    expect(called).toBe(false);
+  });
+
+  it('is silent with --format json', async () => {
+    // `show <id> --format json` is machine-readable output too, and with
+    // stdout and stderr merged this notice would land inside it just like
+    // `--json` would.
+    let called = false;
+    const deps = baseDeps({
+      argv: ['show', 'abc123', '--format', 'json'],
       published: () => {
         called = true;
         return Promise.resolve([{ version: '1.1.0', deprecated: false }]);
