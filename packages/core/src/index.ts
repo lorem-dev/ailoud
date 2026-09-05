@@ -105,4 +105,11 @@ export {
   transcriptFileHeader,
 } from './summarize/transcriptFile.js';
 export { buildSummaryRequest, instruction, languageName, wordCap } from './summarize/prompt.js';
+export {
+  SUMMARY_TEMPLATES,
+  DEFAULT_TEMPLATE,
+  findTemplate,
+  templateNames,
+} from './summarize/templates.js';
+export type { SummaryTemplate } from './summarize/templates.js';
 export type { SummaryRequest, SummarySource } from './summarize/prompt.js';

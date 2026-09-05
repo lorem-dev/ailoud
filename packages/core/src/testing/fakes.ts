@@ -109,6 +109,12 @@ export class MemFs implements Fs {
   async writeTextFile(path: string, content: string): Promise<void> {
     this.files.set(path, content);
   }
+  async readTextFile(path: string): Promise<string> {
+    const content = this.files.get(path);
+    if (content === undefined)
+      throw Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' });
+    return content;
+  }
 }
 
 export class FakeAudioTool implements AudioTool {

@@ -2,6 +2,8 @@ import type { Recording, Segment, SpeakerName } from '../domain/model.js';
 import { speakerNameMap } from '../transcribe/speakers.js';
 import { chunkTranscript, transcriptLine } from './chunk.js';
 import { transcriptFileHeader, transcriptFileName } from './transcriptFile.js';
+import { DEFAULT_TEMPLATE, findTemplate } from './templates.js';
+import type { SummaryTemplate } from './templates.js';
 
 /** One recording, with everything a summary needs to describe it. */
 export interface SummarySource {
@@ -44,6 +46,20 @@ export interface SummaryOptions {
   readonly budgetTokens: number;
   /** The language to answer in. Absent means "whatever the transcript is in". */
   readonly language?: string;
+  /**
+   * What kind of conversation this was, which decides the headings.
+   * Absent means the default meeting shape.
+   */
+  readonly template?: SummaryTemplate;
+  /**
+   * A sentence or two of context from the person asking.
+   *
+   * The one thing a reader of the transcript knows that the model cannot:
+   * who these people are to each other, what happened last week, what the
+   * project is called. Kept short by convention rather than truncated --
+   * every word here competes with the transcript for the model's attention.
+   */
+  readonly context?: string;
 }
 
 /**
@@ -108,23 +124,41 @@ export function wordCap(sourceCount: number): number {
  * translation nobody asked for -- but `--lang` overrides it, because the
  * person reading the summary is not always the person who was in the room.
  */
-export function instruction(language: string | undefined, cap: number): string {
+export interface InstructionOptions {
+  readonly language?: string;
+  readonly cap: number;
+  readonly template?: SummaryTemplate;
+  readonly context?: string;
+}
+
+export function instruction(options: InstructionOptions): string {
+  const template = options.template ?? findTemplate(DEFAULT_TEMPLATE)!;
+  const { cap } = options;
+
+  // The caller's context goes above the rules, not below them: it is what this
+  // recording IS, and the rules are how to write about it. Below the rules it
+  // read as one more constraint and was followed less often.
+  const context =
+    options.context === undefined || options.context.trim() === ''
+      ? [template.context]
+      : [template.context, `Context from the person asking: ${options.context.trim()}`];
+
   return [
     'Summarise the recordings below.',
+    '',
+    ...context,
     '',
     'Each transcript starts with a header: its title, when it was recorded, its tags and',
     'who took part. Use them. With more than one recording, say which one a point came from.',
     '',
-    `Write in ${language ?? 'the language the transcript is in'}.`,
-    'Use only what is in the transcripts -- no advice, no outside context.',
+    `Write in ${options.language ?? 'the language the transcript is in'}.`,
+    'Use only what is in the transcripts and the context above -- nothing else you know.',
     'Name the speaker for each point the transcript attributes. Where it attributes none, state',
     'the point on its own -- do not invent a speaker and do not note that there was none.',
     `No preamble, no closing line, no commentary on the transcript. Under ${cap} words.`,
     '',
     'Use exactly these headings, omitting any that would be empty:',
-    'Decisions',
-    'Open questions',
-    'Notes',
+    ...template.headings,
   ].join('\n');
 }
 
@@ -180,10 +214,12 @@ export function buildSummaryRequest(
   options: SummaryOptions,
 ): SummaryRequest {
   const cap = wordCap(sources.length);
-  const head = instruction(
-    options.language === undefined ? undefined : languageName(options.language),
+  const head = instruction({
+    ...(options.language === undefined ? {} : { language: languageName(options.language) }),
     cap,
-  );
+    ...(options.template === undefined ? {} : { template: options.template }),
+    ...(options.context === undefined ? {} : { context: options.context }),
+  });
   const names = transcriptFileNames(sources);
   const files = sources.map((source, index) => transcriptFileFor(source, names[index]!));
 

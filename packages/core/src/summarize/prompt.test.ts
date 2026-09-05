@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Recording, Segment, SpeakerName } from '../domain/model.js';
 import { buildSummaryRequest, instruction, languageName, wordCap } from './prompt.js';
+import { findTemplate } from './templates.js';
 import type { SummarySource } from './prompt.js';
 
 const recording = (id: string, title: string, recordedAt: string): Recording => ({
@@ -73,24 +74,26 @@ describe('instruction', () => {
   it('defaults to the transcript language, not English', () => {
     // laud exists for recordings that are not in English; summarising a
     // Russian meeting into English is a translation nobody asked for.
-    expect(instruction(undefined, 200)).toContain('the language the transcript is in');
+    expect(instruction({ cap: 200 })).toContain('the language the transcript is in');
   });
 
   it('names an explicitly requested language', () => {
-    expect(instruction('English', 200)).toContain('Write in English.');
-    expect(instruction('English', 200)).not.toContain('the language the transcript is in');
+    expect(instruction({ language: 'English', cap: 200 })).toContain('Write in English.');
+    expect(instruction({ language: 'English', cap: 200 })).not.toContain(
+      'the language the transcript is in',
+    );
   });
 
   it('tells the model the header exists and what is in it', () => {
     // The header is only useful if the model is told to read it; these two
     // must not drift apart.
-    const text = instruction(undefined, 200);
+    const text = instruction({ cap: 200 });
     expect(text).toMatch(/header/i);
     for (const field of ['title', 'recorded', 'tags']) expect(text.toLowerCase()).toContain(field);
   });
 
   it('carries the cap it was given', () => {
-    expect(instruction(undefined, 450)).toContain('Under 450 words');
+    expect(instruction({ cap: 450 })).toContain('Under 450 words');
   });
 });
 
@@ -202,7 +205,7 @@ describe('instruction: not inventing what is not there', () => {
     // Measured: with an unconditional "name the speaker for every point", an
     // undiarized recording made sonnet and opus label everything "Speaker A"
     // and "Speaker B" on every run -- people who do not exist.
-    const text = instruction(undefined, 200);
+    const text = instruction({ cap: 200 });
     expect(text).toMatch(/attributes none|does not attribute/i);
     expect(text).toMatch(/do not invent a speaker/i);
   });
@@ -210,12 +213,69 @@ describe('instruction: not inventing what is not there', () => {
   it('also forbids announcing the absence on every line', () => {
     // The first fix traded invented speakers for "(speaker not identified)"
     // repeated after every bullet, which is noise rather than information.
-    expect(instruction(undefined, 200)).toMatch(/do not note that there was none/i);
+    expect(instruction({ cap: 200 })).toMatch(/do not note that there was none/i);
   });
 
   it('forbids commentary about the transcript itself', () => {
     // Both larger models liked to close with an italic note about what could
     // not be determined. Nobody asked for a summary of the summary's limits.
-    expect(instruction(undefined, 200)).toMatch(/no commentary on the transcript/i);
+    expect(instruction({ cap: 200 })).toMatch(/no commentary on the transcript/i);
+  });
+});
+
+describe('instruction: template and caller context', () => {
+  const oneOnOne = findTemplate('one-on-one')!;
+
+  it('uses the template headings rather than the meeting ones', () => {
+    const text = instruction({ cap: 200, template: oneOnOne });
+    expect(text).toContain('Concerns raised');
+    expect(text).not.toContain('Open questions\nNotes');
+  });
+
+  it('tells the model what kind of conversation it is reading', () => {
+    // The knowledge a person in the room has and the transcript does not say.
+    expect(instruction({ cap: 200, template: oneOnOne })).toMatch(/one-to-one/i);
+  });
+
+  it('carries the caller context above the rules, not below them', () => {
+    // Below the rules it reads as one more constraint; above, it is what the
+    // recording IS.
+    const text = instruction({ cap: 200, context: "Ann is Ben's manager." });
+    const atContext = text.indexOf("Ann is Ben's manager.");
+    const atRules = text.indexOf('Write in');
+    expect(atContext).toBeGreaterThan(-1);
+    expect(atContext).toBeLessThan(atRules);
+  });
+
+  it("labels the context as the caller's, not as transcript content", () => {
+    // Unlabelled, a sentence handed in from outside is indistinguishable from
+    // something somebody said, and gets attributed.
+    expect(instruction({ cap: 200, context: 'They met last week too.' })).toMatch(
+      /Context from the person asking/,
+    );
+  });
+
+  it('lets the model use the context, having forbidden outside knowledge', () => {
+    // The old wording said "no outside context" flatly, which contradicts a
+    // context the caller just supplied.
+    const text = instruction({ cap: 200, context: 'x' });
+    expect(text).toMatch(/transcripts and the context above/);
+  });
+
+  it('adds no context line when none was given or it is blank', () => {
+    for (const context of [undefined, '', '   ']) {
+      const text = instruction({ cap: 200, ...(context === undefined ? {} : { context }) });
+      expect(text, JSON.stringify(context)).not.toMatch(/Context from the person asking/);
+    }
+  });
+
+  it('carries the template into the built request', () => {
+    const request = buildSummaryRequest([source()], {
+      budgetTokens: 100_000,
+      template: oneOnOne,
+      context: 'Ann is the manager.',
+    });
+    expect(request.parts[0]).toContain('Concerns raised');
+    expect(request.parts[0]).toContain('Ann is the manager.');
   });
 });

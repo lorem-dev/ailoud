@@ -48,6 +48,10 @@ export interface Summary {
   readonly provider: string;
   readonly model: string;
   readonly body: string;
+  /** Which template shaped its headings. */
+  readonly template: string;
+  /** The context the caller supplied, or empty. */
+  readonly context: string;
   /** The recordings it covers, in id order. */
   readonly recordingIds: readonly string[];
 }

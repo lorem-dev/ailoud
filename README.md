@@ -236,6 +236,10 @@ laud audio rm ID001
 laud report ls
 laud report show SUM0
 laud report rm SUM0
+
+laud template ls
+laud template show one-on-one
+laud template new retro --context "A sprint retro." --heading "Went well" --heading Actions
 ```
 
 Every verb has a one-letter alias, and the same verb takes the same letter in
@@ -288,6 +292,45 @@ written in the language of the recording, because laud exists for recordings
 that are not in English and a translation nobody asked for is not a summary.
 Codes are turned into names before the model sees them -- "Write in Russian"
 holds far better than "Write in ru".
+
+`--template` says what kind of conversation this is, which decides the
+headings, and `--context` hands the model the sentence or two the transcript
+does not say:
+
+```shell
+laud audio summarize ID001 --template one-on-one \
+  --context "Ann is Ben's manager; this is their fortnightly."
+```
+
+The headings differ because the questions do: a one-to-one is about agreements
+and concerns, a solution decision is about what was rejected and what would
+change the answer. `laud template ls` lists what is available:
+
+| template                | shape                                                              |
+| ----------------------- | ------------------------------------------------------------------ |
+| `meeting`               | decisions, open questions, notes -- the default                    |
+| `one-on-one`            | agreements, concerns raised, follow-ups                            |
+| `performance-review`    | strengths, areas to improve, evidence, agreed goals, disagreements |
+| `architecture-planning` | decisions, options considered, trade-offs, risks                   |
+| `solution-decision`     | decision, reasoning, rejected alternatives, what would change it   |
+| `offsite`               | themes, decisions, actions                                         |
+
+Templates are written out as files in `$XDG_CONFIG_HOME/laud/templates/`, one
+YAML file each, on first use. They are files rather than something buried in
+the binary because a template is prose about how to summarise, and prose nobody
+can see cannot be improved. Edit one and the edit takes effect; a file you have
+edited is never replaced by an update. Write your own and it is a peer of the
+shipped ones:
+
+```shell
+laud template ls
+laud template show solution-decision
+laud template new retro --from one-on-one \
+  --heading "Went well" --heading "Did not" --heading Actions
+```
+
+The template and the context are stored with the report, so what a report was
+asked to be can be read back later.
 
 Every summary is saved. `laud report ls` lists them, `laud report show <id>`
 prints one, and `laud report rm <id>` deletes one:

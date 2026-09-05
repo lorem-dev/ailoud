@@ -123,6 +123,18 @@ export const MIGRATIONS: readonly Migration[] = [
       `CREATE INDEX summary_by_recording ON summary_recording(recording_id)`,
     ],
   },
+  {
+    version: 6,
+    statements: [
+      // What shaped the report, beyond which model wrote it: the template
+      // decides its headings, and the caller's context is the one thing the
+      // model knew that the transcript does not say. Stored for the same
+      // reason `model` is -- a report reused later as context is worth less if
+      // nobody can tell what it was asked to be.
+      `ALTER TABLE summary ADD COLUMN template TEXT NOT NULL DEFAULT 'meeting'`,
+      `ALTER TABLE summary ADD COLUMN context TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

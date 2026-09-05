@@ -51,6 +51,8 @@ export interface Fs {
   tempDir(): Promise<TempDir>;
   /** Writes text, creating the file or replacing it. */
   writeTextFile(path: string, content: string): Promise<void>;
+  /** Reads text. Rejects when the file is not there -- callers check `exists` first. */
+  readTextFile(path: string): Promise<string>;
 }
 
 export interface AudioTool {

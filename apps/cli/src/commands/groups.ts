@@ -82,6 +82,8 @@ const LETTER: Record<string, string> = {
   import: 'i',
   transcribe: 't',
   summarize: 's',
+  // `new` rather than `add`, so `n` does not compete with a verb that exists.
+  new: 'n',
 };
 
 /** Every letter this build assigns, for the collision test to read. */

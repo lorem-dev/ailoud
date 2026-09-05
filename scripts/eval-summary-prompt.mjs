@@ -118,6 +118,32 @@ const CASES = [
     words: 400,
   },
   {
+    // A template with its own headings, plus caller context. The measured
+    // guarantee does not transfer from the default shape automatically.
+    name: 'one-on-one',
+    file: 'fixtures/summaries/en-oneonone.txt',
+    file2: null,
+    header: [
+      'Title: Ann / Ben 1:1',
+      'Recorded: 2026.08.28 10:00',
+      'Tags: 1on1',
+      'Participants: Ann, Ben',
+    ].join('\n'),
+    lang: 'en',
+    template: 'one-on-one',
+    callerContext: "Ann is Ben's manager. This is their fortnightly.",
+    must: [
+      { what: 'the CI handoff agreement', re: /carla|ci|hand(ed|ing)? off/i },
+      { what: "Ben's concern about being sole owner", re: /only one|sole|alone|stretched/i },
+      { what: 'the missed promotion case', re: /promotion|october|november/i },
+      { what: 'uses the template headings', re: /concerns raised/i },
+    ],
+    mustNot: [
+      { what: 'invented a person', re: /\bdave\b|\berik\b/i },
+      { what: 'kept the default headings', re: /open questions/i },
+    ],
+  },
+  {
     // No speakers: what an undiarized recording looks like. The instruction to
     // name a speaker per point must not turn into inventing "Speaker A".
     name: 'no-speakers',
@@ -206,23 +232,38 @@ const VARIANTS = {
     ].join('\n'),
   // sections, plus: the header block exists and means something, and the cap
   // scales with how many recordings were handed over.
-  headed: (lang, cap) =>
+  headed: (lang, cap, template = TEMPLATES.meeting, callerContext) =>
     [
       'Summarise the recordings below.',
+      '',
+      template.context,
+      ...(callerContext === undefined ? [] : [`Context from the person asking: ${callerContext}`]),
       '',
       'Each transcript starts with a header: its title, when it was recorded, its tags and',
       'who took part. Use them. With more than one recording, say which one a point came from.',
       '',
-      `Write in ${lang}. Use only what is in the transcripts -- no advice, no outside context.`,
+      `Write in ${lang}.`,
+      'Use only what is in the transcripts and the context above -- nothing else you know.',
       'Name the speaker for each point the transcript attributes. Where it attributes none, state',
       'the point on its own -- do not invent a speaker and do not note that there was none.',
       `No preamble, no closing line, no commentary on the transcript. Under ${cap} words.`,
       '',
       'Use exactly these headings, omitting any that would be empty:',
-      'Decisions',
-      'Open questions',
-      'Notes',
+      ...template.headings,
     ].join('\n'),
+};
+
+const TEMPLATES = {
+  'one-on-one': {
+    context:
+      'This is a one-to-one between a manager and a report. It is a private conversation: ' +
+      'concerns and feelings matter as much as decisions.',
+    headings: ['Agreements', 'Concerns raised', 'Follow-ups', 'Notes'],
+  },
+  meeting: {
+    context: 'This is a meeting.',
+    headings: ['Decisions', 'Open questions', 'Notes'],
+  },
 };
 
 const LANG_NAME = { en: 'English', ru: 'Russian', any: 'the language the transcript is in' };
@@ -297,7 +338,12 @@ for (const variant of variants) {
       parts.push(`${testCase.header2}\n\n${readFileSync(testCase.file2, 'utf8').trim()}`);
     const wantLang = testCase.forceLang ?? LANG_NAME[testCase.lang];
     const cap = testCase.words ?? 200;
-    const instruction = VARIANTS[variant](wantLang, cap);
+    const instruction = VARIANTS[variant](
+      wantLang,
+      cap,
+      TEMPLATES[testCase.template ?? 'meeting'],
+      testCase.callerContext,
+    );
     const prompt = `${instruction}\n\n${parts
       .map((part, i) => `=== transcript ${i + 1} of ${parts.length} ===\n${part}`)
       .join('\n\n')}`;

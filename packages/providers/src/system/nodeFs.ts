@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Fs, TempDir, TempFile } from '@laud/core';
@@ -72,5 +72,8 @@ export class NodeFs implements Fs {
   }
   async writeTextFile(path: string, content: string): Promise<void> {
     await writeFile(path, content, 'utf8');
+  }
+  async readTextFile(path: string): Promise<string> {
+    return readFile(path, 'utf8');
   }
 }

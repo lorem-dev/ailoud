@@ -157,6 +157,8 @@ describe('laud summarize: what it keeps', () => {
         language: 'en',
         provider: 'fake',
         model: 'fake-model',
+        template: 'meeting',
+        context: '',
         body: `summary of ${id}`,
         recordingIds: [id],
       });
@@ -178,6 +180,8 @@ describe('laud summarize: what it keeps', () => {
       language: 'en',
       provider: 'fake',
       model: 'fake-model',
+      template: 'meeting',
+      context: '',
       body: 'stored',
       recordingIds: ['ID001'],
     });
@@ -196,6 +200,8 @@ describe('laud summarize: what it keeps', () => {
       language: 'en',
       provider: 'fake',
       model: 'fake-model',
+      template: 'meeting',
+      context: '',
       body: 'group summary',
       recordingIds: ['ID001', 'ID002'],
     });
@@ -213,8 +219,11 @@ describe('laud summarize: the transcript files', () => {
       return realWrite(path, content);
     };
     await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001', '--fresh']);
-    expect(written).toHaveLength(1);
-    expect(written[0]).toMatch(/record-\d{14}\.txt$/);
+    // Templates are written out too, on first use; only the transcripts are
+    // what this test is about.
+    const transcripts = written.filter((path) => path.includes('record-'));
+    expect(transcripts).toHaveLength(1);
+    expect(transcripts[0]).toMatch(/record-\d{14}\.txt$/);
     // Gone afterwards: the files exist for the run and no longer.
     expect([...(ctx.fs as MemFs).files.keys()].filter((p) => p.includes('record-'))).toEqual([]);
   });
@@ -276,5 +285,76 @@ describe('laud summarize: progress', () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001', '--fresh']);
     expect(ctx.lines.filter((line) => /%\)/.test(line))).toEqual([]);
+  });
+});
+
+describe('laud summarize --template / --context', () => {
+  it('shapes the headings by template', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await buildProgram(ctx).parseAsync([
+      'node',
+      'laud',
+      'summarize',
+      'ID001',
+      '--template',
+      'one-on-one',
+    ]);
+    expect(ctx.summarizerPrompts[0]).toContain('Concerns raised');
+    expect(ctx.summarizerPrompts[0]).toMatch(/one-to-one/i);
+  });
+
+  it('passes the caller context through, labelled', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await buildProgram(ctx).parseAsync([
+      'node',
+      'laud',
+      'summarize',
+      'ID001',
+      '--context',
+      'Ann is the manager.',
+    ]);
+    expect(ctx.summarizerPrompts[0]).toContain(
+      'Context from the person asking: Ann is the manager.',
+    );
+  });
+
+  it('rejects an unknown template before reading or spawning anything', async () => {
+    // Milliseconds, not after a transcript has been chunked.
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await expect(
+      buildProgram(ctx).parseAsync([
+        'node',
+        'laud',
+        'summarize',
+        'ID001',
+        '--template',
+        'retrospective',
+      ]),
+    ).rejects.toThrow(/unknown --template "retrospective"/);
+    expect(ctx.summarizerPrompts).toHaveLength(0);
+  });
+
+  it('stores the template and context with the report, so it can be read back', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await buildProgram(ctx).parseAsync([
+      'node',
+      'laud',
+      'summarize',
+      'ID001',
+      '--template',
+      'architecture-planning',
+      '--context',
+      'Deciding the storage engine.',
+    ]);
+    const stored = (await ctx.store.listSummaries('ID001'))[0]!;
+    expect(stored.template).toBe('architecture-planning');
+    expect(stored.context).toBe('Deciding the storage engine.');
+  });
+
+  it('defaults to the meeting shape', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await buildProgram(ctx).parseAsync(['node', 'laud', 'summarize', 'ID001']);
+    expect(ctx.summarizerPrompts[0]).toContain('Decisions');
+    expect((await ctx.store.listSummaries('ID001'))[0]!.template).toBe('meeting');
   });
 });

@@ -1,17 +1,20 @@
 import { join } from 'node:path';
 import type { Command } from 'commander';
-import { FailureError, UsageError, buildSummaryRequest } from '@laud/core';
+import { DEFAULT_TEMPLATE, FailureError, UsageError, buildSummaryRequest } from '@laud/core';
 import type { Recording, Summary, SummarySource, Summarizer } from '@laud/core';
 import { page, shouldPage } from '@laud/providers';
 import type { CliContext } from '../wiring.js';
 import { resolveRecordings } from '../resolveId.js';
 import { collectTag, parseTags } from '../tags.js';
+import { loadTemplate, loadTemplates, templatesDir } from '../templateStore.js';
 
 interface SummarizeOptions {
   readonly tag?: string[];
   readonly lang?: string;
   readonly fresh?: boolean;
   readonly save?: boolean;
+  readonly template?: string;
+  readonly context?: string;
 }
 
 /**
@@ -69,6 +72,16 @@ export function registerSummarize(program: Command, context: CliContext): void {
     .option('--lang <code>', "language to write the summary in (default: the transcript's)")
     .option('--fresh', 'read the transcripts again instead of reusing stored summaries')
     .option('--no-save', 'do not store the summary')
+    .option(
+      '--template <name>',
+      'what kind of conversation this is, which decides the headings; ' +
+        '"laud template ls" lists them',
+    )
+    .option(
+      '--context <text>',
+      'a sentence or two the transcript does not say: who these people are to each other, ' +
+        'what the project is, what happened last week',
+    )
     .description('Summarise one or several recordings with a language model')
     .action(async (ids: string[], options: SummarizeOptions) => {
       const tags = parseTags(options.tag ?? []);
@@ -80,6 +93,17 @@ export function registerSummarize(program: Command, context: CliContext): void {
       }
       if (ids.length > 0 && tags.length > 0) {
         throw new UsageError('summarize takes ids or --tag, not both.');
+      }
+      // Resolved here, before anything is read or spawned: a mistyped template
+      // should fail in milliseconds, not after a transcript has been chunked.
+      // From disk, so an edited template takes effect and a template the user
+      // wrote is a peer of the shipped ones.
+      const dir = templatesDir(context.paths.configFile);
+      const wanted = options.template ?? DEFAULT_TEMPLATE;
+      const template = await loadTemplate(context.fs, dir, wanted);
+      if (template === undefined) {
+        const available = (await loadTemplates(context.fs, dir)).map((t) => t.name).join(', ');
+        throw new UsageError(`unknown --template "${wanted}"; choose one of: ${available}`);
       }
 
       await context.ui.frame('Summarising', async () => {
@@ -114,6 +138,8 @@ export function registerSummarize(program: Command, context: CliContext): void {
         const request = buildSummaryRequest(sources, {
           budgetTokens: transcriptBudget(summarizer),
           ...(options.lang === undefined ? {} : { language: options.lang }),
+          template,
+          ...(options.context === undefined ? {} : { context: options.context }),
         });
 
         // The transcripts are written out for the length of the run and no
@@ -166,6 +192,8 @@ export function registerSummarize(program: Command, context: CliContext): void {
               provider: summarizer.name,
               model: summarizer.model,
               body,
+              template: template.name,
+              context: options.context ?? '',
               recordingIds: recordings.map((recording) => recording.id),
             };
             await context.store.insertSummary(summary);

@@ -40,6 +40,8 @@ interface SummaryRow {
   provider: string;
   model: string;
   body: string;
+  template: string;
+  context: string;
 }
 
 interface LanguageTotalRow {
@@ -322,8 +324,9 @@ export class SqliteStore implements ManagedRecordingStore {
     try {
       this.db
         .prepare(
-          `INSERT INTO summary (id, created_at, language, provider, model, body)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO summary
+             (id, created_at, language, provider, model, body, template, context)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           summary.id,
@@ -332,6 +335,8 @@ export class SqliteStore implements ManagedRecordingStore {
           summary.provider,
           summary.model,
           summary.body,
+          summary.template,
+          summary.context,
         );
       const link = this.db.prepare(
         'INSERT INTO summary_recording (summary_id, recording_id) VALUES (?, ?)',
@@ -417,6 +422,8 @@ export class SqliteStore implements ManagedRecordingStore {
       provider: row.provider,
       model: row.model,
       body: row.body,
+      template: row.template,
+      context: row.context,
       recordingIds: ids.map((entry) => entry.recording_id),
     };
   }

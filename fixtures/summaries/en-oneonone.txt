@@ -1,0 +1,15 @@
+[00:00] Ann: How are things? You seemed quiet in the standup.
+[00:06] Ben: Honestly, a bit stretched. The export work keeps growing.
+[00:13] Ann: Growing how?
+[00:15] Ben: Every fix uncovers two more. And I am the only one who knows that code.
+[00:23] Ann: That is a problem I should have caught. Do you want someone paired with you on it?
+[00:31] Ben: I would rather hand off the CI part entirely. The fixture work I can finish.
+[00:39] Ann: Then let us do that. I will ask Carla to take CI from Monday.
+[00:46] Ben: That would help a lot.
+[00:49] Ann: The other thing I wanted to raise is the promotion cycle. You asked in March.
+[00:57] Ben: I did, and nothing came back.
+[01:01] Ann: That is on me. I did not put your case forward in time for this round.
+[01:08] Ben: That is disappointing to hear.
+[01:11] Ann: It should be. The next round closes in November and I will have your case written by October.
+[01:20] Ben: I would like to see it before it goes in.
+[01:24] Ann: You will. Let us book thirty minutes in early October.

@@ -374,3 +374,39 @@ show`, `laud rm`, `laud annotate`. `docker ps` still works years after
 - The old top-level spellings all keep working, `import`, `transcribe` and
   `summarize` included. The e2e suite drives `laud import`, `laud transcribe`,
   `laud ls` and `laud show`, and passes untouched.
+- `laud audio summarize --template <name>` says what kind of conversation this
+  is, which decides the summary's headings, and `--context <text>` hands the
+  model the sentence or two the transcript does not say -- who these people are
+  to each other, what the project is called, what happened last week.
+- Six templates ship: `meeting` (the default), `one-on-one`,
+  `performance-review`, `architecture-planning`, `solution-decision` and
+  `offsite`. The headings differ because the questions do: a one-to-one is
+  about agreements and concerns, a solution decision about what was rejected
+  and what would change the answer.
+- Templates are written out as YAML files under
+  `$XDG_CONFIG_HOME/laud/templates/`, one per template, on first use. A
+  template is prose about how to summarise, and prose nobody can see cannot be
+  improved. Disk is the source of truth, so an edit takes effect -- and a file
+  the user has edited is never overwritten, which is the difference between
+  shipping defaults and destroying someone's work.
+- `laud template ls|show|new` lists, prints and creates them. `new --from`
+  starts from an existing template. A template needs a context sentence and at
+  least two headings: one heading is a title, not a shape.
+- `laud audio import --tag` tags at import. A tag is how a recording is found
+  again by context, and the moment it is easiest to supply is while somebody is
+  already thinking about what the file is; postponed, it stays undone.
+- The caller's context sits above the rules in the prompt, not below them: it
+  is what the recording IS, where the rules are how to write about it. It is
+  labelled as the caller's, because an unlabelled sentence handed in from
+  outside is indistinguishable from something a speaker said and gets
+  attributed to one.
+- Schema version 6 stores the template and the context with each report, for
+  the same reason the model is stored: a report reused later as context is
+  worth less if nobody can tell what it was asked to be.
+- Measured, as before: the one-on-one template with caller context scores 3/3
+  on haiku, sonnet and opus, and the whole set is 68/72. Changing the headings
+  does not carry the previous measurement automatically, so the harness gained
+  a template case.
+- `laud template new one-on-one` on a machine that had never listed templates
+  created a file shadowing a built-in, silently, because the built-ins had not
+  been written out yet. `new` materialises them before it checks.

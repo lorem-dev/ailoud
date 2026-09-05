@@ -12,6 +12,8 @@ const summary = (over: Partial<Summary> = {}): Summary => ({
   language: 'en',
   provider: 'claude-cli',
   model: 'haiku',
+  template: 'meeting',
+  context: '',
   body: '**Decisions**\n- Meet at the pier at five.\n',
   recordingIds: ['ID001'],
   ...over,
@@ -244,7 +246,7 @@ describe('command layout', () => {
     }
   });
 
-  it('leaves only the two nouns and the environment commands at the top level', async () => {
+  it('leaves only the nouns and the environment commands at the top level', async () => {
     // The whole point of the reshuffle: laud --help shows the shape of the
     // tool, not a list that grows with every verb.
     const ctx = await contextWithTranscript({ skipImport: true });
@@ -255,7 +257,7 @@ describe('command layout', () => {
         return hidden !== true;
       })
       .map((command) => command.name());
-    expect(visible).toEqual(['audio', 'report', 'doctor', 'setup']);
+    expect(visible).toEqual(['audio', 'report', 'template', 'doctor', 'setup']);
   });
 
   it('gives every second-level verb a one-letter alias, none colliding', async () => {

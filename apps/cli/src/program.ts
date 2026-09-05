@@ -9,6 +9,7 @@ import { registerRm } from './commands/rm.js';
 import { registerAnnotate } from './commands/annotate.js';
 import { registerSummarize } from './commands/summarize.js';
 import { registerReports } from './commands/reports.js';
+import { registerTemplate } from './commands/template.js';
 import { attachLetters, group, inGroupAndTopLevel } from './commands/groups.js';
 import { registerTranscribe } from './commands/transcribe.js';
 import type { CliContext } from './wiring.js';
@@ -83,6 +84,15 @@ export function buildProgram(context: CliContext): Command {
   const report = group(program, 'report', 'reports', 'Work with saved summaries');
   registerReports(report, context);
   attachLetters(report);
+
+  const template = group(
+    program,
+    'template',
+    'templates',
+    'Summary templates -- what shape a summary of this kind of conversation takes',
+  );
+  registerTemplate(template, context);
+  attachLetters(template);
 
   registerDoctor(program, context);
   registerSetup(program, context);
