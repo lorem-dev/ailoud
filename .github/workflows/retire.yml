@@ -43,7 +43,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           # Whole history and every tag: the script refuses to delete a tag
           # whose commit is not reachable from origin/main, and cannot tell on
