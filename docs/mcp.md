@@ -108,21 +108,10 @@ model files, which are not a property of a project.
 
 ## By hand
 
-=== "Claude Code"
+=== "Claude Code / Claude Desktop"
 
-    `.mcp.json` in your project, or `~/.claude.json` for every project:
-
-    ```json
-    {
-      "mcpServers": {
-        "ailoud": { "command": "ailoud", "args": ["mcp"] }
-      }
-    }
-    ```
-
-=== "Claude Desktop"
-
-    `claude_desktop_config.json`:
+    `.mcp.json` in your project, `~/.claude.json` for every project, or
+    `claude_desktop_config.json` for Claude Desktop:
 
     ```json
     {
@@ -158,8 +147,7 @@ Check it works:
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}' | ailoud mcp
 ```
 
-It serves the same library the CLI uses. Anything you import in the shell is
-visible to the agent, and the other way round.
+It serves the same library the CLI uses, in both directions.
 
 ## Ask it things
 
