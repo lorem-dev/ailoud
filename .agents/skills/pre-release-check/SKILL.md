@@ -1,10 +1,10 @@
 ---
 name: pre-release-check
 description: >
-  Gate a release by running check-licenses, run-tests-and-linters,
-  check-fixtures, check-docs, and check-changes, plus verifying the version
-  bump and that all commits since the last release follow the
-  conventional-commits format.
+  Gate a release by running check-licenses, check-dependencies,
+  run-tests-and-linters, check-fixtures, check-docs, and check-changes, plus
+  verifying the version bump and that all commits since the last release
+  follow the conventional-commits format.
 ---
 
 # pre-release-check
@@ -21,8 +21,11 @@ details):
 
 1. **check-licenses** -- must run first because a license failure is the
    most fundamental blocker.
-2. **run-tests-and-linters** -- lint, typecheck, and coverage at 90%.
-3. **check-fixtures** -- drive the built binary against `fixtures/` end to
+2. **check-dependencies** -- advisories, funding, and the 14-day rule on any
+   version taken. Runs early: an update it recommends changes what everything
+   below is testing, so taking one afterwards invalidates the whole gate.
+3. **run-tests-and-linters** -- lint, typecheck, and coverage at 90%.
+4. **check-fixtures** -- drive the built binary against `fixtures/` end to
    end. This is the only check that exercises the real binary against real
    files, so it catches wiring regressions the unit tests (which run
    against in-memory fakes) cannot see. Six of the twelve specs need a real
@@ -31,12 +34,14 @@ details):
    not a release blocker on its own -- attribute every failure (missing
    whisper-cli, fixture drift, product change, harness defect) before
    deciding whether it blocks.
-4. **check-docs** -- README.md, cross-references, command accuracy,
+5. **check-docs** -- README.md, cross-references, command accuracy,
    version references.
-5. **check-changes** -- CHANGES.md Development section vs. commit history.
+6. **check-changes** -- CHANGES.md Development section vs. commit history.
 
-If check-licenses or run-tests-and-linters fails, report the failure and
-stop. If check-fixtures fails for a reason other than the missing
+If check-licenses, check-dependencies or run-tests-and-linters fails, report
+the failure and stop. A `--prod` advisory or a version younger than 14 days
+blocks a release: the first ships a known vulnerability, and the second ships
+a version nobody has had time to find one in. If check-fixtures fails for a reason other than the missing
 `whisper-cli` binary (fixture drift, a product change, or a harness
 defect), treat it the same way -- a release must not ship while tests,
 licenses, or the end-to-end run are failing for a reason within this
@@ -93,6 +98,7 @@ Produce a release-readiness summary:
 
 ```
 check-licenses:            PASS / FAIL
+check-dependencies:        PASS / FAIL (advisories: prod / dev only; ages: ok / N too young)
 run-tests-and-linters:     PASS / FAIL
 check-fixtures:            PASS / FAIL (attribute: missing whisper-cli / fixture drift / product change / harness defect)
 check-docs:                PASS / FAIL

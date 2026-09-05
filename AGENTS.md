@@ -461,7 +461,7 @@ about to add an entry will actually see them.
 
 ## Local Development Skills
 
-Seven skills live under `.agents/skills/`. Invoke them when the situation
+Nine skills live under `.agents/skills/`. Invoke them when the situation
 calls for it:
 
 | Skill                   | When to use                                                                                                                                                                                                                      |
@@ -472,6 +472,7 @@ calls for it:
 | `check-licenses`        | After editing any `package.json` -- verify all npm dependencies are license-compliant and update LICENSE.                                                                                                                        |
 | `run-tests-and-linters` | Before marking any task done -- run the full gate (build, format check, lint, typecheck, test:cov at 90%).                                                                                                                       |
 | `check-fixtures`        | After touching import, transcribe, or the audio/STT providers -- drive the built binary against `fixtures/` end to end, in a throwaway `HOME`, `XDG_CONFIG_HOME`, and `XDG_DATA_HOME`, and confirm the working tree stays clean. |
+| `check-dependencies`    | Before every release and after any dependency change -- audit for advisories, report funding, and update what is behind, refusing any version published less than 14 days ago unless it fixes a critical advisory.               |
 | `pre-release-check`     | Before cutting a release -- runs the `check-*` and `run-tests-and-linters` skills above (not `bump-version`) plus version-bump and commit-format checks.                                                                         |
 | `dev-tag`               | To publish a snapshot to npm under the `dev` dist-tag without promising a release -- cuts a `v<version>-dev.<n>` tag.                                                                                                            |
 
