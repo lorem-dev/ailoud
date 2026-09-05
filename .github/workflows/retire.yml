@@ -8,9 +8,12 @@
 # Trusted publishing covers publishing, so `npm deprecate` had nothing to
 # authenticate with, which is why this used to be manual.
 #
-# Called by publish.yml after a final release, and available on its own so the
-# credential path can be checked without waiting for one -- without `confirm`
-# it changes nothing and reports whether the exchange works.
+# Callable only by publish.yml, and only for a final release. Not dispatchable
+# on its own, for two reasons that agree: retiring snapshots is meaningful only
+# when something supersedes them, and npm binds a trusted publisher to a
+# workflow file -- a run entered through this file is a different identity from
+# one entered through publish.yml, and the exchange is refused
+# (`OIDC token exchange error - package not found`).
 
 name: Retire pre-releases
 
@@ -21,22 +24,6 @@ on:
         description: The released version whose pre-releases to retire, e.g. 1.0.0
         required: true
         type: string
-      confirm:
-        description: Carry it out. Without this it only prints the plan.
-        required: false
-        default: false
-        type: boolean
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Released version, e.g. 1.0.0'
-        required: true
-        type: string
-      confirm:
-        description: Carry it out (leave off for a dry run)
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   # Deleting the superseded tags needs write; the dry run does not, but one
@@ -70,5 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags origin 'refs/heads/main:refs/remotes/origin/main'
-          node scripts/retire-prereleases.mjs '${{ inputs.version }}' \
-            ${{ inputs.confirm && '--yes' || '' }}
+          # --yes unconditionally: the only caller is a release, and tagging
+          # it was the consent. The script's plan-first default is for a
+          # laptop, where nothing has been decided yet.
+          node scripts/retire-prereleases.mjs '${{ inputs.version }}' --yes

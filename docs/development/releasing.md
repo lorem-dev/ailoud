@@ -111,10 +111,10 @@ and deletes the tags -- but only those whose commit is reachable from `main`,
 because the published provenance attests that commit. The rest are reported and
 left in place.
 
-`publish.yml` runs this itself after a final release, and `retire.yml` can be
-dispatched on its own -- without `confirm` it changes nothing and reports
-whether it could, which is how to check the credential path without waiting for
-a release.
+`publish.yml` runs this itself after a final release, through
+`retire.yml`. That is the only way it runs in CI: npm binds a trusted publisher
+to a workflow file, so a run entered through `retire.yml` is a different
+identity and the exchange is refused.
 
 No token is involved here either. Trusted publishing covers publishing, so
 `npm deprecate` has nothing to authenticate with; the script performs the same

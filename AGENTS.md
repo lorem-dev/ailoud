@@ -325,10 +325,11 @@ and deletes the tags. Two things it deliberately does not do:
   provenance attests that commit; unreachable, it can be collected, leaving
   the attestation pointing at nothing. Those tags are reported and kept.
 
-It runs by hand or in CI. `publish.yml` calls `retire.yml` after a final
-release, and `retire.yml` can be dispatched on its own -- without `confirm` it
-changes nothing and reports whether it could, which is how to check the
-credential path without waiting for a release.
+It runs by hand, or in CI as part of a production release and nowhere else:
+`publish.yml` calls `retire.yml` for a final tag. `retire.yml` is not
+dispatchable on its own, because npm binds a trusted publisher to a workflow
+file -- a run entered through `retire.yml` is a different identity from one
+entered through `publish.yml`, and the exchange is refused.
 
 Neither needs a stored credential. Trusted publishing covers publishing, so
 `npm deprecate` has nothing to authenticate with; the script performs the same

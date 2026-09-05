@@ -63,6 +63,12 @@ export async function tokenForPackage(name, log = console.error) {
     return null;
   }
 
+  // The claims, not the token. npm binds a trusted publisher to a workflow
+  // file, so a rejection usually means the identity is right and the workflow
+  // is not the one configured -- which is invisible unless the claims are
+  // printed. They are public metadata; the token they came in is not.
+  log(`npm-oidc: identity ${describeClaims(idToken)}`);
+
   const exchange = `${REGISTRY}/-/npm/v1/oidc/token/exchange/package/${escapePackageName(name)}`;
   const response = await fetch(exchange, {
     method: 'POST',
@@ -81,6 +87,27 @@ export async function tokenForPackage(name, log = console.error) {
     return null;
   }
   return token;
+}
+
+/**
+ * The claims npm matches a trusted publisher against, as one line.
+ *
+ * `workflow_ref` is the workflow the run entered through; `job_workflow_ref`
+ * is the reusable workflow the job itself is defined in. They differ exactly
+ * when one workflow calls another, which is the case this exists to explain.
+ */
+function describeClaims(idToken) {
+  try {
+    const [, payload] = idToken.split('.');
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    return [
+      `sub=${claims.sub}`,
+      `workflow_ref=${claims.workflow_ref}`,
+      `job_workflow_ref=${claims.job_workflow_ref}`,
+    ].join(' ');
+  } catch {
+    return '(claims unreadable)';
+  }
 }
 
 /**
