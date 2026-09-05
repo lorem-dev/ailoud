@@ -46,7 +46,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           lfs: true
 
@@ -90,7 +90,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           lfs: true
 
@@ -116,7 +116,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           # The audio fixtures are LFS-tracked; without this the suite
           # transcribes pointer files.
@@ -131,7 +131,7 @@ jobs:
       - name: Cache the whisper models
         # Keyed on the catalogue, which holds the pinned file names, sizes and
         # URLs: a model change invalidates the cache, and nothing else does.
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.local/share/ailoud/models
           key: ailoud-models-${{ runner.os }}-${{ hashFiles('packages/core/src/provision/catalogue.ts') }}
@@ -201,7 +201,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
