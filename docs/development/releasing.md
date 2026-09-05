@@ -17,7 +17,9 @@
 | `v<version>`         | a final release, tagged on `main` only   | `latest`     |
 
 Only a final tag moves `latest`, so `npm install ailoud` never returns a
-pre-release.
+pre-release -- except for a package's very first publish, where npm sets
+`latest` whatever `--tag` says. `latest` can be moved but not removed, so that
+first pre-release answers `npm install ailoud` until a final version exists.
 
 ## Changelog limits
 

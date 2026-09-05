@@ -23,6 +23,11 @@ Only a final tag moves `latest` and publishes documentation. `npm install
 ailoud` therefore never picks up a dev tag, and the site never describes a
 version nobody can install.
 
+Except once per package: npm sets `latest` on a FIRST publish whatever `--tag`
+says, and `latest` cannot be removed afterwards, only moved. If a dev tag is
+what introduces a package to the registry -- as v1.0.0-dev.1 was -- then
+`latest` points at that snapshot until a final version is published.
+
 ## Cutting one
 
 1. The working tree must be clean and the gate green:

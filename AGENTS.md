@@ -286,6 +286,11 @@ Only a final tag moves `latest` and publishes the site, so `npm install ailoud`
 never picks up a pre-release and the site never describes a version nobody can
 install. `publish.yml` refuses a tag that disagrees with any manifest version.
 
+One exception, and it cannot be worked around: npm sets `latest` on a package's
+FIRST publish whatever `--tag` says, and `latest` can be moved but never
+removed. A package whose first release was a pre-release therefore answers
+`npm install <name>` with it until a final version exists.
+
 Use the `dev-tag` skill for a snapshot; `bump-version` then `pre-release-check`
 for a release.
 

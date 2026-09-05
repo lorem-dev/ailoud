@@ -217,7 +217,9 @@ jobs:
           #   -rc.N   what the release will be     -> next
           #   final   the release                  -> latest
           # Only the last moves `latest`, so `npm install ailoud` never picks up
-          # a pre-release by accident.
+          # a pre-release by accident -- with one exception nothing here can
+          # prevent: npm sets `latest` on a package's first publish whatever
+          # --tag says, and `latest` can be moved but never removed.
           case "$version" in
             *-dev.*) dist_tag=dev ;;
             *-*)     dist_tag=next ;;
