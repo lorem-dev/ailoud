@@ -30,11 +30,12 @@ import {
   WhisperVadSegmenter,
   openStore,
 } from '@ailoud/providers';
-import { parseConfig, resolvePaths } from './config.js';
+import { PROJECT_DIR, parseConfig, resolvePaths } from './config.js';
 import type { AiloudConfig, AiloudPaths } from './config.js';
 import { createUi } from './ui/index.js';
 import type { Ui } from './ui/index.js';
 import { apiKeyFrom } from './apiKey.js';
+import { rememberProject } from './projects.js';
 
 /**
  * Where `ailoud self check` looks for newer versions, and how long it waits.
@@ -124,6 +125,37 @@ async function readConfigFile(path: string): Promise<string | null> {
   }
 }
 
+/**
+ * Records that this run resolved a project's own library, so a later
+ * `ailoud self sync` has something to sweep. The per-user library is never
+ * entered here: it always exists, so listing it in the registry would only
+ * ever be noise.
+ *
+ * Registration is bookkeeping, not the user's request -- `createContext` runs
+ * before every command, including `doctor` and `ls`, and a full disk, a
+ * read-only home, or any other write failure here must never fail the
+ * command that triggered it. Any error is swallowed down to a single debug
+ * line.
+ */
+async function registerProjectLibrary(fs: Fs, clock: Clock, paths: AiloudPaths): Promise<void> {
+  if (!paths.isProjectLibrary) return;
+  // `paths.dataDir` IS the project's `.ailoud/` in this branch (see
+  // `AiloudPaths.dataDir`'s own doc comment), so the project itself is that
+  // directory with the trailing `/.ailoud` stripped back off.
+  const projectPath = paths.dataDir.slice(0, -`/${PROJECT_DIR}`.length);
+  try {
+    await rememberProject(
+      { fs, clock, userDataDir: paths.userDataDir },
+      { path: projectPath, libraryDir: paths.dataDir },
+    );
+  } catch (error) {
+    process.stderr.write(
+      `ailoud: debug: could not register project "${projectPath}": ` +
+        `${error instanceof Error ? error.message : String(error)}\n`,
+    );
+  }
+}
+
 export async function createContext(
   env: Record<string, string | undefined>,
   write: (line: string) => void = (line) => process.stdout.write(`${line}\n`),
@@ -137,13 +169,16 @@ export async function createContext(
   const raw = await readConfigFile(paths.configFile);
   const config = parseConfig(raw);
   await mkdir(paths.mediaRoot, { recursive: true });
+  const fs = new NodeFs();
+  const clock = new SystemClock();
+  await registerProjectLibrary(fs, clock, paths);
   return {
     paths,
     config,
     store: openStore(paths.dbFile),
-    fs: new NodeFs(),
+    fs,
     audio: new FfmpegAudioTool(),
-    clock: new SystemClock(),
+    clock,
     ids: new UlidIds(),
     write,
     ui: createUi(write),

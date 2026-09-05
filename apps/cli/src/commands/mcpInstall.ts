@@ -8,6 +8,8 @@ import { defaultHome } from '../mcp/agents.js';
 import { detect, ensureProjectLibrary, install, uninstall, update } from '../mcp/install.js';
 import type { AgentOutcome } from '../mcp/install.js';
 import { isInteractive } from './setup.js';
+import { rememberProject } from '../projects.js';
+import { VERSION } from '../version.js';
 
 interface Options {
   readonly target?: string;
@@ -112,6 +114,30 @@ function report(context: CliContext, outcomes: readonly AgentOutcome[]): void {
  * Silently installing a global-only agent globally while the user asked for
  * "this project only" would be a surprise; saying so is not.
  */
+/**
+ * Records the project a successful `mcp install` just wrote rules into, with
+ * this build's version -- that is what lets a later `ailoud self sync` say
+ * "current" for it instead of rewriting bytes that have not changed.
+ *
+ * Registration is bookkeeping, not the user's request: a full disk, a
+ * read-only project directory, or any other write failure here must never
+ * fail an install that otherwise succeeded. Any error is swallowed down to a
+ * single debug line.
+ */
+async function registerAfterInstall(context: CliContext, cwd: string): Promise<void> {
+  try {
+    await rememberProject(
+      { fs: context.fs, clock: context.clock, userDataDir: context.paths.userDataDir },
+      { path: cwd, rulesVersion: VERSION },
+    );
+  } catch (error) {
+    process.stderr.write(
+      `ailoud: debug: could not register project "${cwd}": ` +
+        `${error instanceof Error ? error.message : String(error)}\n`,
+    );
+  }
+}
+
 function splitByScope(
   agents: readonly AgentTarget[],
   scope: Scope,
@@ -174,6 +200,13 @@ export function registerMcpInstall(parent: Command, context: CliContext): void {
         for (const agent of forcedGlobal) {
           context.write(`${agent.label} reads no per-project config; configuring it globally.`);
           outcomes.push(await install(context.fs, agent, 'global', home(), cwd()));
+        }
+
+        // Only once rules were actually written locally: a run that only
+        // touched global-only agents wrote nothing into this project, and
+        // has nothing to register.
+        if (scope === 'local' && inScope.length > 0) {
+          await registerAfterInstall(context, cwd());
         }
 
         report(context, outcomes);
