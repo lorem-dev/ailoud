@@ -161,7 +161,8 @@ Exit codes: `0` ok, `1` failure, `2` usage, `3` environment.
 
 A corrupted file passes its check -- it still exists -- so `doctor` cannot see
 the problem. `ailoud setup --force` reinstalls everything regardless of what
-the checks say, ffmpeg through every model, for exactly that case.
+the checks say, ffmpeg through every model, for exactly that case -- see the
+[CLI reference](cli.md#setup) for what it costs with a local summariser.
 
 ## Concurrency
 
