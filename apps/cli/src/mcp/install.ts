@@ -27,32 +27,38 @@ export async function detect(fs: Fs, agent: AgentTarget, home: string): Promise<
   return false;
 }
 
+async function readIfPresent(fs: Fs, path: string): Promise<string | null> {
+  return (await fs.exists(path)) ? fs.readTextFile(path) : null;
+}
+
 /**
- * The rules file to write for a scope: the first that exists, else the first
- * listed.
+ * The rules files to write for a scope.
  *
- * Preference order matters for Claude Code, which reads both a repository's
- * own `CLAUDE.md` and a `.claude/CLAUDE.md` beside it. Appending to the one
- * that already exists keeps a project's instructions in one file; creating
- * `.claude/CLAUDE.md` next to an existing `CLAUDE.md` would split them.
+ * Every candidate that already carries the block, or the first candidate when
+ * none does.
+ *
+ * Claude Code reads both a repository's own `CLAUDE.md` and a
+ * `.claude/CLAUDE.md` beside it, which makes both halves of that rule
+ * load-bearing. Writing to both on a fresh install would put the same
+ * instructions in the agent's context twice; writing to only the preferred one
+ * when an earlier install left a block in the other would leave that copy to
+ * go stale and keep telling the agent about tools it no longer has.
  */
-export async function chooseRulesFile(
+export async function rulesTargets(
   fs: Fs,
   agent: AgentTarget,
   scope: Scope,
   home: string,
   cwd: string,
-): Promise<string | null> {
+): Promise<readonly string[]> {
   const candidates = agent.rulesPaths(scope, home, cwd);
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) return [];
+  const carrying: string[] = [];
   for (const path of candidates) {
-    if (await fs.exists(path)) return path;
+    const text = await readIfPresent(fs, path);
+    if (text !== null && hasBlock(text)) carrying.push(path);
   }
-  return candidates[0] ?? null;
-}
-
-async function readIfPresent(fs: Fs, path: string): Promise<string | null> {
-  return (await fs.exists(path)) ? fs.readTextFile(path) : null;
+  return carrying.length > 0 ? carrying : [candidates[0]!];
 }
 
 /**
@@ -117,8 +123,7 @@ export async function install(
     files.push({ path: configPath, action: 'unchanged' });
   }
 
-  const rulesPath = await chooseRulesFile(fs, agent, scope, home, cwd);
-  if (rulesPath !== null) {
+  for (const rulesPath of await rulesTargets(fs, agent, scope, home, cwd)) {
     const rulesBefore = await readIfPresent(fs, rulesPath);
     const rulesAfter = withBlock(rulesBefore ?? '');
     if (rulesBefore === null) {

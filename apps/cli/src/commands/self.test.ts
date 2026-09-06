@@ -120,7 +120,7 @@ describe('syncProjects', () => {
 
   /** Rewrites a project's CLAUDE.md so it no longer matches the current build's block. */
   async function makeStale(fs: MemFs, projectPath: string): Promise<void> {
-    const rulesPath = `${projectPath}/CLAUDE.md`;
+    const rulesPath = `${projectPath}/.claude/CLAUDE.md`;
     const current = await fs.readTextFile(rulesPath);
     const stale = current.replace('## AILoud', '## AILoud (text from an older ailoud build)');
     await fs.writeTextFile(rulesPath, stale);
@@ -129,7 +129,7 @@ describe('syncProjects', () => {
   it('refreshes a rules block and reports it as refreshed', async () => {
     const fs = new MemFs({});
     await install(fs, claude, 'local', HOME, '/proj/a');
-    const rulesPath = '/proj/a/CLAUDE.md';
+    const rulesPath = '/proj/a/.claude/CLAUDE.md';
     const current = await fs.readTextFile(rulesPath);
     await makeStale(fs, '/proj/a');
 
@@ -168,7 +168,7 @@ describe('syncProjects', () => {
     // the project's own rules/config files must be untouched because
     // update() already found them byte-identical to the current build.
     const newWrites = fs.writes.slice(writesBeforeSync);
-    expect(newWrites).not.toContain('/proj/a/CLAUDE.md');
+    expect(newWrites).not.toContain('/proj/a/.claude/CLAUDE.md');
     expect(newWrites).not.toContain('/proj/a/.mcp.json');
   });
 
@@ -195,7 +195,7 @@ describe('syncProjects', () => {
         // `<path>.<uuid>.tmp` and renamed over the target, so matching the
         // target exactly would stop injecting the fault altogether and leave
         // this test quietly asserting the happy path.
-        if (this.armed && path.includes('/proj/b/CLAUDE.md')) {
+        if (this.armed && path.includes('/proj/b/.claude/CLAUDE.md')) {
           throw new Error('EACCES: permission denied');
         }
         return super.writeTextFile(path, content);
@@ -320,7 +320,7 @@ describe('ailoud self sync (CLI)', () => {
         // `<path>.<uuid>.tmp` and renamed over the target, so matching the
         // target exactly would stop injecting the fault altogether and leave
         // this test quietly asserting the happy path.
-        if (this.armed && path.includes('/proj/a/CLAUDE.md')) {
+        if (this.armed && path.includes('/proj/a/.claude/CLAUDE.md')) {
           throw new Error('EACCES: permission denied');
         }
         return super.writeTextFile(path, content);
@@ -329,7 +329,7 @@ describe('ailoud self sync (CLI)', () => {
     const fs = new FlakyFs({});
     const claude = findAgent('claude')!;
     await install(fs, claude, 'local', '/home/user', '/proj/a');
-    const rulesPath = '/proj/a/CLAUDE.md';
+    const rulesPath = '/proj/a/.claude/CLAUDE.md';
     const current = await fs.readTextFile(rulesPath);
     await fs.writeTextFile(rulesPath, current.replace('## AILoud', '## AILoud (old)'));
     fs.armed = true;

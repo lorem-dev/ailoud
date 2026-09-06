@@ -23,12 +23,11 @@ export interface AgentTarget {
   /** The MCP configuration file for a scope. */
   configPath(scope: Scope, home: string, cwd: string): string;
   /**
-   * The rules file for a scope, or null when the agent reads none.
+   * The rules files for a scope, in preference order, or empty when the agent
+   * reads none.
    *
-   * A list, in preference order: the first that already exists is used, and
-   * the first entry is created when none do. That is what keeps the block in a
-   * repository's own `CLAUDE.md` instead of creating a second one under
-   * `.claude/` beside it.
+   * Every candidate that already carries the block is kept current; when no
+   * candidate carries it, it is created in the first. See `rulesTargets`.
    */
   rulesPaths(scope: Scope, home: string, cwd: string): readonly string[];
   /** Paths whose existence means this agent is installed on this machine. */
@@ -58,7 +57,7 @@ export const AGENTS: readonly AgentTarget[] = [
     rulesPaths: (scope, home, cwd) =>
       scope === 'global'
         ? [join(home, '.claude', 'CLAUDE.md')]
-        : [join(cwd, 'CLAUDE.md'), join(cwd, '.claude', 'CLAUDE.md')],
+        : [join(cwd, '.claude', 'CLAUDE.md'), join(cwd, 'CLAUDE.md')],
     detectPaths: (home) => [join(home, '.claude.json'), join(home, '.claude')],
     afterNote: 'Restart Claude Code, or run /mcp, to pick up the server.',
   },
