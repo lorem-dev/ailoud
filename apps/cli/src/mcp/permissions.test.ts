@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseDocument } from 'yaml';
 import { addPermission, hasPermission, removePermission } from './permissions.js';
 
 const CWD = '/work/repo';
@@ -146,5 +147,108 @@ describe('jsonc-opencode-permission', () => {
     });
     const out = removePermission('jsonc-opencode-permission', before, CWD)!;
     expect(parse(out).permission.bash).toEqual({ git: 'allow' });
+  });
+
+  it('adds the missing pattern when only one of the two is already present', () => {
+    // The early return in `addPermission` is gated on `hasPermission`, which
+    // must not answer true for a half-written rule.
+    const before = JSON.stringify({ permission: { bash: { ailoud: 'allow' } } });
+    const out = addPermission('jsonc-opencode-permission', before, CWD)!;
+    expect(parse(out).permission.bash).toEqual({ ailoud: 'allow', 'ailoud *': 'allow' });
+  });
+});
+
+describe('yaml-codex-policy', () => {
+  it('writes an allow list when there is no file', () => {
+    const out = addPermission('yaml-codex-policy', null, CWD)!;
+    expect(parseDocument(out).toJSON().allow).toEqual(['ailoud', 'ailoud *']);
+  });
+
+  it('merges into an existing list instead of adding a second allow key', () => {
+    // Two `allow:` mappings in one document is a duplicate key, which is a
+    // YAML error -- the file stops loading and every rule in it is lost.
+    const before = '# Locksmith permissions\nallow:\n  - "locksmith get *"\n';
+    const out = addPermission('yaml-codex-policy', before, CWD)!;
+    expect(out.match(/^allow:/gm)).toHaveLength(1);
+    expect(parseDocument(out).toJSON().allow).toEqual(['locksmith get *', 'ailoud', 'ailoud *']);
+  });
+
+  it('keeps the comments around the rules', () => {
+    const before = '# Locksmith permissions\nallow:\n  - "locksmith get *"\n';
+    expect(addPermission('yaml-codex-policy', before, CWD)!).toContain('# Locksmith permissions');
+  });
+
+  it('is idempotent', () => {
+    const once = addPermission('yaml-codex-policy', null, CWD)!;
+    expect(addPermission('yaml-codex-policy', once, CWD)).toBe(once);
+    expect(hasPermission('yaml-codex-policy', once, CWD)).toBe(true);
+  });
+
+  it('refuses a file it cannot parse and one whose allow is not a list', () => {
+    expect(addPermission('yaml-codex-policy', 'allow:\n  - [unclosed', CWD)).toBeNull();
+    expect(addPermission('yaml-codex-policy', 'allow: everything\n', CWD)).toBeNull();
+  });
+
+  it('removes both patterns, and says so when there were none', () => {
+    const before = 'allow:\n  - "locksmith get *"\n  - "ailoud"\n  - "ailoud *"\n';
+    const out = removePermission('yaml-codex-policy', before, CWD)!;
+    expect(parseDocument(out).toJSON().allow).toEqual(['locksmith get *']);
+    expect(removePermission('yaml-codex-policy', 'allow:\n  - "git"\n', CWD)).toBeNull();
+  });
+
+  it('adds the missing pattern when only one of the two is already present', () => {
+    const before = 'allow:\n  - "ailoud"\n';
+    const out = addPermission('yaml-codex-policy', before, CWD)!;
+    expect(parseDocument(out).toJSON().allow).toEqual(['ailoud', 'ailoud *']);
+  });
+});
+
+describe('json-copilot-locations', () => {
+  it('keys the approval by the directory it was granted for', () => {
+    // Copilot scopes shell approvals to a repository root, unlike its
+    // machine-wide MCP configuration.
+    const out = addPermission('json-copilot-locations', null, CWD)!;
+    expect(parse(out).locations[CWD].tool_approvals).toEqual([
+      { kind: 'commands', commandIdentifiers: ['ailoud:*'] },
+    ]);
+  });
+
+  it('merges into the commands rule already there rather than adding a second', () => {
+    const before = JSON.stringify({
+      locations: {
+        [CWD]: { tool_approvals: [{ kind: 'commands', commandIdentifiers: ['git status'] }] },
+      },
+    });
+    const out = addPermission('json-copilot-locations', before, CWD)!;
+    const approvals = parse(out).locations[CWD].tool_approvals;
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0].commandIdentifiers).toEqual(['git status', 'ailoud:*']);
+  });
+
+  it('leaves another directory alone', () => {
+    const before = JSON.stringify({
+      locations: {
+        '/other/repo': { tool_approvals: [{ kind: 'commands', commandIdentifiers: ['git'] }] },
+      },
+    });
+    const out = addPermission('json-copilot-locations', before, CWD)!;
+    expect(parse(out).locations['/other/repo'].tool_approvals[0].commandIdentifiers).toEqual([
+      'git',
+    ]);
+    expect(parse(out).locations[CWD].tool_approvals[0].commandIdentifiers).toEqual(['ailoud:*']);
+  });
+
+  it('is idempotent and reports presence per directory', () => {
+    const once = addPermission('json-copilot-locations', null, CWD)!;
+    expect(addPermission('json-copilot-locations', once, CWD)).toBe(once);
+    expect(hasPermission('json-copilot-locations', once, CWD)).toBe(true);
+    expect(hasPermission('json-copilot-locations', once, '/other/repo')).toBe(false);
+  });
+
+  it('removes our identifier and clears whatever that emptied', () => {
+    const once = addPermission('json-copilot-locations', null, CWD)!;
+    const out = removePermission('json-copilot-locations', once, CWD)!;
+    expect(parse(out).locations).toBeUndefined();
+    expect(removePermission('json-copilot-locations', '{}', CWD)).toBeNull();
   });
 });
