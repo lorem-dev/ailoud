@@ -33,9 +33,20 @@ export interface ShellTarget {
 /**
  * Whether `content` already wires `.bashrc` into a login shell's startup, in
  * any of the ways people actually write that line.
+ *
+ * Comment lines are skipped before the substring test: a `.bash_profile`
+ * whose only mention is `# used to source .bashrc, stopped` is not wiring
+ * anything in, and reading it as "already handled" would leave the user with
+ * no warning and completions that silently never load. This still only
+ * strips whole-line `#` comments, not a trailing `# ...` after real content
+ * or bash's other comment forms -- deliberately not a bash parser, just
+ * enough to not be fooled by the one shape a disabled line actually takes.
  */
 function mentionsBashrc(content: string): boolean {
-  return content.includes('.bashrc');
+  return content
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('#'))
+    .some((line) => line.includes('.bashrc'));
 }
 
 async function bashWarnAbout(fs: Fs, home: string): Promise<string | null> {

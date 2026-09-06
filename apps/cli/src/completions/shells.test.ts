@@ -60,10 +60,16 @@ describe('detect', () => {
   });
 
   it('does not match a shell whose name merely appears inside another path', async () => {
-    // `/usr/bin/bash` must not make fish look present, and a home directory
-    // called /home/fisherman must not either.
+    // A naive substring match (env.includes(target.shell)) would see "fish"
+    // inside "fisherman" and wrongly count fish as present for a bash user
+    // whose home or shell path happens to contain those letters. Comparing
+    // /usr/bin/bash against fish proves nothing here -- "bash" contains no
+    // "fish" under either strategy -- so the path below must actually embed
+    // "fish" as a substring without the basename being fish.
     const fs = new MemFs({});
-    expect(await detect(fs, findShell('fish')!, HOME, CONFIG, env('/usr/bin/bash'))).toBe(false);
+    expect(
+      await detect(fs, findShell('fish')!, HOME, CONFIG, env('/home/fisherman/bin/bash')),
+    ).toBe(false);
   });
 
   it('accepts either bash startup file', async () => {
@@ -93,6 +99,17 @@ describe('warnAbout', () => {
     const warning = await bash.warnAbout!(fs, HOME);
     expect(warning).not.toBeNull();
     expect(warning).toContain('.bash_profile');
+  });
+
+  it('warns when the only mention of .bashrc is commented out', async () => {
+    // A disabled line reads as "not wired in" -- if it counted as handled,
+    // the user would get no warning and completions would silently never
+    // load, discoverable only by a confused "why doesn't Tab work" report.
+    const fs = new MemFs({
+      [`${HOME}/.bash_profile`]: '# used to source .bashrc, stopped\nexport PATH="$PATH:/x"\n',
+    });
+    const bash = findShell('bash')!;
+    expect(await bash.warnAbout!(fs, HOME)).not.toBeNull();
   });
 
   it('is not implemented for zsh or fish', () => {
