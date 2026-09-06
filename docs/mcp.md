@@ -113,7 +113,16 @@ to ask for the allow-list in a script.
 | Hermes Agent       | --                                                       | Hermes records approvals itself; nothing to write           |
 
 Codex keeps one policy file for the machine even for a per-project install, and
-Copilot scopes its approval to the directory you ran the install in.
+Copilot scopes its approval to the directory you ran the install in -- which
+the install says on its own line, because the file it writes is machine-wide.
+
+!!! note
+
+    The rewrite rule above applies to these files too: comments in
+    `.claude/settings.json`, `.gemini/settings.json`, `opencode.jsonc` and
+    `~/.copilot/permissions-config.json` do not survive an edit. Codex's
+    `policy.yaml` keeps its comments, including any written inside the allow
+    list itself.
 
 `mcp uninstall` removes the entry. `mcp update` refreshes one that is already
 there and never adds one, which is why `ailoud self sync` cannot widen an
