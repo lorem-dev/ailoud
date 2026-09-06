@@ -173,9 +173,29 @@ describe('yaml-codex-policy', () => {
     expect(parseDocument(out).toJSON().allow).toEqual(['locksmith get *', 'ailoud', 'ailoud *']);
   });
 
-  it('keeps the comments around the rules', () => {
-    const before = '# Locksmith permissions\nallow:\n  - "locksmith get *"\n';
-    expect(addPermission('yaml-codex-policy', before, CWD)!).toContain('# Locksmith permissions');
+  it('keeps the comments written inside the allow list', () => {
+    // The comments that are actually at risk are the ones attached to entries
+    // in the sequence: replacing the sequence node takes them with it, while
+    // a document-level comment survives that untouched. Asserting only on the
+    // latter is a test that passes whether or not this behaviour works.
+    const before = [
+      '# header',
+      'allow:',
+      '  # git tools, added by hand',
+      '  - "git status"',
+      '  - "locksmith get *" # secrets',
+      '',
+    ].join('\n');
+    const out = addPermission('yaml-codex-policy', before, CWD)!;
+    expect(out).toContain('# git tools, added by hand');
+    expect(out).toContain('# secrets');
+    expect(out).toContain('# header');
+    expect(parseDocument(out).toJSON().allow).toEqual([
+      'git status',
+      'locksmith get *',
+      'ailoud',
+      'ailoud *',
+    ]);
   });
 
   it('is idempotent', () => {

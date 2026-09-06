@@ -1,4 +1,4 @@
-import { parseDocument } from 'yaml';
+import { Scalar, isSeq, parseDocument } from 'yaml';
 import { tryParseJson } from './agentConfig.js';
 
 /**
@@ -327,8 +327,32 @@ function addCodexPolicy(previous: string | null): string | null {
   const missing = GLOB_RULES.filter((pattern) => !current.includes(pattern));
   if (missing.length === 0) return previous;
   const doc = parseDocument(previous);
-  doc.set('allow', [...current, ...missing]);
+  const listed = doc.get('allow', true);
+  if (isSeq(listed)) {
+    // Appended to the sequence node in place. `doc.set('allow', [...])`
+    // replaces the whole node instead, and every comment written inside the
+    // list goes with it -- the line saying why a hand-added command is
+    // trusted, which is the one thing in that file worth keeping.
+    for (const pattern of missing) listed.add(quoted(pattern));
+  } else {
+    // No `allow` key yet, or one holding null: there is no sequence to merge
+    // into, so the key is created.
+    doc.set('allow', missing.map(quoted));
+  }
   return doc.toString();
+}
+
+/**
+ * A double-quoted scalar, matching the entries written into a fresh file.
+ *
+ * A bare `- ailoud *` is valid YAML and parses the same, but a policy file
+ * whose quoting changes halfway down its own allow list reads as if it had
+ * been corrupted.
+ */
+function quoted(value: string): Scalar {
+  const node = new Scalar(value);
+  node.type = Scalar.QUOTE_DOUBLE;
+  return node;
 }
 
 function removeCodexPolicy(previous: string): string | null {
