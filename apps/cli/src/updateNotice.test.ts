@@ -338,3 +338,21 @@ describe('startUpdateCheck', () => {
     }
   });
 });
+
+describe('the MCP suppression must not catch a run that only prints help', () => {
+  it('stays silent for the bare mcp server', async () => {
+    const notice = startUpdateCheck(baseDeps({ argv: ['mcp'] }));
+    expect(await notice.finish()).toBeNull();
+  });
+
+  it.each([['--help'], ['-h'], ['--version']])(
+    'still speaks for `mcp %s`, which starts no server',
+    async (flag) => {
+      // Stripping every `-` argument before deciding made this look like the
+      // bare `mcp` command. A suppression rule that fires on the wrong input
+      // is how one eventually fails to fire on the right one.
+      const notice = startUpdateCheck(baseDeps({ argv: ['mcp', flag] }));
+      expect(await notice.finish()).toBe('1.1.0');
+    },
+  );
+});

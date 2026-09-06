@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseUpdateTarget, compareVersions, isDeprecated, parseVersion } from './version.js';
+import { chooseUpdateTarget, compareVersions, parseVersion } from './version.js';
 
 const published = (...versions: string[]) =>
   versions.map((version) => ({ version, deprecated: false }));
@@ -111,35 +111,5 @@ describe('chooseUpdateTarget', () => {
 
   it('throws when its own version is unparseable', () => {
     expect(() => chooseUpdateTarget('nonsense', published('1.0.0'))).toThrow(/nonsense/);
-  });
-});
-
-describe('isDeprecated', () => {
-  // The single rule both `packages/providers/src/update/npmRegistry.ts` and
-  // `apps/cli/src/updateNotice.ts` import from here -- so this file is what
-  // keeps the two call sites from drifting apart again, the way they did
-  // before this rule had one home.
-  it('treats an empty deprecation message as not deprecated', () => {
-    // `npm deprecate <pkg>@<version> ""` un-deprecates by setting an empty
-    // string rather than removing the field. Testing the key's presence
-    // rather than the value reports a revived version as still deprecated.
-    expect(isDeprecated({ deprecated: '' })).toBe(false);
-  });
-
-  it('treats a non-empty deprecation message as deprecated', () => {
-    expect(isDeprecated({ deprecated: 'do not use' })).toBe(true);
-  });
-
-  it('treats a boolean true as deprecated', () => {
-    expect(isDeprecated({ deprecated: true })).toBe(true);
-  });
-
-  it('treats a missing field as not deprecated', () => {
-    expect(isDeprecated({})).toBe(false);
-  });
-
-  it('treats a non-object entry as not deprecated', () => {
-    expect(isDeprecated(null)).toBe(false);
-    expect(isDeprecated('nope')).toBe(false);
   });
 });

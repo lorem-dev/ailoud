@@ -96,25 +96,3 @@ function isEligible(from: Version, to: Version): boolean {
   if (from.pre.kind !== to.pre.kind) return false;
   return to.major === from.major && to.minor === from.minor && to.patch === from.patch;
 }
-
-/**
- * Whether the registry says this version is deprecated.
- *
- * The value matters, not the key. npm stores the deprecation MESSAGE here, and
- * `npm deprecate <pkg>@<version> ""` un-deprecates by setting an empty string
- * rather than removing the field. Testing `'deprecated' in entry` therefore
- * reports a revived version as still deprecated, which would refuse a
- * legitimate update and, if a registry emitted the empty form widely, refuse
- * every update.
- *
- * The single copy of this rule: `packages/providers/src/update/npmRegistry.ts`
- * and `apps/cli/src/updateNotice.ts` both import it from here rather than
- * keeping their own copy, so the rule can only drift once.
- */
-export function isDeprecated(entry: unknown): boolean {
-  if (typeof entry !== 'object' || entry === null) return false;
-  const flag: unknown = (entry as { deprecated?: unknown }).deprecated;
-  if (typeof flag === 'string') return flag.length > 0;
-  // Not a shape npm documents, but a boolean true is unambiguous if it appears.
-  return flag === true;
-}

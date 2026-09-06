@@ -338,8 +338,14 @@ export interface SelfUpdateDeps {
     options?: RunOptions,
   ) => Promise<RunResult>;
   /**
-   * Whether there is a real terminal to confirm on: both ends are a TTY, and
-   * this is not CI. See `isInteractive` in `setup.ts`.
+   * Whether there is a real terminal to confirm ON, which means STDIN is a
+   * TTY and this is not CI -- see `isInteractive` in `setup.ts`, which is
+   * what every caller uses.
+   *
+   * Stdin only, deliberately: the question is whether anyone can ANSWER a
+   * prompt, and that is stdin's business. `ailoud self update > out.txt` from
+   * a terminal is still interactive, and should be. This comment used to
+   * claim both ends had to be a TTY, which no call site checks.
    */
   readonly interactive: boolean;
   /** Overrides `@clack/prompts`' `confirm` in tests. */

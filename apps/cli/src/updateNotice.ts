@@ -114,8 +114,15 @@ function hasJsonFlag(argv: readonly string[]): boolean {
  * stdout for as long as the client stays connected -- never `mcp install`,
  * which is an ordinary one-shot CLI command like any other. */
 function isServingMcp(argv: readonly string[]): boolean {
+  // `--help` and `--version` never start a server, so they must not be
+  // stripped before deciding. Stripping every `-` argument first made
+  // `ailoud mcp --help` look like the bare `mcp` command and suppressed the
+  // notice on a run that prints ordinary help. Harmless in effect, but a
+  // suppression rule that fires on the wrong input is how one eventually
+  // fails to fire on the right one.
   const words = argv.filter((arg) => !arg.startsWith('-'));
-  return words[0] === 'mcp' && words[1] === undefined;
+  if (words[0] !== 'mcp' || words[1] !== undefined) return false;
+  return !argv.some((arg) => arg === '--help' || arg === '-h' || arg === '--version');
 }
 
 /** True for `self check` and `self update` themselves (every spelling: the

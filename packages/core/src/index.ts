@@ -68,12 +68,7 @@ export { isHostedLlm, withoutTrailingSlashes } from './domain/llmHost.js';
 export { mimeForPath } from './domain/mime.js';
 
 export type { PreKind, PublishedVersion, Version } from './domain/version.js';
-export {
-  chooseUpdateTarget,
-  compareVersions,
-  isDeprecated,
-  parseVersion,
-} from './domain/version.js';
+export { chooseUpdateTarget, compareVersions, parseVersion } from './domain/version.js';
 
 export { MIGRATIONS, SCHEMA_VERSION, pendingMigrations } from './db/schema.js';
 

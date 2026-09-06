@@ -114,9 +114,22 @@ async function outstandingFor(pkg) {
   const prereleases = Object.keys(published)
     .filter((candidate) => candidate.startsWith(`${version}-`))
     .sort();
+  // Truthiness, deliberately, and it agrees with `isDeprecated` in
+  // packages/providers for every shape npm actually sends: the field holds the
+  // deprecation MESSAGE, so an empty string -- what `npm deprecate <pkg>@<v>
+  // ""` writes to un-deprecate -- is falsy and correctly reads as live.
+  //
+  // NOT importing that function on purpose. It would mean importing from
+  // `packages/providers/dist`, and this script is run to finish a RELEASE:
+  // coupling it to a build artefact buys a failure at import time, before it
+  // can even print its plan, in exchange for removing an agreement that is
+  // already correct. On the invented shapes where the two could differ (an
+  // object, say) this script's answer is "deprecate it again", which is
+  // idempotent and harmless.
+  const isDeprecatedHere = (v) => Boolean(published[v].deprecated);
   return {
-    deprecate: prereleases.filter((v) => !published[v].deprecated),
-    alreadyDeprecated: prereleases.filter((v) => published[v].deprecated),
+    deprecate: prereleases.filter((v) => !isDeprecatedHere(v)),
+    alreadyDeprecated: prereleases.filter(isDeprecatedHere),
     // Also true when `dev` is absent. A missing dist-tag is not "nothing to
     // do": `npm install <pkg>@dev` fails outright without it, which is the
     // breakage that moving it instead of removing it exists to avoid -- and

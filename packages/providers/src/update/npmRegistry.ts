@@ -1,6 +1,6 @@
 import { request as httpsRequest } from 'node:https';
 import type { PublishedVersion, VersionSource } from '@ailoud/core';
-import { FailureError, isDeprecated } from '@ailoud/core';
+import { FailureError } from '@ailoud/core';
 
 /**
  * Exported so callers report the same host and wait that this class would use
@@ -112,4 +112,32 @@ export class NpmRegistry implements VersionSource {
     }
     return published;
   }
+}
+
+/**
+ * Whether the registry says this version is deprecated.
+ *
+ * The value matters, not the key. npm stores the deprecation MESSAGE here, and
+ * `npm deprecate <pkg>@<version> ""` un-deprecates by setting an empty string
+ * rather than removing the field. Testing `'deprecated' in entry` therefore
+ * reports a revived version as still deprecated, which would refuse a
+ * legitimate update and, if a registry emitted the empty form widely, refuse
+ * every update.
+ *
+ * It lives HERE, in the provider, rather than in the domain: it decodes one
+ * field of npm's packument wire format, which is a provider's business and
+ * not a rule about versions. `apps/cli` reaches it through this package, so
+ * nothing needs a copy.
+ *
+ * `scripts/retire-prereleases.mjs` answers a related question with its own
+ * truthiness test, deliberately, and says why there. It is NOT importing this
+ * function, so do not describe this as the only copy -- an earlier version of
+ * this comment did, which made it false.
+ */
+export function isDeprecated(entry: unknown): boolean {
+  if (typeof entry !== 'object' || entry === null) return false;
+  const flag: unknown = (entry as { deprecated?: unknown }).deprecated;
+  if (typeof flag === 'string') return flag.length > 0;
+  // Not a shape npm documents, but a boolean true is unambiguous if it appears.
+  return flag === true;
 }
