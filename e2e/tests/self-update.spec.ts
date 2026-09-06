@@ -386,6 +386,14 @@ describe('the project registry', () => {
     // next run, and is not this test's concern. What must never happen is
     // the file going invalid, or either project's entry disappearing
     // outright, which is what is asserted below.
+    //
+    // And this spec is NOT where the race guarantee is pinned. Two real
+    // subprocesses may simply not overlap inside the critical section, so a
+    // green run here is evidence rather than proof. The deterministic case --
+    // a rival that commits between the re-read and the rename, every time --
+    // lives in `apps/cli/src/projects.test.ts` under `RacingFs`. Read that
+    // one if you are changing `writeRegistry`; this one only catches a
+    // regression crude enough to survive real scheduling.
     await Promise.all([sandbox.run(['ls'], { cwd: dirA }), sandbox.run(['ls'], { cwd: dirB })]);
 
     const registry = await readRegistry(registryPath);
