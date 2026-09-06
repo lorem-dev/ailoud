@@ -175,6 +175,26 @@ describe('jsonc-opencode-permission', () => {
     expect(parse(out).permission.bash).toEqual({ git: 'allow' });
   });
 
+  it('leaves a hand-written rule about our command exactly as it stands', () => {
+    // `"ailoud": "deny"` is not something an install ever wrote, so an
+    // uninstall that deleted it would hand back a privilege the user had
+    // taken away by hand.
+    const before = JSON.stringify({
+      permission: { bash: { ailoud: 'deny', 'ailoud *': 'allow' } },
+    });
+    const out = removePermission('jsonc-opencode-permission', before, CWD)!;
+    expect(parse(out).permission.bash).toEqual({ ailoud: 'deny' });
+    expect(
+      removePermission(
+        'jsonc-opencode-permission',
+        JSON.stringify({
+          permission: { bash: { ailoud: 'deny', 'ailoud *': 'ask' } },
+        }),
+        CWD,
+      ),
+    ).toBeNull();
+  });
+
   it('adds the missing pattern when only one of the two is already present', () => {
     // The early return in `addPermission` is gated on `hasPermission`, which
     // must not answer true for a half-written rule.

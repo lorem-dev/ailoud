@@ -153,7 +153,11 @@ export function removePermission(
       const bash = (permission as Json)['bash'];
       if (bash === null || typeof bash !== 'object') return null;
       const map = bash as Json;
-      const had = GLOB_RULES.filter((pattern) => pattern in map);
+      // Only the value an install would have written. A key that says
+      // anything else -- `"ailoud": "deny"` -- is the user's own decision
+      // about our command, and deleting it on the way out would silently
+      // re-open a door they had shut.
+      const had = GLOB_RULES.filter((pattern) => map[pattern] === 'allow');
       if (had.length === 0) return null;
       for (const pattern of had) delete map[pattern];
       if (Object.keys(map).length === 0) delete (permission as Json)['bash'];
