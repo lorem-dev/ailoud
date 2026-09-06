@@ -1,4 +1,5 @@
-import { Scalar, isSeq, parseDocument } from 'yaml';
+import { Scalar, isMap, isScalar, isSeq, parseDocument } from 'yaml';
+import type { Document } from 'yaml';
 import { tryParseJson } from './agentConfig.js';
 
 /**
@@ -38,6 +39,14 @@ const GLOB_RULES = [COMMAND, `${COMMAND} *`] as const;
 
 /** Copilot matches `name:*` against the command and its arguments alike. */
 const COPILOT_RULE = `${COMMAND}:*`;
+
+/**
+ * The heading written above the allow list in a policy file AILoud created.
+ *
+ * Named rather than repeated so the uninstall can recognise its own heading
+ * and take it away again; every other comment in that file is the user's.
+ */
+const CODEX_HEADER = 'AILoud permissions';
 
 type Json = Record<string, unknown>;
 
@@ -118,7 +127,14 @@ export function addPermission(
   }
 }
 
-/** Removes our entry, or null when there was nothing of ours to remove. */
+/**
+ * Removes our entry, or null when there was nothing of ours to remove.
+ *
+ * The empty string is a third answer: the file held nothing but what an
+ * install put there, and the caller deletes it rather than writing back a
+ * husk. `removeTomlTable` in `agentConfig.ts` says the same thing the same
+ * way.
+ */
 export function removePermission(
   format: PermissionFormat,
   previous: string,
@@ -316,7 +332,7 @@ function addCodexPolicy(previous: string | null): string | null {
     // everything built from an empty seed in flow style -- valid YAML that no
     // hand-written policy file looks like.
     return [
-      '# AILoud permissions',
+      `# ${CODEX_HEADER}`,
       'allow:',
       ...GLOB_RULES.map((r) => `  - ${JSON.stringify(r)}`),
       '',
@@ -355,13 +371,66 @@ function quoted(value: string): Scalar {
   return node;
 }
 
+/**
+ * Codex, through the same document API and for the same reason.
+ *
+ * Entries are spliced out of the sequence that is already there rather than
+ * the key being rewritten or deleted outright: `doc.set` replaces the whole
+ * sequence and drops every comment inside it, and `doc.delete('allow')` drops
+ * the comment sitting above the key -- which is where a policy file's header
+ * lives, so a silent uninstall took the user's own heading with it.
+ */
 function removeCodexPolicy(previous: string): string | null {
   const current = codexAllowList(previous);
   if (current === null) return null;
-  const kept = current.filter((entry) => !(GLOB_RULES as readonly string[]).includes(entry));
-  if (kept.length === current.length) return null;
+  if (!current.some((entry) => isOurs(entry))) return null;
   const doc = parseDocument(previous);
-  if (kept.length === 0) doc.delete('allow');
-  else doc.set('allow', kept);
-  return doc.toString();
+  const listed = doc.get('allow', true);
+  if (!isSeq(listed)) return null;
+  const kept = listed.items.filter((item) => !(isScalar(item) && isOurs(String(item.value))));
+  if (kept.length > 0) {
+    listed.items = kept;
+    return doc.toString();
+  }
+  return withoutAllowKey(doc);
+}
+
+function isOurs(entry: string): boolean {
+  return (GLOB_RULES as readonly string[]).includes(entry);
+}
+
+/**
+ * The document without its `allow` key, as text.
+ *
+ * Two things `doc.delete('allow')` gets wrong on its own. It loses the
+ * comment above the key: ours is the header we wrote, but a hand-written
+ * file's is the user's, so that one moves down to the next key instead of
+ * being dropped. And with no key left it renders the mapping as the literal
+ * `{}` -- a file that still records an install, which is the thing the
+ * uninstall was asked to undo. Nothing left at all comes back as the empty
+ * string, and the caller deletes the file; comments the user wrote come back
+ * on their own, because those are not ours to remove.
+ */
+function withoutAllowKey(doc: Document): string {
+  const map = doc.contents;
+  if (!isMap(map)) return '';
+  const at = map.items.findIndex((pair) => isScalar(pair.key) && pair.key.value === 'allow');
+  if (at === -1) return doc.toString();
+  const [pair] = map.items.splice(at, 1);
+  let orphan = isScalar(pair?.key) ? (pair.key.commentBefore ?? null) : null;
+  if (orphan !== null && orphan.trim() === CODEX_HEADER) orphan = null;
+  const next = map.items[at];
+  if (orphan !== null && next !== undefined && isScalar(next.key)) {
+    next.key.commentBefore =
+      next.key.commentBefore === null || next.key.commentBefore === undefined
+        ? orphan
+        : `${orphan}\n${next.key.commentBefore}`;
+    orphan = null;
+  }
+  if (map.items.length > 0) return doc.toString();
+  const lines = [doc.commentBefore, orphan, doc.comment]
+    .filter((comment): comment is string => typeof comment === 'string' && comment !== '')
+    .flatMap((comment) => comment.split('\n'))
+    .map((line) => `#${line}`);
+  return lines.length === 0 ? '' : `${lines.join('\n')}\n`;
 }

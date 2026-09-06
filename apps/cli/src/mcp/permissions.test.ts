@@ -221,6 +221,46 @@ describe('yaml-codex-policy', () => {
     const out = addPermission('yaml-codex-policy', before, CWD)!;
     expect(parseDocument(out).toJSON().allow).toEqual(['ailoud', 'ailoud *']);
   });
+
+  it('keeps the comments inside a list it only partly empties', () => {
+    const before = [
+      'allow:',
+      '  # git tools, added by hand',
+      '  - "git status"',
+      '  - "ailoud"',
+      '  - "ailoud *"',
+      '',
+    ].join('\n');
+    const out = removePermission('yaml-codex-policy', before, CWD)!;
+    expect(out).toContain('# git tools, added by hand');
+    expect(parseDocument(out).toJSON().allow).toEqual(['git status']);
+  });
+
+  it('keeps the heading above the key when the whole list goes', () => {
+    // A heading comment belongs to the key below it, not to the document, so
+    // deleting the key takes it away. An uninstall that quietly dropped the
+    // first line of somebody's policy file is not an uninstall.
+    const before = '# header\nallow:\n  - "ailoud"\n  - "ailoud *"\napproval_policy: on-request\n';
+    expect(removePermission('yaml-codex-policy', before, CWD)).toBe(
+      '# header\napproval_policy: on-request\n',
+    );
+  });
+
+  it('empties a policy file that held nothing but ours, rather than leaving {}', () => {
+    // The document API renders a mapping with no keys left as the literal
+    // `{}` -- a file that still records an install. The caller deletes a file
+    // that comes back empty.
+    const once = addPermission('yaml-codex-policy', null, CWD)!;
+    expect(removePermission('yaml-codex-policy', once, CWD)).toBe('');
+  });
+
+  it('keeps a comment the user wrote even when no key is left', () => {
+    // Their comment is not ours to delete, so the file survives holding it
+    // and nothing else.
+    expect(removePermission('yaml-codex-policy', '# my policy\nallow:\n  - "ailoud"\n', CWD)).toBe(
+      '# my policy\n',
+    );
+  });
 });
 
 describe('json-copilot-locations', () => {
