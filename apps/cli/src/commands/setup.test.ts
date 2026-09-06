@@ -1193,7 +1193,10 @@ describe('runProvisioning', () => {
       expect(shownAtConsent).toContain('  Runs: sudo apt-get update');
       expect(shownAtConsent).toContain('  Runs: sudo apt-get install -y ffmpeg');
       expect(providers.runInteractive).not.toHaveBeenCalled();
-      expect(ctx.lines.at(-1)).toBe('Nothing was changed.');
+      // Now routed through `ui.warn` (declining consent is a "nothing
+      // happened" outcome), which PlainUi renders with its "warning: "
+      // marker prefix.
+      expect(ctx.lines.at(-1)).toBe('warning: Nothing was changed.');
     } finally {
       if (isTtyDescriptor === undefined) delete (process.stdin as { isTTY?: boolean }).isTTY;
       else Object.defineProperty(process.stdin, 'isTTY', isTtyDescriptor);
@@ -1220,7 +1223,10 @@ describe('runProvisioning', () => {
 
       await expect(runProvisioning(ctx, {}, checks, 'linux')).rejects.toThrow(EnvironmentError);
 
-      expect(ctx.lines.at(-1)).toBe('Nothing was changed.');
+      // Now routed through `ui.warn` (declining consent is a "nothing
+      // happened" outcome), which PlainUi renders with its "warning: "
+      // marker prefix.
+      expect(ctx.lines.at(-1)).toBe('warning: Nothing was changed.');
       expect(providers.runInteractive).not.toHaveBeenCalled();
       expect(providers.downloadFile).not.toHaveBeenCalled();
     } finally {

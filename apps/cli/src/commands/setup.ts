@@ -436,15 +436,15 @@ export function unfixableChecks(checks: readonly Check[]): readonly Check[] {
 
 /** Names the checks provisioning will not touch, with the human fix each carries. */
 function reportUnfixable(context: CliContext, checks: readonly Check[]): void {
-  context.write(
+  context.ui.warn(
     checks.length === 1
       ? 'One check failed, and it is not something ailoud can repair automatically:'
       : `${checks.length} checks failed, and none of them are something ailoud can repair ` +
           'automatically:',
   );
   for (const check of checks) {
-    context.write(`FAILED  ${check.name} -- ${check.detail}`);
-    if (check.fix !== undefined) context.write(`        ${check.fix}`);
+    context.ui.warn(`FAILED  ${check.name} -- ${check.detail}`);
+    if (check.fix !== undefined) context.ui.warn(`        ${check.fix}`);
   }
 }
 
@@ -490,7 +490,7 @@ export async function runProvisioning(
   // means both entry points refuse first and spend nothing, and neither can
   // drift away from it again.
   if (platform === 'win32') {
-    for (const line of windowsManualSteps(commandName)) context.write(line);
+    for (const line of windowsManualSteps(commandName)) context.ui.content(line);
     throw new EnvironmentError(
       `ailoud ${commandName} cannot provision Windows: follow the manual steps above.`,
     );
@@ -507,7 +507,7 @@ export async function runProvisioning(
     remedies: collected,
     interactive,
     commandName,
-    note: (message) => context.write(message),
+    note: (message) => context.ui.note(message),
   });
   const remedies = remediesForChoice(collected, llmChoice);
 
@@ -519,7 +519,7 @@ export async function runProvisioning(
     // and nothing else.
     const unfixable = unfixableChecks(checks);
     if (unfixable.length === 0) {
-      context.write('Everything ailoud needs is already in place.');
+      context.ui.note('Everything ailoud needs is already in place.');
       return;
     }
     // `doctor --fix` already rendered the full check list (ui.checks) before
@@ -551,11 +551,11 @@ export async function runProvisioning(
     manager,
     configFile: context.paths.configFile,
   };
-  for (const line of describePlan(actions, env)) context.write(line);
+  for (const line of describePlan(actions, env)) context.ui.content(line);
 
   const consented = await requireConsent({ yes: options.yes === true, interactive, commandName });
   if (!consented) {
-    context.write('Nothing was changed.');
+    context.ui.warn('Nothing was changed.');
     // Declining does not undo the checks that failed to get here: remedies
     // is non-empty at this point (the "nothing to fix" case above already
     // returned), so the environment is exactly as not-ready as it was before
@@ -583,24 +583,24 @@ export async function runProvisioning(
       dataDir: context.paths.dataDir,
       manager,
       interactive,
-      onStep: (message) => context.write(message),
+      onStep: (message) => context.ui.note(message),
       // Coarse-grained on purpose: a line per percent would flood plain output,
       // and no spinner is used here (see provisionRunner.ts) so there is never
       // a live display for this to update instead.
       onProgress: (file, percent) => {
-        if (percent % 20 === 0) context.write(`  ${file}: ${percent}%`);
+        if (percent % 20 === 0) context.ui.note(`  ${file}: ${percent}%`);
       },
     });
 
     for (const outcome of result.outcomes) {
       const status = outcome.ok ? 'ok' : 'FAILED';
-      context.write(`${status}  ${describeAction(outcome.action)} -- ${outcome.detail}`);
+      context.ui.content(`${status}  ${describeAction(outcome.action)} -- ${outcome.detail}`);
     }
 
     const updatedKeys = Object.keys(result.updates);
     if (updatedKeys.length > 0) {
       await writeConfigUpdates(context.paths.configFile, result.updates);
-      context.write(`Updated ${context.paths.configFile}: ${updatedKeys.join(', ')}`);
+      context.ui.content(`Updated ${context.paths.configFile}: ${updatedKeys.join(', ')}`);
     }
 
     // Re-read unconditionally, even when result.updates was empty: an action

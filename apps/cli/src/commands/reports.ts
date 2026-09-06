@@ -153,20 +153,20 @@ export function registerReports(parent: Command, context: CliContext): void {
         const summaries: Summary[] = [];
         for (const id of ids) summaries.push(await resolveSummary(context.store, id));
 
-        context.write(
+        context.ui.content(
           summaries.length === 1
             ? 'This will permanently delete 1 report:'
             : `This will permanently delete ${summaries.length} reports:`,
         );
         for (const summary of summaries) {
-          context.write(
+          context.ui.content(
             `  ${summary.id}  ${formatRecordedAt(summary.createdAt)}  ${summary.model}  ` +
               reportPreview(summary.body, 40),
           );
         }
         // The recordings and transcripts stay: a report is derived, and what it
         // was derived from is the library itself.
-        context.write('The recordings and their transcripts are not touched.');
+        context.ui.note('The recordings and their transcripts are not touched.');
 
         // The same guard rm and setup use, for the same reason: one question,
         // one answer, and the same refusal with no terminal so a script cannot
@@ -182,13 +182,13 @@ export function registerReports(parent: Command, context: CliContext): void {
           consentFlag: '--force',
         });
         if (!consented) {
-          context.write('Nothing was deleted.');
+          context.ui.warn('Nothing was deleted.');
           return;
         }
 
         for (const summary of summaries) {
           const deleted = await context.store.deleteSummary(summary.id);
-          context.write(`${summary.id}  ${deleted ? 'deleted' : 'was already gone'}`);
+          context.ui.content(`${summary.id}  ${deleted ? 'deleted' : 'was already gone'}`);
         }
       });
     });

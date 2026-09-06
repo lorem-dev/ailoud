@@ -121,7 +121,7 @@ export function registerAnnotate(program: Command, context: CliContext): void {
             ? []
             : [`${assignments.length} speaker name${assignments.length === 1 ? '' : 's'}`]),
         ];
-        context.write(`${recording.id}  set ${parts.join(', ')}`);
+        context.ui.content(`${recording.id}  set ${parts.join(', ')}`);
       });
     });
 }

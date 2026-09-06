@@ -116,8 +116,8 @@ export function registerTemplate(parent: Command, context: CliContext): void {
             summary: options.summary ?? base?.summary ?? safe,
           }),
         );
-        context.write(`Wrote ${path}`);
-        context.write(`Use it with: ailoud audio summarize <id> --template ${safe}`);
+        context.ui.content(`Wrote ${path}`);
+        context.ui.note(`Use it with: ailoud audio summarize <id> --template ${safe}`);
       });
     });
 }

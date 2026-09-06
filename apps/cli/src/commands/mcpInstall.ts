@@ -101,11 +101,11 @@ async function askScope(agents: readonly AgentTarget[]): Promise<Scope> {
 function report(context: CliContext, outcomes: readonly AgentOutcome[]): void {
   for (const outcome of outcomes) {
     for (const file of outcome.files) {
-      context.write(`${file.action.padEnd(9)} ${file.path}`);
+      context.ui.content(`${file.action.padEnd(9)} ${file.path}`);
     }
   }
   const notes = [...new Set(outcomes.map((outcome) => outcome.note))];
-  for (const note of notes) context.write(`note: ${note}`);
+  for (const note of notes) context.ui.note(`note: ${note}`);
 }
 
 /**
@@ -172,8 +172,8 @@ export function registerMcpInstall(parent: Command, context: CliContext): void {
               : await parseTargets(context, 'auto', home());
 
         if (agents.length === 0) {
-          context.write('No agents selected, so nothing was configured.');
-          context.write(`Run again with --target to name one: ${agentIds()}`);
+          context.ui.warn('No agents selected, so nothing was configured.');
+          context.ui.warn(`Run again with --target to name one: ${agentIds()}`);
           return;
         }
 
@@ -191,14 +191,14 @@ export function registerMcpInstall(parent: Command, context: CliContext): void {
         // project rather than joining the per-user collection.
         if (scope === 'local' && inScope.length > 0) {
           const library = await ensureProjectLibrary(context.fs, cwd());
-          context.write(`${library.action.padEnd(9)} ${library.path}`);
+          context.ui.content(`${library.action.padEnd(9)} ${library.path}`);
         }
 
         for (const agent of inScope) {
           outcomes.push(await install(context.fs, agent, scope, home(), cwd()));
         }
         for (const agent of forcedGlobal) {
-          context.write(`${agent.label} reads no per-project config; configuring it globally.`);
+          context.ui.note(`${agent.label} reads no per-project config; configuring it globally.`);
           outcomes.push(await install(context.fs, agent, 'global', home(), cwd()));
         }
 
@@ -246,11 +246,11 @@ export function registerMcpInstall(parent: Command, context: CliContext): void {
         if (touched.length === 0) {
           // Said plainly rather than reported as a success: an uninstall that
           // claims to have cleaned files it never touched teaches distrust.
-          context.write('Nothing to remove: no agent here was configured for AILoud.');
+          context.ui.warn('Nothing to remove: no agent here was configured for AILoud.');
           return;
         }
         report(context, outcomes);
-        context.write(
+        context.ui.note(
           'The .ailoud/ library directory was left alone; delete it by hand if you want it gone.',
         );
       });
@@ -273,8 +273,8 @@ export function registerMcpInstall(parent: Command, context: CliContext): void {
           }
         }
         if (outcomes.length === 0) {
-          context.write('Nothing to update: no agent here is configured for AILoud.');
-          context.write('Run "ailoud mcp install" first.');
+          context.ui.warn('Nothing to update: no agent here is configured for AILoud.');
+          context.ui.warn('Run "ailoud mcp install" first.');
           return;
         }
         report(context, outcomes);
