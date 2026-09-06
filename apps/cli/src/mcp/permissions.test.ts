@@ -29,6 +29,13 @@ describe('json-claude-permissions', () => {
     expect(addPermission('json-claude-permissions', once, CWD)).toBe(once);
   });
 
+  it('returns a hand-formatted file untouched when the rule is already there', () => {
+    // Reformatting a file that already has the rule would report a write on
+    // a file that needed none, on the very first install against it.
+    const input = '{"unrelated":true,"permissions":{"allow":["Bash(ailoud:*)"]}}';
+    expect(addPermission('json-claude-permissions', input, CWD)).toBe(input);
+  });
+
   it('refuses to rewrite a file it cannot parse', () => {
     // Rewriting it would destroy hand-written settings; the caller reports
     // this as skipped and names the path.
@@ -75,6 +82,16 @@ describe('json-gemini-tools', () => {
     expect(parse(out).tools.allowed).toEqual(['run_shell_command(ailoud)']);
   });
 
+  it('is idempotent, so a second install reports unchanged rather than a write', () => {
+    const once = addPermission('json-gemini-tools', null, CWD)!;
+    expect(addPermission('json-gemini-tools', once, CWD)).toBe(once);
+  });
+
+  it('returns a hand-formatted file untouched when the rule is already there', () => {
+    const input = '{"other":1,"tools":{"allowed":["run_shell_command(ailoud)"]}}';
+    expect(addPermission('json-gemini-tools', input, CWD)).toBe(input);
+  });
+
   it('removes only our entry', () => {
     const before = JSON.stringify({
       tools: { allowed: ['run_shell_command(git)', 'run_shell_command(ailoud)'] },
@@ -106,10 +123,28 @@ describe('jsonc-opencode-permission', () => {
     expect(addPermission('jsonc-opencode-permission', '{"permission":"ask"}', CWD)).toBeNull();
   });
 
+  it('is idempotent, so a second install reports unchanged rather than a write', () => {
+    const once = addPermission('jsonc-opencode-permission', null, CWD)!;
+    expect(addPermission('jsonc-opencode-permission', once, CWD)).toBe(once);
+  });
+
+  it('returns a hand-formatted file untouched when the rule is already there', () => {
+    const input = '{"foo":"bar","permission":{"bash":{"ailoud":"allow","ailoud *":"allow"}}}';
+    expect(addPermission('jsonc-opencode-permission', input, CWD)).toBe(input);
+  });
+
   it('removes both patterns and clears the emptied containers', () => {
     const once = addPermission('jsonc-opencode-permission', null, CWD)!;
     const out = removePermission('jsonc-opencode-permission', once, CWD)!;
     expect(parse(out).permission).toBeUndefined();
     expect(removePermission('jsonc-opencode-permission', '{}', CWD)).toBeNull();
+  });
+
+  it('does not disturb another tool sharing the bash map', () => {
+    const before = JSON.stringify({
+      permission: { bash: { git: 'allow', ailoud: 'allow', 'ailoud *': 'allow' } },
+    });
+    const out = removePermission('jsonc-opencode-permission', before, CWD)!;
+    expect(parse(out).permission.bash).toEqual({ git: 'allow' });
   });
 });

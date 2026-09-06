@@ -47,6 +47,11 @@ export function addPermission(
   cwd: string,
 ): string | null {
   void cwd;
+  // Checked before any parse-and-reserialise: a hand-formatted file that
+  // already carries the rule must come back untouched, not reformatted to
+  // this module's own JSON.stringify style. `editJson`'s byte-identical
+  // return only works when `previous` was itself produced by `print()`.
+  if (previous !== null && hasPermission(format, previous, cwd)) return previous;
   switch (format) {
     case 'json-claude-permissions':
       return editJson(previous, (root) => {
