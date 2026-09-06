@@ -444,7 +444,7 @@ describe('updateSelf', () => {
 
     await expect(updateSelf(deps, {})).resolves.toBeUndefined();
 
-    expect(ctx.lines).toContain('npx ailoud@<version>');
+    expect(ctx.lines).toContain('npx ailoud@1.0.1');
   });
 
   it('refuses a project dependency, naming the project', async () => {
@@ -456,6 +456,21 @@ describe('updateSelf', () => {
     await expect(updateSelf(deps, {})).resolves.toBeUndefined();
 
     expect(ctx.lines.some((line) => line.includes('/Users/x/code/some-app'))).toBe(true);
+  });
+
+  it('names the real target in the unknown-install-method hint', async () => {
+    // Detection cannot know the target, so its hints carry a `<version>`
+    // placeholder. By the time one is printed the target IS known, and a
+    // refusal exists to give the user a command to run -- one they have to
+    // edit first is a worse version of that.
+    const ctx = withTarget();
+    const deps = npmGlobalDeps(ctx, { packageRoot: '/opt/somewhere/odd/ailoud' });
+
+    await expect(updateSelf(deps, {})).resolves.toBeUndefined();
+
+    const said = ctx.lines.join('\n');
+    expect(said).not.toContain('<version>');
+    expect(said).toContain('ailoud@1.0.1');
   });
 
   it('exits non-zero when --force meets an install method it cannot use', async () => {

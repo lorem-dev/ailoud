@@ -1,14 +1,21 @@
 # Updating ailoud
 
 ```shell
-ailoud self check
 ailoud self update
-ailoud self sync
 ```
 
-`self check` asks the registry whether a newer version exists. `self update`
-installs it, then refreshes the rules block in every registered project.
-`self sync` refreshes those rules on their own, without updating.
+`self update` asks the registry itself, so nothing has to be run before it. It
+installs the newer version if there is one, then refreshes the rules block in
+every registered project.
+
+```shell
+ailoud self check          # only look, change nothing
+ailoud self check --json   # the same answer, for a script
+ailoud self sync           # refresh the rules without updating
+```
+
+`self check` is for looking without installing; `self update` does not need
+it.
 
 ## What counts as newer
 

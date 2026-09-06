@@ -473,12 +473,17 @@ export async function updateSelf(deps: SelfUpdateDeps, options: SelfUpdateOption
   // `method.kind` rather than by `installCommandFor(...) === null`, so
   // TypeScript knows `method.hint` exists on every branch that reads it.
   if (method.kind === 'npx' || method.kind === 'project' || method.kind === 'unknown') {
-    context.ui.content(method.hint);
+    // The hints carry a `<version>` placeholder because detection does not
+    // know the target -- but by here we do, so fill it in. A refusal exists to
+    // hand the user a command they can run, and one they have to edit first
+    // is a worse version of that.
+    const hint = method.hint.replaceAll('<version>', target);
+    context.ui.content(hint);
     if (options.force === true) {
       // A refusal is information; a forced update that cannot happen is an
       // error, because --force asked for a guarantee this install method
       // cannot give.
-      throw new FailureError(`ailoud self update cannot install this way: ${method.hint}`);
+      throw new FailureError(`ailoud self update cannot install this way: ${hint}`);
     }
     return;
   }

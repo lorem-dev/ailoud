@@ -36,11 +36,11 @@ Nothing leaves your machine unless you choose a hosted model for summaries.
 ## Update
 
 ```shell
-ailoud self check
 ailoud self update
 ```
 
-A snapshot moves only to a newer snapshot of the same version, or to a release.
+It checks the registry first, so there is nothing to run before it. A snapshot
+moves only to a newer snapshot of the same version, or to a release.
 
 ---
 
