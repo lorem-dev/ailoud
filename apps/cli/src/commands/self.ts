@@ -80,7 +80,7 @@ export function registerSelfCheck(parent: Command, context: CliContext): void {
           // Raw, undecorated: a machine reader parses this, the same
           // contract `ls --json` keeps by writing straight through here
           // rather than through the decorated `ui`.
-          context.write(JSON.stringify(result));
+          context.ui.content(JSON.stringify(result));
           return;
         }
         context.ui.content(

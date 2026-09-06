@@ -37,7 +37,14 @@ export function registerLs(program: Command, context: CliContext): void {
 
         if (recordings.length === 0) {
           if (options.json === true) {
-            context.write('[]');
+            // Through the Ui, exactly like the non-empty branch below, and
+            // NOT on the raw channel. Raw looks like it protects the machine
+            // contract, and does not: `PlainUi` is what runs whenever stdout
+            // is not a terminal, so a pipe receives a bare `[]` either way.
+            // What raw does do is print this one line at column 0 while the
+            // frame is drawn around it -- verified in a sized pty. One branch
+            // of one command must not render two different ways.
+            context.ui.content('[]');
             return;
           }
           context.ui.emptyLibrary();
