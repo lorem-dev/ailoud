@@ -262,7 +262,14 @@ export function registerSelfSync(parent: Command, context: CliContext): void {
           return;
         }
         for (const row of report.rows) {
-          context.ui.content(`${row.status}: ${row.path}`);
+          const line = `${row.status}: ${row.path}`;
+          if (row.status === 'refreshed') {
+            context.ui.success(line);
+          } else if (row.status.startsWith('failed:')) {
+            context.ui.warn(line);
+          } else {
+            context.ui.note(line);
+          }
         }
         if (report.failed) {
           throw new FailureError(

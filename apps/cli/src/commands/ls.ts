@@ -37,7 +37,12 @@ export function registerLs(program: Command, context: CliContext): void {
 
         if (recordings.length === 0) {
           if (options.json === true) {
-            context.write('[]');
+            // Through the Ui, exactly like the non-empty branch below. The raw
+            // channel would keep this one line out of the frame while the
+            // frame is still drawn around it, and `PlainUi` -- which runs
+            // whenever stdout is not a terminal -- writes it verbatim anyway,
+            // so a pipe still receives clean JSON.
+            context.ui.content('[]');
             return;
           }
           context.ui.emptyLibrary();
