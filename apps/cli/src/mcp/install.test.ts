@@ -160,3 +160,43 @@ describe('ensureProjectLibrary', () => {
     expect(await fs.readTextFile(`${CWD}/.ailoud/.gitignore`)).toContain('notes.md');
   });
 });
+
+describe('the rules file is written atomically', () => {
+  /** Records the order of writes and renames, so the mechanism is checkable. */
+  class RecordingFs extends MemFs {
+    public readonly calls: string[] = [];
+    public override async writeTextFile(path: string, content: string): Promise<void> {
+      this.calls.push(`write:${path}`);
+      return super.writeTextFile(path, content);
+    }
+    public override async rename(from: string, to: string): Promise<void> {
+      this.calls.push(`rename:${from}->${to}`);
+      return super.rename(from, to);
+    }
+  }
+
+  it('writes a temporary file and renames it over the target', async () => {
+    // The MECHANISM is what this asserts, deliberately. The defect it guards
+    // against -- `writeTextFile` truncating the target before a failed write
+    // empties it -- cannot be reproduced with `MemFs`, which either writes or
+    // throws atomically. Truncation is a property of the real POSIX
+    // `open(path, 'w')`.
+    //
+    // It was demonstrated on a real filesystem instead: on a full 1 MB
+    // volume, a plain write turned a 25-byte hand-written CLAUDE.md into 0
+    // bytes with ENOSPC, while temp-then-rename left it byte-identical. That
+    // is why this pattern is here, and `self sync` sweeping this writer
+    // across every registered project unattended is why it matters.
+    const fs = new RecordingFs({ '/proj/CLAUDE.md': '# My own notes\n' });
+
+    await install(fs, findAgent('claude')!, 'local', '/home/x', '/proj');
+
+    const rules = fs.calls.filter((call) => call.includes('CLAUDE.md'));
+    expect(rules.some((call) => call.startsWith('write:') && call.includes('.tmp'))).toBe(true);
+    expect(
+      rules.some((call) => call.startsWith('rename:') && call.endsWith('->/proj/CLAUDE.md')),
+    ).toBe(true);
+    // And never a direct write to the target itself.
+    expect(rules).not.toContain('write:/proj/CLAUDE.md');
+  });
+});

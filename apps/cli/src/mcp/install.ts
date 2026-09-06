@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import type { Fs } from '@ailoud/core';
 import { PROJECT_DIR } from '../config.js';
@@ -54,9 +55,36 @@ async function readIfPresent(fs: Fs, path: string): Promise<string | null> {
   return (await fs.exists(path)) ? fs.readTextFile(path) : null;
 }
 
+/**
+ * Writes a file without ever leaving it half-written: a temporary file beside
+ * it, then a rename over the top.
+ *
+ * `writeTextFile` truncates before it writes, so a failure part-way through --
+ * ENOSPC is the realistic one -- leaves the target EMPTY. That was survivable
+ * while these files were only touched by an interactive `mcp install` the user
+ * was watching. It is not survivable now: `self sync` sweeps this writer
+ * across every registered project unattended, and the file it rewrites is
+ * often a repository's own hand-written `CLAUDE.md` or `AGENTS.md`. Truncating
+ * one of those and then reporting `failed` destroys the user's content while
+ * telling them nothing happened.
+ *
+ * Same pattern as `writeRegistry` in `apps/cli/src/projects.ts`, and for the
+ * same reason. The temporary name is randomised so two concurrent writers
+ * cannot corrupt each other's, and it sits in the target's own directory so
+ * the rename stays on one filesystem and therefore stays atomic.
+ */
 async function write(fs: Fs, path: string, content: string): Promise<void> {
   await fs.ensureDir(dirname(path));
-  await fs.writeTextFile(path, content);
+  const temp = `${path}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeTextFile(temp, content);
+  } catch (error) {
+    // The target has not been touched yet, so there is nothing to undo. Clear
+    // the partial temporary file rather than leaving litter beside a config.
+    await fs.removeFile(temp);
+    throw error;
+  }
+  await fs.rename(temp, path);
 }
 
 /**
