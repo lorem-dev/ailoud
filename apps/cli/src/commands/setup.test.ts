@@ -19,6 +19,7 @@ import {
   describePlan,
   formatBytes,
   isInteractive,
+  configuredModelName,
   isSwitchingModel,
   planNeedsPackageManager,
   requireConsent,
@@ -37,7 +38,7 @@ import { context } from './testContext.js';
 import { parseConfig } from '../config.js';
 import { Command } from 'commander';
 import { registerSetup } from './setup.js';
-import { registerDoctor } from './doctor.js';
+import { registerDoctor, runChecks } from './doctor.js';
 
 describe('isInteractive', () => {
   it('is false under CI even with a real tty', () => {
@@ -106,6 +107,29 @@ describe('resolveModelName', () => {
       resolveModelName({ interactive: true, selectImpl, commandName: 'doctor' }),
     ).rejects.toThrow(/doctor cancelled/);
   });
+
+  it('falls back to defaultModel, not small, non-interactively with no --model', async () => {
+    // The regression this guards: a reinstall of a healthy, non-default
+    // model with no --model given used to fall through to "small"
+    // regardless of what had been running.
+    expect(await resolveModelName({ interactive: false, defaultModel: 'medium' })).toBe('medium');
+  });
+
+  it('still honors an explicit --model over defaultModel', async () => {
+    expect(
+      await resolveModelName({ model: 'tiny', interactive: false, defaultModel: 'medium' }),
+    ).toBe('tiny');
+  });
+
+  it('opens the interactive picker on defaultModel, not small', async () => {
+    const selectImpl = vi.fn().mockResolvedValue('medium');
+    await resolveModelName({ interactive: true, selectImpl, defaultModel: 'medium' });
+    expect(selectImpl).toHaveBeenCalledWith(expect.objectContaining({ initialValue: 'medium' }));
+  });
+
+  it('falls back to small when there is no defaultModel either', async () => {
+    expect(await resolveModelName({ interactive: false })).toBe('small');
+  });
 });
 
 describe('chooseModel', () => {
@@ -152,6 +176,26 @@ describe('chooseModel', () => {
     });
     expect(name).toBe('tiny');
     expect(selectImpl).not.toHaveBeenCalled();
+  });
+
+  it('forwards defaultModel through to resolveModelName, non-interactively', async () => {
+    const name = await chooseModel({
+      remedies: [{ kind: 'download-model', slot: 'transcription' }],
+      interactive: false,
+      defaultModel: 'medium',
+    });
+    expect(name).toBe('medium');
+  });
+
+  it('opens the picker on defaultModel when one is given', async () => {
+    const selectImpl = vi.fn().mockResolvedValue('medium');
+    await chooseModel({
+      remedies: [{ kind: 'download-model', slot: 'transcription' }],
+      interactive: true,
+      selectImpl,
+      defaultModel: 'medium',
+    });
+    expect(selectImpl).toHaveBeenCalledWith(expect.objectContaining({ initialValue: 'medium' }));
   });
 });
 
@@ -546,6 +590,24 @@ describe('isSwitchingModel', () => {
   });
 });
 
+describe('configuredModelName', () => {
+  it('names the catalogue entry matching the configured path', () => {
+    expect(configuredModelName('/data/models/ggml-medium.bin')).toBe('medium');
+  });
+
+  it('matches by filename, so an unusual directory still resolves', () => {
+    expect(configuredModelName('/some/unusual/path/ggml-medium.bin')).toBe('medium');
+  });
+
+  it('is undefined with nothing configured', () => {
+    expect(configuredModelName(null)).toBeUndefined();
+  });
+
+  it('is undefined for a path matching no catalogue entry', () => {
+    expect(configuredModelName('/data/models/not-a-real-model.bin')).toBeUndefined();
+  });
+});
+
 // executePlan outcome accounting -- mocked providers, no real download,
 // package-manager invocation, or network request. Only create-directory
 // touches real disk, and only under a throwaway temp directory.
@@ -560,6 +622,11 @@ const providers = vi.hoisted(() => ({
   detectPackageManager: vi.fn(),
   installWhisper: vi.fn(),
   installSherpa: vi.fn(),
+  // Mocked even though no existing test needs it, so that a real regression
+  // in the --force / substitute-remedy distinction (see doctor.ts's
+  // checkLanguageModel) fails an assertion instead of attempting a real
+  // brew-install/download of llama.cpp from inside a unit test.
+  installLlama: vi.fn(),
   downloadFile: vi.fn(),
   runInteractive: vi.fn(),
   run: vi.fn(),
@@ -1493,6 +1560,44 @@ describe('runProvisioning', () => {
       expect(providers.downloadFile).toHaveBeenCalled();
       expect(ctx.lines).not.toContain('Everything ailoud needs is already in place.');
     });
+
+    it('reinstalls the configured model, not the default, when no --model is given', async () => {
+      // The regression this guards: --force with no --model used to resolve
+      // through chooseModel with no defaultModel, which falls back to
+      // DEFAULT_MODEL_NAME ("small") regardless of what was configured --
+      // silently downgrading a healthy "medium" install to "small".
+      const configuredModelPath = join(tmp, 'ggml-medium.bin');
+      await writeFile(configuredModelPath, 'the existing medium model', 'utf8');
+      const downloadedUrls: string[] = [];
+      providers.downloadFile.mockImplementation(async (url: string, target: string) => {
+        downloadedUrls.push(url);
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, 'reinstalled model bytes');
+      });
+
+      const ctx = provisioningContext({
+        ...badConfig,
+        stt: {
+          ...badConfig.stt,
+          whisperCpp: { ...badConfig.stt.whisperCpp, model: configuredModelPath },
+        },
+      });
+      const checks: readonly Check[] = [
+        {
+          name: 'whisper model',
+          ok: true,
+          detail: configuredModelPath,
+          remedy: { kind: 'download-model', slot: 'transcription' },
+        },
+      ];
+
+      await expect(
+        runProvisioning(ctx, { yes: true, force: true }, checks, 'linux'),
+      ).resolves.toBeUndefined();
+
+      expect(downloadedUrls.some((url) => url.includes('ggml-medium.bin'))).toBe(true);
+      expect(downloadedUrls.some((url) => url.includes('ggml-small.bin'))).toBe(false);
+    });
   });
 
   describe('switching models', () => {
@@ -1560,6 +1665,152 @@ describe('runProvisioning', () => {
 
       expect(providers.downloadFile).not.toHaveBeenCalled();
       expect(ctx.lines.join('\n')).not.toMatch(/does not delete it automatically/);
+    });
+
+    it('names an orphaned file even when the model NAME did not change, only its directory', async () => {
+      // A --force reinstall of the identical model name still moves the file:
+      // every download lands under dataDir/models (see provisionRunner.ts),
+      // so a configured path anywhere else is orphaned even though its
+      // basename matches the new one exactly. Comparing basenames alone (the
+      // original bug) missed this -- only comparing resolved paths catches it.
+      const oldModelPath = join(tmp, 'custom-location', 'ggml-small.bin');
+      await mkdir(dirname(oldModelPath), { recursive: true });
+      await writeFile(oldModelPath, 'old model', 'utf8');
+      providers.downloadFile.mockImplementation(async (_url: string, target: string) => {
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, 'new model bytes');
+      });
+
+      const ctx = provisioningContext({
+        ...badConfig,
+        stt: {
+          ...badConfig.stt,
+          whisperCpp: { ...badConfig.stt.whisperCpp, model: oldModelPath },
+        },
+      });
+      const checks: readonly Check[] = [
+        {
+          name: 'whisper model',
+          ok: true,
+          detail: oldModelPath,
+          remedy: { kind: 'download-model', slot: 'transcription' },
+        },
+      ];
+
+      await expect(
+        runProvisioning(ctx, { yes: true, force: true }, checks, 'linux'),
+      ).resolves.toBeUndefined();
+
+      const output = ctx.lines.join('\n');
+      expect(output).toContain(oldModelPath);
+      expect(output).toMatch(/does not delete it automatically/);
+    });
+  });
+
+  describe('doctor --fix does not switch models', () => {
+    it('leaves a healthy, differently-named model alone under --model, unlike setup', async () => {
+      const modelPath = join(tmp, 'ggml-small.bin');
+      await writeFile(modelPath, 'the model', 'utf8');
+      const ctx = provisioningContext({
+        ...badConfig,
+        stt: { ...badConfig.stt, whisperCpp: { ...badConfig.stt.whisperCpp, model: modelPath } },
+      });
+      const checks: readonly Check[] = [
+        {
+          name: 'whisper model',
+          ok: true,
+          detail: modelPath,
+          remedy: { kind: 'download-model', slot: 'transcription' },
+        },
+      ];
+
+      // 'doctor', not the default 'setup': doctor --fix's own description
+      // promises to act only on what actually failed, and its --model help
+      // text promises to name what a MISSING model downloads as -- neither
+      // promise allows switching a model that is already healthy.
+      await expect(
+        runProvisioning(ctx, { yes: true, model: 'medium' }, checks, 'linux', 'doctor'),
+      ).resolves.toBeUndefined();
+
+      expect(providers.downloadFile).not.toHaveBeenCalled();
+      expect(ctx.lines.at(-1)).toBe('Everything ailoud needs is already in place.');
+    });
+  });
+
+  describe('--force and the LLM checks: repair vs substitute', () => {
+    /** A machine that passes every check runChecks makes, so --force's plan is decided by scope alone. */
+    function healthyLlmContext(llmOverrides: Partial<AiloudConfig['llm']>): CliContext & {
+      lines: string[];
+    } {
+      const modelPath = join(tmp, 'ggml-small.bin');
+      return provisioningContext({
+        ...badConfig,
+        stt: {
+          ...badConfig.stt,
+          whisperCpp: { ...badConfig.stt.whisperCpp, model: modelPath, vadModel: null },
+        },
+        llm: { ...parseConfig(null).llm, ...llmOverrides },
+      });
+    }
+
+    beforeEach(async () => {
+      // Real files for whichever paths the real runChecks below will access
+      // directly (checkModel, checkLanguageModel's llama-cpp branch); every
+      // binary check goes through the mocked `run()` instead, so no real
+      // binary needs to exist.
+      await writeFile(join(tmp, 'ggml-small.bin'), 'the model', 'utf8');
+      await mkdir(dirname(join(tmp, 'llm-model.gguf')), { recursive: true });
+      // --force also pulls in the (already-passing) transcription and VAD
+      // model checks -- unrelated to what these two tests are about, but
+      // real actions all the same, so their downloads need to actually land
+      // on disk or the final re-check fails on ITS OWN account instead of
+      // isolating the one thing being tested here.
+      providers.downloadFile.mockImplementation(async (_url: string, target: string) => {
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, 'dummy-model-bytes');
+      });
+    });
+
+    it('does not install llama.cpp for a healthy claude-cli machine: install-llm there is a substitute, not a repair', async () => {
+      const ctx = healthyLlmContext({
+        provider: 'claude-cli',
+        claudeCli: { binary: process.execPath, model: 'sonnet', contextTokens: 1 },
+      });
+      const checks = await runChecks(ctx, 'linux');
+      // Sanity check on the fixture itself: the claude-cli check must
+      // actually be passing, or this test would trivially pass for the wrong
+      // reason (a failing check contributing its remedy regardless of scope).
+      expect(checks.find((c) => c.name === 'language model')?.ok).toBe(true);
+
+      await expect(
+        runProvisioning(ctx, { yes: true, force: true }, checks, 'linux'),
+      ).resolves.toBeUndefined();
+
+      expect(providers.installLlama).not.toHaveBeenCalled();
+      expect(ctx.lines.join('\n')).not.toContain('llama.cpp');
+    });
+
+    it('DOES reinstall llama.cpp and its model for a healthy local (llama-cpp) machine: that check covers exactly what install-llm repairs', async () => {
+      const llmModelPath = join(tmp, 'llm-model.gguf');
+      await writeFile(llmModelPath, 'the local llm model', 'utf8');
+      providers.installLlama.mockResolvedValue(process.execPath);
+      const ctx = healthyLlmContext({
+        provider: 'llama-cpp',
+        llamaCpp: {
+          ...parseConfig(null).llm.llamaCpp,
+          binary: process.execPath,
+          model: llmModelPath,
+        },
+      });
+      const checks = await runChecks(ctx, 'linux');
+      expect(checks.find((c) => c.name === 'language runner')?.ok).toBe(true);
+      expect(checks.find((c) => c.name === 'language model')?.ok).toBe(true);
+
+      await expect(
+        runProvisioning(ctx, { yes: true, force: true }, checks, 'linux'),
+      ).resolves.toBeUndefined();
+
+      expect(providers.installLlama).toHaveBeenCalled();
     });
   });
 });

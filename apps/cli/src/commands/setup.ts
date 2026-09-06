@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { confirm, isCancel, select } from '@clack/prompts';
 import { chooseLlm, remediesForChoice } from '../llmChoice.js';
 import type { Command } from 'commander';
@@ -81,6 +81,17 @@ export interface ModelNameOptions {
   readonly interactive: boolean;
   readonly selectImpl?: typeof select;
   readonly commandName?: CommandName;
+  /**
+   * What to resolve to when `model` is absent, in place of
+   * `DEFAULT_MODEL_NAME` -- the catalogue name of whatever is already
+   * configured, when there is one. Without this, reinstalling a healthy,
+   * non-default model with no `--model` given (`setup --force --yes` is the
+   * documented way to replace a corrupted file) silently downgraded it: the
+   * resolution fell through to `small` regardless of what had been running,
+   * and the interactive picker's `initialValue` did the same, so pressing
+   * Enter did too.
+   */
+  readonly defaultModel?: string;
 }
 
 export async function resolveModelName(options: ModelNameOptions): Promise<string> {
@@ -91,12 +102,13 @@ export async function resolveModelName(options: ModelNameOptions): Promise<strin
     }
     return options.model;
   }
-  if (!options.interactive) return DEFAULT_MODEL_NAME;
+  const fallback = options.defaultModel ?? DEFAULT_MODEL_NAME;
+  if (!options.interactive) return fallback;
 
   const selectImpl = options.selectImpl ?? select;
   const answer = await selectImpl({
     message: 'Which transcription model should ailoud download?',
-    initialValue: DEFAULT_MODEL_NAME,
+    initialValue: fallback,
     options: TRANSCRIPTION_MODELS.map((model) => ({
       value: model.name,
       label: `${model.name} (${formatBytes(model.bytes)})`,
@@ -113,6 +125,8 @@ export interface ChooseModelOptions {
   readonly interactive: boolean;
   readonly selectImpl?: typeof select;
   readonly commandName?: CommandName;
+  /** See `ModelNameOptions.defaultModel`; forwarded to `resolveModelName` unchanged. */
+  readonly defaultModel?: string;
 }
 
 /**
@@ -131,7 +145,25 @@ export async function chooseModel(options: ChooseModelOptions): Promise<string> 
     interactive: options.interactive && needsTranscriptionModel,
     ...(options.selectImpl === undefined ? {} : { selectImpl: options.selectImpl }),
     ...(options.commandName === undefined ? {} : { commandName: options.commandName }),
+    ...(options.defaultModel === undefined ? {} : { defaultModel: options.defaultModel }),
   });
+}
+
+/**
+ * The catalogue name of whatever is already configured, so a reinstall with
+ * no explicit `--model` keeps it rather than falling back to
+ * `DEFAULT_MODEL_NAME`. Filename-based for the same reason `isSwitchingModel`
+ * is: `configuredModel` is a path, the catalogue only knows names.
+ *
+ * Returns `undefined` for a path that matches no catalogue entry (nothing
+ * configured yet, or a hand-edited config pointing at a file ailoud never
+ * downloaded) -- callers fall back to `DEFAULT_MODEL_NAME` themselves, the
+ * same way they always did when nothing was configured.
+ */
+export function configuredModelName(configuredModel: string | null): string | undefined {
+  if (configuredModel === null) return undefined;
+  const base = basename(configuredModel);
+  return TRANSCRIPTION_MODELS.find((model) => model.file === base)?.name;
 }
 
 export interface ConsentOptions {
@@ -585,7 +617,12 @@ export async function runProvisioning(
   const configuredModel = context.config.stt.whisperCpp.model;
   const scope: RemedyScope = {
     force: options.force === true,
-    switchingModel: isSwitchingModel(options.model, configuredModel),
+    // `setup` only, deliberately: `doctor --fix`'s own description promises
+    // to "provision anything that failed a check", and its `--model` help
+    // text promises the same ("to download if one is needed") -- switching a
+    // healthy model out from under `--fix` would break both promises for a
+    // command nobody asked to change anything with.
+    switchingModel: commandName === 'setup' && isSwitchingModel(options.model, configuredModel),
   };
   // Asked before the "nothing to fix" test below, not after: choosing a hosted
   // engine REMOVES the local install and download from the list, so the answer
@@ -620,11 +657,13 @@ export async function runProvisioning(
     throw new EnvironmentError(NOT_READY_MESSAGE);
   }
 
+  const defaultModel = configuredModelName(configuredModel);
   const modelName = await chooseModel({
     ...(options.model === undefined ? {} : { model: options.model }),
     remedies,
     interactive,
     commandName,
+    ...(defaultModel === undefined ? {} : { defaultModel }),
   });
 
   const actions = planProvisioning(remedies, { modelName });
@@ -697,18 +736,20 @@ export async function runProvisioning(
       context.ui.content(`Updated ${context.paths.configFile}: ${updatedKeys.join(', ')}`);
     }
 
-    // A model switch downloads the new file under its own name rather than
-    // overwriting the old one (see provisionRunner.ts's download-model
-    // branch), so the previous .bin is still sitting on disk -- up to 1.6 GB
-    // ailoud has no garbage collection for and will not delete unasked. Named
-    // once, here, rather than silently orphaned: `configuredModel` is the
-    // path from BEFORE this run (captured at the top of this function), and
-    // it is only worth naming when the file that now backs `result.updates`
-    // is genuinely a different one.
+    // A download always targets `<dataDir>/models/<file>` (see
+    // provisionRunner.ts's download-model branch), never the path that was
+    // configured before -- so the previous .bin is still sitting wherever it
+    // was, up to 1.6 GB ailoud has no garbage collection for and will not
+    // delete unasked. Named once, here, rather than silently orphaned.
+    // `configuredModel` is the path from BEFORE this run (captured at the top
+    // of this function); compared as resolved paths, not basenames, because a
+    // `--force` reinstall of the SAME model name still orphans a configured
+    // file that lived outside `<dataDir>/models` -- the filename matches, but
+    // the file writeConfigUpdates now points at is a different one on disk.
     if (
       result.updates.model !== undefined &&
       configuredModel !== null &&
-      basename(configuredModel) !== basename(result.updates.model)
+      resolve(configuredModel) !== resolve(result.updates.model)
     ) {
       context.ui.content(
         `The previous transcription model is still at ${configuredModel} -- ailoud does not ` +
@@ -783,7 +824,10 @@ export function registerSetup(
   program
     .command('setup')
     .option('--yes', 'confirm the plan without prompting')
-    .option('--model <name>', 'transcription model to download (default: small)')
+    .option(
+      '--model <name>',
+      'switch to this transcription model (default: the configured one, else small)',
+    )
     .option('--llm <choice>', 'summariser to set up: local, claude-cli, claude-api, openai, skip')
     .option(
       '--llm-model <id>',
