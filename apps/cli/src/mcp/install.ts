@@ -4,12 +4,19 @@ import type { Fs } from '@ailoud/core';
 import { PROJECT_DIR } from '../config.js';
 import { addServer, hasServer, isEmptyConfig, removeServer } from './agentConfig.js';
 import type { AgentTarget, Scope } from './agents.js';
+import { addPermission, hasPermission, removePermission } from './permissions.js';
 import { hasBlock, withBlock, withoutBlock } from './rulesBlock.js';
 
 /** What happened to one file, for the report a command prints. */
 export interface FileOutcome {
   readonly path: string;
-  readonly action: 'created' | 'updated' | 'unchanged' | 'removed' | 'cleaned' | 'absent';
+  /**
+   * `skipped` is the allow-list writer declining to rewrite a settings file it
+   * could not parse. Distinct from `unchanged`, which means nothing needed
+   * doing: this one means the user asked for something and did not get it.
+   */
+  readonly action:
+    'created' | 'updated' | 'unchanged' | 'removed' | 'cleaned' | 'absent' | 'skipped';
 }
 
 export interface AgentOutcome {
@@ -94,12 +101,40 @@ async function write(fs: Fs, path: string, content: string): Promise<void> {
 }
 
 /**
+ * Writes the agent's command allow-list, when it has one and was asked for.
+ *
+ * Returns nothing to report for an agent with no allow-list, rather than a
+ * row saying so for every agent on every run.
+ */
+async function writePermission(
+  fs: Fs,
+  agent: AgentTarget,
+  scope: Scope,
+  home: string,
+  cwd: string,
+): Promise<FileOutcome | null> {
+  if (agent.permission === undefined) return null;
+  const path = agent.permission.path(scope, home, cwd);
+  const before = await readIfPresent(fs, path);
+  const after = addPermission(agent.permission.format, before, cwd);
+  if (after === null) return { path, action: 'skipped' };
+  if (before === null) {
+    await write(fs, path, after);
+    return { path, action: 'created' };
+  }
+  if (before === after) return { path, action: 'unchanged' };
+  await write(fs, path, after);
+  return { path, action: 'updated' };
+}
+
+/**
  * Registers AILoud with one agent, in one scope.
  *
  * Both files are written: the MCP configuration, which is what makes the tools
  * reachable, and the rules block, which is what makes the agent use them well.
  * Either alone is half the feature -- an agent with the tools and no guidance
- * reads whole transcripts into its context.
+ * reads whole transcripts into its context. A third, the command allow-list,
+ * is written only when `allowShell` says the user asked for it.
  */
 export async function install(
   fs: Fs,
@@ -107,6 +142,7 @@ export async function install(
   scope: Scope,
   home: string,
   cwd: string,
+  allowShell: boolean,
 ): Promise<AgentOutcome> {
   const files: FileOutcome[] = [];
 
@@ -135,6 +171,11 @@ export async function install(
     } else {
       files.push({ path: rulesPath, action: 'unchanged' });
     }
+  }
+
+  if (allowShell) {
+    const permission = await writePermission(fs, agent, scope, home, cwd);
+    if (permission !== null) files.push(permission);
   }
 
   return { agent, scope, files, note: agent.afterNote };
@@ -191,6 +232,25 @@ export async function uninstall(
     }
   }
 
+  // Symmetric with install, and unconditional: an uninstall that left a
+  // standing permission for a command the user just removed would be a
+  // privilege nobody can see the reason for any more.
+  if (agent.permission !== undefined) {
+    const path = agent.permission.path(scope, home, cwd);
+    const before = await readIfPresent(fs, path);
+    if (before === null) {
+      files.push({ path, action: 'absent' });
+    } else {
+      const after = removePermission(agent.permission.format, before, cwd);
+      if (after === null) {
+        files.push({ path, action: 'unchanged' });
+      } else {
+        await write(fs, path, after);
+        files.push({ path, action: 'cleaned' });
+      }
+    }
+  }
+
   return { agent, scope, files, note: agent.afterNote };
 }
 
@@ -219,8 +279,18 @@ export async function update(
     if (text !== null && hasBlock(text)) rulesConfigured = true;
   }
 
+  // The allow-list is refreshed where it already is and never created here.
+  // `self sync` sweeps this across every registered project unattended, and
+  // widening an agent's privileges without being asked is the one thing that
+  // sweep must not do.
+  let allowShell = false;
+  if (agent.permission !== undefined) {
+    const text = await readIfPresent(fs, agent.permission.path(scope, home, cwd));
+    allowShell = text !== null && hasPermission(agent.permission.format, text, cwd);
+  }
+
   if (!configured && !rulesConfigured) return null;
-  return install(fs, agent, scope, home, cwd);
+  return install(fs, agent, scope, home, cwd, allowShell);
 }
 
 /**

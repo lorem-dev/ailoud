@@ -207,12 +207,13 @@ export function registerMcpInstall(parent: Command, context: CliContext): void {
           reportFile(context, library);
         }
 
+        // TODO: wire up the resolved --allow-shell value in place of this placeholder.
         for (const agent of inScope) {
-          outcomes.push(await install(context.fs, agent, scope, home(), cwd()));
+          outcomes.push(await install(context.fs, agent, scope, home(), cwd(), false));
         }
         for (const agent of forcedGlobal) {
           context.ui.note(`${agent.label} reads no per-project config; configuring it globally.`);
-          outcomes.push(await install(context.fs, agent, 'global', home(), cwd()));
+          outcomes.push(await install(context.fs, agent, 'global', home(), cwd(), false));
         }
 
         // Only once rules were actually written locally: a run that only

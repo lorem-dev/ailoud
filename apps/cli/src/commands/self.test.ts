@@ -128,7 +128,7 @@ describe('syncProjects', () => {
 
   it('refreshes a rules block and reports it as refreshed', async () => {
     const fs = new MemFs({});
-    await install(fs, claude, 'local', HOME, '/proj/a');
+    await install(fs, claude, 'local', HOME, '/proj/a', false);
     const rulesPath = '/proj/a/.claude/CLAUDE.md';
     const current = await fs.readTextFile(rulesPath);
     await makeStale(fs, '/proj/a');
@@ -154,7 +154,7 @@ describe('syncProjects', () => {
       }
     }
     const fs = new LoggingFs({});
-    await install(fs, claude, 'local', HOME, '/proj/a');
+    await install(fs, claude, 'local', HOME, '/proj/a', false);
 
     const d = deps(fs);
     await rememberProject(d, { path: '/proj/a' });
@@ -202,8 +202,8 @@ describe('syncProjects', () => {
       }
     }
     const fs = new FlakyFs({});
-    await install(fs, claude, 'local', HOME, '/proj/a');
-    await install(fs, claude, 'local', HOME, '/proj/b');
+    await install(fs, claude, 'local', HOME, '/proj/a', false);
+    await install(fs, claude, 'local', HOME, '/proj/b', false);
     await makeStale(fs, '/proj/a');
     await makeStale(fs, '/proj/b');
     fs.armed = true;
@@ -237,7 +237,7 @@ describe('syncProjects', () => {
 
   it('records rulesVersion so the next sync can say "current"', async () => {
     const fs = new MemFs({});
-    await install(fs, claude, 'local', HOME, '/proj/a');
+    await install(fs, claude, 'local', HOME, '/proj/a', false);
     await makeStale(fs, '/proj/a');
 
     const d = deps(fs);
@@ -258,7 +258,7 @@ describe('syncProjects', () => {
 
   it('appends one line per run to the update log', async () => {
     const fs = new MemFs({});
-    await install(fs, claude, 'local', HOME, '/proj/a');
+    await install(fs, claude, 'local', HOME, '/proj/a', false);
     fs.dirs.add('/proj/empty');
 
     const d = deps(fs);
@@ -328,7 +328,7 @@ describe('ailoud self sync (CLI)', () => {
     }
     const fs = new FlakyFs({});
     const claude = findAgent('claude')!;
-    await install(fs, claude, 'local', '/home/user', '/proj/a');
+    await install(fs, claude, 'local', '/home/user', '/proj/a', false);
     const rulesPath = '/proj/a/.claude/CLAUDE.md';
     const current = await fs.readTextFile(rulesPath);
     await fs.writeTextFile(rulesPath, current.replace('## AILoud', '## AILoud (old)'));

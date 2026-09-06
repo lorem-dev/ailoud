@@ -78,7 +78,7 @@ describe('rulesTargets', () => {
 describe('install', () => {
   it('writes both the config and the rules, because either alone is half the feature', async () => {
     const fs = new MemFs({});
-    const outcome = await install(fs, claude, 'local', HOME, CWD);
+    const outcome = await install(fs, claude, 'local', HOME, CWD, false);
     const byPath = actions(outcome.files);
     expect(byPath[`${CWD}/.mcp.json`]).toBe('created');
     expect(byPath[`${CWD}/.claude/CLAUDE.md`]).toBe('created');
@@ -88,20 +88,20 @@ describe('install', () => {
 
   it('reports unchanged on a second run rather than claiming a write', async () => {
     const fs = new MemFs({});
-    await install(fs, claude, 'local', HOME, CWD);
-    const second = await install(fs, claude, 'local', HOME, CWD);
+    await install(fs, claude, 'local', HOME, CWD, false);
+    const second = await install(fs, claude, 'local', HOME, CWD, false);
     expect(Object.values(actions(second.files))).toEqual(['unchanged', 'unchanged']);
   });
 
   it('carries the note that says what it takes to pick up the change', async () => {
     const fs = new MemFs({});
-    const outcome = await install(fs, claude, 'local', HOME, CWD);
+    const outcome = await install(fs, claude, 'local', HOME, CWD, false);
     expect(outcome.note).toMatch(/Restart Claude Code/);
   });
 
   it('writes a global-only agent into the home directory', async () => {
     const fs = new MemFs({});
-    const outcome = await install(fs, hermes, 'global', HOME, CWD);
+    const outcome = await install(fs, hermes, 'global', HOME, CWD, false);
     expect(Object.keys(actions(outcome.files))[0]).toContain(`${HOME}/.hermes`);
   });
 
@@ -112,7 +112,7 @@ describe('install', () => {
       `${CWD}/.claude/CLAUDE.md`,
       `# Nested\n\n${START}\nstale\n<!-- AILOUD_END -->\n`,
     );
-    const outcome = await install(fs, claude, 'local', HOME, CWD);
+    const outcome = await install(fs, claude, 'local', HOME, CWD, false);
     const byPath = actions(outcome.files);
     expect(byPath[`${CWD}/CLAUDE.md`]).toBe('updated');
     expect(byPath[`${CWD}/.claude/CLAUDE.md`]).toBe('updated');
@@ -125,7 +125,7 @@ describe('install', () => {
   it('creates the nested rules file rather than appending to a root CLAUDE.md', async () => {
     const fs = new MemFs({});
     await fs.writeTextFile(`${CWD}/CLAUDE.md`, '# Project rules\n');
-    await install(fs, claude, 'local', HOME, CWD);
+    await install(fs, claude, 'local', HOME, CWD, false);
     expect(await fs.readTextFile(`${CWD}/CLAUDE.md`)).toBe('# Project rules\n');
     expect(await fs.readTextFile(`${CWD}/.claude/CLAUDE.md`)).toContain(START);
   });
@@ -135,7 +135,7 @@ describe('uninstall', () => {
   it('deletes a file it created and edits one the user owns', async () => {
     const fs = new MemFs({});
     await fs.writeTextFile(`${CWD}/.claude/CLAUDE.md`, '# My Project\n');
-    await install(fs, claude, 'local', HOME, CWD);
+    await install(fs, claude, 'local', HOME, CWD, false);
 
     const outcome = await uninstall(fs, claude, 'local', HOME, CWD);
     const byPath = actions(outcome.files);
@@ -147,7 +147,7 @@ describe('uninstall', () => {
 
   it('removes a rules file that existed only for the block', async () => {
     const fs = new MemFs({});
-    await install(fs, claude, 'local', HOME, CWD);
+    await install(fs, claude, 'local', HOME, CWD, false);
     await uninstall(fs, claude, 'local', HOME, CWD);
     expect(await fs.exists(`${CWD}/.claude/CLAUDE.md`)).toBe(false);
   });
@@ -162,7 +162,7 @@ describe('uninstall', () => {
     // An earlier install may have written into the other candidate; leaving
     // that block would keep telling the agent about tools it no longer has.
     const fs = new MemFs({});
-    await install(fs, claude, 'local', HOME, CWD);
+    await install(fs, claude, 'local', HOME, CWD, false);
     const block = await fs.readTextFile(`${CWD}/.claude/CLAUDE.md`);
     await fs.writeTextFile(`${CWD}/CLAUDE.md`, block);
 
@@ -181,7 +181,7 @@ describe('update', () => {
 
   it('refreshes a stale block in place', async () => {
     const fs = new MemFs({});
-    await install(fs, claude, 'local', HOME, CWD);
+    await install(fs, claude, 'local', HOME, CWD, false);
     await fs.writeTextFile(`${CWD}/CLAUDE.md`, `${START}\nold\n<!-- AILOUD_END -->\n`);
     const outcome = await update(fs, claude, 'local', HOME, CWD);
     expect(outcome).not.toBeNull();
@@ -194,6 +194,79 @@ describe('update', () => {
     const fs = new MemFs({});
     await fs.writeTextFile(`${CWD}/CLAUDE.md`, `${START}\nold\n<!-- AILOUD_END -->\n`);
     expect(await update(fs, claude, 'local', HOME, CWD)).not.toBeNull();
+  });
+});
+
+describe('install with the allow-list', () => {
+  it('writes nothing about permissions when it was not asked to', async () => {
+    const fs = new MemFs({});
+    const outcome = await install(fs, claude, 'local', HOME, CWD, false);
+    expect(actions(outcome.files)[`${CWD}/.claude/settings.json`]).toBeUndefined();
+    expect(await fs.exists(`${CWD}/.claude/settings.json`)).toBe(false);
+  });
+
+  it('adds the rule when it was asked to', async () => {
+    const fs = new MemFs({});
+    const outcome = await install(fs, claude, 'local', HOME, CWD, true);
+    expect(actions(outcome.files)[`${CWD}/.claude/settings.json`]).toBe('created');
+    const settings = JSON.parse(await fs.readTextFile(`${CWD}/.claude/settings.json`));
+    expect(settings.permissions.allow).toEqual(['Bash(ailoud:*)']);
+  });
+
+  it('skips a settings file it cannot parse rather than destroying it', async () => {
+    const fs = new MemFs({});
+    await fs.writeTextFile(`${CWD}/.claude/settings.json`, '{ broken');
+    const outcome = await install(fs, claude, 'local', HOME, CWD, true);
+    expect(actions(outcome.files)[`${CWD}/.claude/settings.json`]).toBe('skipped');
+    expect(await fs.readTextFile(`${CWD}/.claude/settings.json`)).toBe('{ broken');
+  });
+
+  it('reports nothing for an agent with no allow-list of its own', async () => {
+    const fs = new MemFs({});
+    const outcome = await install(fs, hermes, 'global', HOME, CWD, true);
+    expect(outcome.files.every((file) => !file.path.endsWith('policy.yaml'))).toBe(true);
+  });
+
+  it('sends a local Codex install to the machine-wide policy file', async () => {
+    // Codex reads one policy for the machine, unlike its MCP configuration.
+    const fs = new MemFs({});
+    const codex = findAgent('codex')!;
+    const outcome = await install(fs, codex, 'local', HOME, CWD, true);
+    expect(actions(outcome.files)[`${HOME}/.codex/policy.yaml`]).toBe('created');
+  });
+});
+
+describe('uninstall with the allow-list', () => {
+  it('takes the rule back out and leaves the rest of the file alone', async () => {
+    const fs = new MemFs({});
+    await fs.writeTextFile(
+      `${CWD}/.claude/settings.json`,
+      JSON.stringify({ permissions: { allow: ['Bash(ailoud:*)'] }, hooks: { a: 1 } }),
+    );
+    const outcome = await uninstall(fs, claude, 'local', HOME, CWD);
+    expect(actions(outcome.files)[`${CWD}/.claude/settings.json`]).toBe('cleaned');
+    const settings = JSON.parse(await fs.readTextFile(`${CWD}/.claude/settings.json`));
+    expect(settings.permissions).toBeUndefined();
+    expect(settings.hooks).toEqual({ a: 1 });
+  });
+});
+
+describe('update with the allow-list', () => {
+  it('never grants a permission that was not already there', async () => {
+    // self sync sweeps this across every registered project unattended.
+    // Widening an agent's privileges without being asked is the one thing it
+    // must not do.
+    const fs = new MemFs({});
+    await install(fs, claude, 'local', HOME, CWD, false);
+    await update(fs, claude, 'local', HOME, CWD);
+    expect(await fs.exists(`${CWD}/.claude/settings.json`)).toBe(false);
+  });
+
+  it('refreshes a permission that is already there', async () => {
+    const fs = new MemFs({});
+    await install(fs, claude, 'local', HOME, CWD, true);
+    const outcome = await update(fs, claude, 'local', HOME, CWD);
+    expect(actions(outcome!.files)[`${CWD}/.claude/settings.json`]).toBe('unchanged');
   });
 });
 
@@ -245,7 +318,7 @@ describe('the rules file is written atomically', () => {
     // across every registered project unattended is why it matters.
     const fs = new RecordingFs({ '/proj/.claude/CLAUDE.md': '# My own notes\n' });
 
-    await install(fs, findAgent('claude')!, 'local', '/home/x', '/proj');
+    await install(fs, findAgent('claude')!, 'local', '/home/x', '/proj', false);
 
     const rules = fs.calls.filter((call) => call.includes('CLAUDE.md'));
     expect(rules.some((call) => call.startsWith('write:') && call.includes('.tmp'))).toBe(true);
