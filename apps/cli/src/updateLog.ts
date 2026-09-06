@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Fs } from '@ailoud/core';
 
 /** The log is truncated once it grows past this many bytes. */
@@ -40,6 +41,28 @@ function keepLastLines(text: string, maxLines: number): string {
  * Appends one line to the update log, creating it (and its directory) on
  * first use.
  *
+ * Two processes racing here used to lose an entry outright: both read the
+ * same bytes, both built "everything so far, plus my line", and whichever
+ * wrote last replaced the file with only ITS line appended -- the other's
+ * was gone, with no error anywhere. The same read-modify-write race
+ * `projects.ts` was redesigned to avoid for the project registry.
+ *
+ * An O_APPEND write is the textbook fix for exactly this shape of race: the
+ * kernel serializes small appends, so neither writer's bytes are ever
+ * discarded no matter how the two calls interleave. The `Fs` port has no
+ * such primitive, though -- only whole-file `writeTextFile`/`rename` -- so
+ * that is not available here. Instead this detects the conflict itself:
+ * after building the candidate content and
+ * writing it to a temp file, it re-reads the real log and checks whether it
+ * still matches what this call read at the start. If another writer
+ * committed in between, the temp file is discarded and the whole
+ * read-build-write is retried against the fresh content, until a rename
+ * lands against the same bytes it was built from. That narrows the race to
+ * the gap between that last re-read and the rename -- not zero, the same
+ * residual window `writeRegistry` (`projects.ts`) documents and accepts for
+ * the same reason -- without a lock: this is an occasional diagnostic
+ * append, not a hot path, so a retry costs nothing worth avoiding.
+ *
  * Truncated to the last 500 lines once the file passes 1 MB, so a machine
  * ailoud has run on for years does not grow this file forever. The check
  * runs after every append rather than on a schedule, because the file is
@@ -50,10 +73,35 @@ function keepLastLines(text: string, maxLines: number): string {
  */
 export async function appendUpdateLog(deps: UpdateLogDeps, line: string): Promise<void> {
   const path = updateLogPath(deps.userDataDir);
-  const before = (await deps.fs.exists(path)) ? await deps.fs.readTextFile(path) : '';
-  const appended = `${before}${line}\n`;
-  const next =
-    Buffer.byteLength(appended, 'utf8') > MAX_BYTES ? keepLastLines(appended, MAX_LINES) : appended;
   await deps.fs.ensureDir(deps.userDataDir);
-  await deps.fs.writeTextFile(path, next);
+
+  for (;;) {
+    const before = (await deps.fs.exists(path)) ? await deps.fs.readTextFile(path) : '';
+    const appended = `${before}${line}\n`;
+    const next =
+      Buffer.byteLength(appended, 'utf8') > MAX_BYTES
+        ? keepLastLines(appended, MAX_LINES)
+        : appended;
+
+    const tempPath = `${path}.${randomUUID()}.tmp`;
+    try {
+      await deps.fs.writeTextFile(tempPath, next);
+    } catch (error) {
+      // The target has not been touched yet, so there is nothing to undo.
+      // Clear the partial temporary file rather than leaving litter behind.
+      await deps.fs.removeFile(tempPath);
+      throw error;
+    }
+
+    const current = (await deps.fs.exists(path)) ? await deps.fs.readTextFile(path) : '';
+    if (current !== before) {
+      // Someone else committed while this attempt was being built: discard
+      // it and retry against what is actually on disk now, rather than
+      // renaming over -- and silently erasing -- their line.
+      await deps.fs.removeFile(tempPath);
+      continue;
+    }
+    await deps.fs.rename(tempPath, path);
+    return;
+  }
 }

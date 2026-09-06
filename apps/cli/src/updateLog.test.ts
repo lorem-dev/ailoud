@@ -68,4 +68,41 @@ describe('appendUpdateLog', () => {
     const content = await fs.readTextFile(updateLogPath(DATA_DIR));
     expect(Buffer.byteLength(content, 'utf8')).toBeLessThan(1024 * 1024);
   });
+
+  it('never loses an entry to a second writer racing on the same file', async () => {
+    // Simulates two processes (a scheduled `self sync` and a manual `self
+    // update`, say) both calling appendUpdateLog close together. `RacingFs`
+    // captures what THIS call read as its starting point, then -- while
+    // that call is still building its own write -- lets a second, complete
+    // call to appendUpdateLog run and commit first. A plain read-modify-write
+    // (no re-check before committing) would then have the first call
+    // overwrite the second's line outright when it finally writes, which is
+    // exactly the defect found in review: "two processes both read, and the
+    // second write drops the first's line with no error."
+    class RacingFs extends MemFs {
+      private reads = 0;
+      private armed = true;
+      override async readTextFile(path: string): Promise<string> {
+        this.reads += 1;
+        // Snapshot BEFORE letting the racing call run, so this call sees
+        // the bytes as they were at ITS read, not after the race.
+        const snapshot = await super.readTextFile(path);
+        if (this.reads === 1 && this.armed) {
+          this.armed = false;
+          await appendUpdateLog({ fs, userDataDir: DATA_DIR }, 'second process');
+        }
+        return snapshot;
+      }
+    }
+    const fs = new RacingFs({});
+    await fs.ensureDir(DATA_DIR);
+    await fs.writeTextFile(updateLogPath(DATA_DIR), 'start\n');
+
+    await appendUpdateLog({ fs, userDataDir: DATA_DIR }, 'first process');
+
+    const content = await fs.readTextFile(updateLogPath(DATA_DIR));
+    const lines = content.split('\n').filter((l) => l.length > 0);
+    expect(lines).toContain('second process');
+    expect(lines).toContain('first process');
+  });
 });
