@@ -53,6 +53,7 @@ export function context(): CliContext & {
     summarizerPrompts,
     paths: {
       configFile: '/c',
+      configHome: '/c',
       dataDir: '/d',
       dbFile: '/d/ailoud.db',
       mediaRoot: '/d/media',

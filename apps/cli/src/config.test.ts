@@ -6,6 +6,7 @@ describe('resolvePaths', () => {
   it('honours both XDG variables', () => {
     expect(resolvePaths({ XDG_CONFIG_HOME: '/c', XDG_DATA_HOME: '/d', HOME: '/h' })).toEqual({
       configFile: '/c/ailoud/config.yaml',
+      configHome: '/c',
       dataDir: '/d/ailoud',
       dbFile: '/d/ailoud/ailoud.db',
       mediaRoot: '/d/ailoud/media',
@@ -17,6 +18,7 @@ describe('resolvePaths', () => {
   it('falls back to the documented defaults under HOME', () => {
     expect(resolvePaths({ HOME: '/h' })).toEqual({
       configFile: '/h/.config/ailoud/config.yaml',
+      configHome: '/h/.config',
       dataDir: '/h/.local/share/ailoud',
       dbFile: '/h/.local/share/ailoud/ailoud.db',
       mediaRoot: '/h/.local/share/ailoud/media',
@@ -40,6 +42,19 @@ describe('resolvePaths', () => {
     // a project would list only that project.
     expect(paths.dataDir).toBe('/repo/.ailoud');
     expect(paths.userDataDir).toBe('/home/x/.local/share/ailoud');
+  });
+
+  it('resolves configHome by the same empty and relative rules as configFile', () => {
+    // An exported-but-empty XDG_CONFIG_HOME means "use the default", and a
+    // relative one is invalid and must be ignored -- see absoluteOr above.
+    // configHome is read from the same local configFile is built from, so
+    // both must move together rather than configHome quietly reading the
+    // environment a second time under different rules.
+    expect(resolvePaths({ HOME: '/h', XDG_CONFIG_HOME: '' }).configHome).toBe('/h/.config');
+    expect(resolvePaths({ HOME: '/h', XDG_CONFIG_HOME: 'relative/path' }).configHome).toBe(
+      '/h/.config',
+    );
+    expect(resolvePaths({ HOME: '/h', XDG_CONFIG_HOME: '/c' }).configHome).toBe('/c');
   });
 });
 

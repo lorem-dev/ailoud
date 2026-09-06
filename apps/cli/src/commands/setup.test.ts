@@ -1211,6 +1211,7 @@ describe('runProvisioning', () => {
     tmp = await mkdtemp(join(tmpdir(), 'ailoud-provisioning-test-'));
     paths = {
       configFile: join(tmp, 'config.yaml'),
+      configHome: tmp,
       dataDir: join(tmp, 'data'),
       dbFile: join(tmp, 'data', 'ailoud.db'),
       mediaRoot: join(tmp, 'data', 'media'),
