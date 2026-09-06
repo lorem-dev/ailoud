@@ -81,12 +81,52 @@ Your own files are safe:
 
 | Agent      | Scopes          | Config                         | Rules file                           |
 | ---------- | --------------- | ------------------------------ | ------------------------------------ |
-| `claude`   | project, global | `.mcp.json` / `~/.claude.json` | `CLAUDE.md`                          |
+| `claude`   | project, global | `.mcp.json` / `~/.claude.json` | `.claude/CLAUDE.md`, `CLAUDE.md`     |
 | `codex`    | project, global | `.codex/config.toml`           | `AGENTS.md`                          |
 | `opencode` | project, global | `opencode.jsonc`               | `AGENTS.md`                          |
 | `gemini`   | project, global | `.gemini/settings.json`        | `GEMINI.md`                          |
 | `hermes`   | global only     | `~/.hermes/config.yaml`        | `~/.hermes/AGENTS.md`                |
 | `copilot`  | global only     | `~/.copilot/mcp-config.json`   | `~/.copilot/copilot-instructions.md` |
+
+## Running `ailoud` without an approval prompt
+
+The rules block tells an agent to reach for `ailoud audio search` and its
+neighbours. Most agents ask for approval before running a command, every time.
+`mcp install` offers to add `ailoud` to the agent's allow-list so it does not
+have to.
+
+The prompt appears during an interactive install, after the location question,
+and lists the exact files it would edit. `--allow-shell` and `--no-allow-shell`
+answer it without a prompt.
+
+`-y` on its own grants nothing. It means "do not prompt", and an unasked
+permission question is not the same as one answered yes. Use `-y --allow-shell`
+to ask for the allow-list in a script.
+
+| Agent              | File                                                     | Entry                                                       |
+| ------------------ | -------------------------------------------------------- | ----------------------------------------------------------- |
+| Claude Code        | `.claude/settings.json`, or `~/.claude/settings.json`    | `permissions.allow: ["Bash(ailoud:*)"]`                     |
+| Codex CLI          | `~/.codex/policy.yaml`                                   | `allow: ["ailoud", "ailoud *"]`                             |
+| opencode           | `opencode.jsonc`, or `~/.config/opencode/opencode.jsonc` | `permission.bash: {"ailoud": "allow", "ailoud *": "allow"}` |
+| Gemini CLI         | `.gemini/settings.json`, or `~/.gemini/settings.json`    | `tools.allowed: ["run_shell_command(ailoud)"]`              |
+| GitHub Copilot CLI | `~/.copilot/permissions-config.json`                     | a `commands` approval for this directory                    |
+| Hermes Agent       | --                                                       | Hermes records approvals itself; nothing to write           |
+
+Codex keeps one policy file for the machine even for a per-project install, and
+Copilot scopes its approval to the directory you ran the install in -- which
+the install says on its own line, because the file it writes is machine-wide.
+
+!!! note
+
+    The rewrite rule above applies to these files too: comments in
+    `.claude/settings.json`, `.gemini/settings.json`, `opencode.jsonc` and
+    `~/.copilot/permissions-config.json` do not survive an edit. Codex's
+    `policy.yaml` keeps its comments, including any written inside the allow
+    list itself.
+
+`mcp uninstall` removes the entry. `mcp update` refreshes one that is already
+there and never adds one, which is why `ailoud self sync` cannot widen an
+agent's permissions while sweeping your projects.
 
 ## The project library
 
