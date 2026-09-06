@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { FailureError, formatRecordedAt } from '@ailoud/core';
+import { formatRecordedAt } from '@ailoud/core';
 import type { Summary } from '@ailoud/core';
 import { page, shouldPage } from '@ailoud/providers';
 import type { CliContext } from '../wiring.js';
@@ -112,11 +112,19 @@ export function registerReports(parent: Command, context: CliContext): void {
             context.ui.content('[]');
             return;
           }
-          throw new FailureError(
+          // Exit 0, not a failure. "Nothing here yet" is the same answer
+          // `ls` gives for an empty library, `ls --tag` for a filter that
+          // matches nothing, and `self sync` for no registered projects --
+          // and `report ls --json` already exited 0 on this very state, so
+          // the text and JSON forms of one command disagreed. A script that
+          // treats an empty list as an error cannot tell it from a real
+          // failure.
+          context.ui.note(
             options.recording === undefined
               ? 'No reports yet. Run "ailoud summarize <id>" to make one.'
               : `No reports cover ${options.recording}.`,
           );
+          return;
         }
 
         if (options.json === true) {

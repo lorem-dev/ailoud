@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FailureError, UsageError } from '@ailoud/core';
+import { UsageError } from '@ailoud/core';
 import type { Summary } from '@ailoud/core';
 import { buildProgram } from '../program.js';
 import { FIXTURE_PATH, contextWithTranscript } from './testContext.js';
@@ -52,14 +52,37 @@ describe('reportPreview', () => {
 });
 
 describe('ailoud report ls / show', () => {
-  it('says so when there are none, rather than printing an empty table', async () => {
+  it('says so when there are none, and exits 0 rather than failing', async () => {
+    // Not a failure. `ls` on an empty library, `ls --tag` on a filter that
+    // matches nothing, and `self sync` with no projects all exit 0, and
+    // `report ls --json` already exited 0 on this very state -- so the text
+    // and JSON forms of one command used to disagree. A script cannot tell an
+    // empty list from a real failure if both exit non-zero.
     const ctx = await contextWithTranscript({ clearLines: true });
-    await expect(buildProgram(ctx).parseAsync(['node', 'ailoud', 'report', 'ls'])).rejects.toThrow(
-      FailureError,
-    );
-    await expect(buildProgram(ctx).parseAsync(['node', 'ailoud', 'report', 'ls'])).rejects.toThrow(
-      /No reports yet/,
-    );
+
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'report', 'ls']),
+    ).resolves.toBeDefined();
+
+    expect(ctx.lines.join('\n')).toMatch(/No reports yet/);
+  });
+
+  it('exits 0 when a named recording has no reports', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    const [recording] = await ctx.store.listRecordings({});
+
+    await expect(
+      buildProgram(ctx).parseAsync([
+        'node',
+        'ailoud',
+        'report',
+        'ls',
+        '--recording',
+        recording!.id,
+      ]),
+    ).resolves.toBeDefined();
+
+    expect(ctx.lines.join('\n')).toMatch(/No reports cover/);
   });
 
   it('lists what produced each report, newest first', async () => {

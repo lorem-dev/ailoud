@@ -1,4 +1,5 @@
 #!/usr/bin/env -S node --disable-warning=ExperimentalWarning
+import { styleText } from 'node:util';
 import { buildProgram, exitCodeFor, isCommanderError } from '../program.js';
 import { createContext } from '../wiring.js';
 import { registryPublished, startUpdateCheck } from '../updateNotice.js';
@@ -51,8 +52,17 @@ async function main(): Promise<number> {
   if (notice !== null) {
     const target = await notice.finish();
     if (target !== null) {
+      // Yellow: this is the one line ailoud prints that the user did not ask
+      // for, so it has to be distinguishable at a glance from the output they
+      // did. `styleText` is given the stream, so it emits nothing when stderr
+      // cannot take colour and it honours NO_COLOR -- belt and braces, since
+      // the notice is already suppressed when stderr is not a terminal.
       process.stderr.write(
-        `ailoud: a newer version is available (${VERSION} -> ${target}). Run "ailoud self update" to install it.\n`,
+        styleText(
+          'yellow',
+          `ailoud: a newer version is available (${VERSION} -> ${target}). Run "ailoud self update" to install it.`,
+          { stream: process.stderr },
+        ) + '\n',
       );
     }
   }
