@@ -2,17 +2,29 @@
 
 ## Flags
 
-| Flag                     | Does                                                              |
-| ------------------------ | ----------------------------------------------------------------- |
-| `--tag <tag>`            | attach a tag (import, annotate) or filter by one (ls); repeatable |
-| `--force`                | redo a transcript (transcribe) or skip the confirmation (rm)      |
-| `--lang <codes>`         | restrict transcription to these languages, e.g. `ru,en`           |
-| `--diarize`              | attribute segments to speakers                                    |
-| `--speakers <n>`         | known number of speakers                                          |
-| `--speaker <label=name>` | name a speaker (annotate) or filter to one (show)                 |
-| `--format <format>`      | `text`, `json`, `srt`, `vtt` (default `text`)                     |
-| `--title <text>`         | set the recording's title                                         |
-| `--notes <text>`         | set free-form notes                                               |
+Where a flag means different things to different verbs, it gets a row each.
+
+| Flag                     | Verb             | Does                                                                                               |
+| ------------------------ | ---------------- | -------------------------------------------------------------------------------------------------- |
+| `--tag <tag>`            | import           | tag the imported recordings; repeatable                                                            |
+| `--tag <tag>`            | transcribe       | group these recordings under a tag; repeatable                                                     |
+| `--tag <tag>`            | annotate         | group this recording under a tag; repeatable                                                       |
+| `--tag <tag>`            | ls               | only recordings carrying this tag; repeatable                                                      |
+| `--title <text>`         | import, annotate | the recording's title                                                                              |
+| `--notes <text>`         | import, annotate | free-form context about the recording                                                              |
+| `--lang <codes>`         | transcribe       | spoken language, several comma-separated, or `auto`. Naming two or more turns on multilingual mode |
+| `--multilingual`         | transcribe       | segment by speech and language, transcribing each run separately                                   |
+| `--model <name>`         | transcribe       | override the configured model                                                                      |
+| `--diarize`              | transcribe       | attribute segments to speakers                                                                     |
+| `--speakers <n>`         | transcribe       | known number of speakers, to help the diarizer                                                     |
+| `--speakers`             | show             | list who spoke, instead of the transcript -- takes no value                                        |
+| `--speaker <label=name>` | annotate         | a real name for one diarizer label; repeatable                                                     |
+| `--speaker <who>`        | show             | only this speaker, by label or by the name you gave them                                           |
+| `--transcript <id>`      | show             | a specific transcript instead of the newest; a prefix will do                                      |
+| `--format <format>`      | show             | `text`, `json`, `srt`, `vtt` (default `text`)                                                      |
+| `--json`                 | ls               | print one JSON array of rows instead of a table                                                    |
+| `--force`                | transcribe       | re-transcribe recordings that already have a transcript                                            |
+| `--force`                | rm               | delete without asking                                                                              |
 
 ## Import
 
