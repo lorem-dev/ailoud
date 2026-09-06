@@ -149,7 +149,7 @@ describe('uninstall', () => {
     const fs = new MemFs({});
     await install(fs, claude, 'local', HOME, CWD);
     await uninstall(fs, claude, 'local', HOME, CWD);
-    expect(await fs.exists(`${CWD}/CLAUDE.md`)).toBe(false);
+    expect(await fs.exists(`${CWD}/.claude/CLAUDE.md`)).toBe(false);
   });
 
   it('reports absent rather than a cleanup it did not do', async () => {
