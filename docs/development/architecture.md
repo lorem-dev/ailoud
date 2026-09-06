@@ -59,16 +59,15 @@ only ever move forward.
 
 ## The summary prompt
 
-The prompt is measured, not guessed. `scripts/eval-summary-prompt.mjs` runs
-variants three times each over seven transcripts -- English, Russian,
-code-switched, long, multi-recording, undiarized, and a language override --
-across haiku, sonnet and opus, scoring each run for stated facts, invented
-ones, language and length.
-
 ```
 node scripts/eval-summary-prompt.mjs --runs 3
 node scripts/eval-summary-prompt.mjs --models haiku --cases one-on-one
 ```
+
+The prompt is measured, not guessed. Each variant runs three times over seven
+transcripts -- English, Russian, code-switched, long, multi-recording,
+undiarized, and a language override -- across haiku, sonnet and opus. Every run
+is scored for stated facts, invented facts, language and length.
 
 Change the prompt or a template's headings, then re-run it. The previous
 measurement does not carry over.
