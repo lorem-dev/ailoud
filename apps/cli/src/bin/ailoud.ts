@@ -2,7 +2,7 @@
 import { styleText } from 'node:util';
 import { buildProgram, exitCodeFor, isCommanderError } from '../program.js';
 import { createContext } from '../wiring.js';
-import { registryPublished, startUpdateCheck } from '../updateNotice.js';
+import { startUpdateCheck } from '../updateNotice.js';
 import type { UpdateCheck } from '../updateNotice.js';
 import { VERSION } from '../version.js';
 
@@ -28,7 +28,12 @@ async function main(): Promise<number> {
       env: process.env,
       stderrIsTTY: process.stderr.isTTY === true,
       checkEnabled: context.config.update.check,
-      published: registryPublished(context.updateRegistryHost),
+      // The port, not a second client. `VersionSource.published` takes the
+      // cancellation signal precisely so this caller can share the provider's
+      // implementation -- guards, escaping, empty-list refusal and all --
+      // instead of the hand-rolled copy that used to live here and had
+      // drifted out of step with it.
+      published: (signal) => context.versionSource.published('ailoud', signal),
     });
     try {
       await buildProgram(context).parseAsync(process.argv);

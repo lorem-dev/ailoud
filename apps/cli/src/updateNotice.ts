@@ -1,10 +1,6 @@
-import https from 'node:https';
 import { z } from 'zod';
 import type { Clock, Fs, PublishedVersion } from '@ailoud/core';
-import { chooseUpdateTarget, isDeprecated } from '@ailoud/core';
-
-/** The only package this passive check ever asks the registry about. */
-const PACKAGE_NAME = 'ailoud';
+import { chooseUpdateTarget } from '@ailoud/core';
 
 /** How long a cached answer is trusted before this run asks the registry again. */
 const TTL_MS = 24 * 60 * 60 * 1000;
@@ -299,67 +295,4 @@ export function startUpdateCheck(deps: NoticeDeps): UpdateCheck {
       return raced;
     },
   };
-}
-
-/**
- * A minimal, direct HTTPS GET against the npm registry, used only by this
- * passive check -- deliberately not `context.versionSource` (`self check`'s
- * `NpmRegistry`, built on `fetch`).
- *
- * Aborting a `fetch` rejects its promise almost at once, but the pooled TCP
- * connection underneath keeps running -- and keeps the event loop, and so
- * the process, alive -- for undici's own internal connect timeout regardless
- * of that abort. Measured directly against an unroutable address: several
- * extra seconds after the abort, every time. That is exactly the delay this
- * feature exists to never cause. `https.request`'s own `signal` option
- * destroys the underlying socket the instant it fires, which is what lets
- * the process actually exit the moment `finish()` gives up on it.
- */
-export function registryPublished(
-  host: string,
-): (signal: AbortSignal) => Promise<readonly PublishedVersion[]> {
-  return (signal) =>
-    new Promise<readonly PublishedVersion[]>((resolve, reject) => {
-      const request = https.request(
-        {
-          host,
-          path: `/${PACKAGE_NAME}`,
-          headers: { accept: 'application/vnd.npm.install-v1+json' },
-          signal,
-        },
-        (response) => {
-          const chunks: Buffer[] = [];
-          response.on('data', (chunk: Buffer) => chunks.push(chunk));
-          response.on('end', () => {
-            const status = response.statusCode ?? 0;
-            if (status < 200 || status >= 300) {
-              reject(new Error(`the npm registry answered ${status} for ${PACKAGE_NAME}`));
-              return;
-            }
-            try {
-              const body: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-              resolve(parsePublished(body));
-            } catch (error) {
-              reject(error instanceof Error ? error : new Error(String(error)));
-            }
-          });
-        },
-      );
-      request.on('error', reject);
-      request.end();
-    });
-}
-
-function parsePublished(body: unknown): readonly PublishedVersion[] {
-  const versions =
-    typeof body === 'object' && body !== null
-      ? (body as { versions?: unknown }).versions
-      : undefined;
-  if (typeof versions !== 'object' || versions === null) {
-    throw new Error(`the npm registry returned no versions for ${PACKAGE_NAME}`);
-  }
-  return Object.entries(versions as Record<string, unknown>).map(([version, entry]) => ({
-    version,
-    deprecated: isDeprecated(entry),
-  }));
 }

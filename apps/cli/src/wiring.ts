@@ -31,6 +31,7 @@ import {
   openStore,
 } from '@ailoud/providers';
 import { PROJECT_DIR, parseConfig, resolvePaths } from './config.js';
+import type { RegistryTransport } from '@ailoud/providers';
 import type { AiloudConfig, AiloudPaths } from './config.js';
 import { createUi } from './ui/index.js';
 import type { Ui } from './ui/index.js';
@@ -59,7 +60,7 @@ const UPDATE_TIMEOUT_MS = DEFAULT_TIMEOUT_MS;
  * apply to a handle nobody closed. This reads a file instead, on every call,
  * so there is never a handle to leak.
  */
-function packumentFixtureFetch(fixturePath: string): typeof fetch {
+function packumentFixtureTransport(fixturePath: string): RegistryTransport {
   // Announced on stderr, every run, deliberately. This hook ships INSIDE the
   // binary -- unlike the identical variable in scripts/retire-prereleases.mjs,
   // which only maintainers run -- so it can substitute where `self check` and
@@ -72,18 +73,14 @@ function packumentFixtureFetch(fixturePath: string): typeof fetch {
   process.stderr.write(
     `ailoud: reading npm versions from the fixture ${fixturePath} (AILOUD_PACKUMENTS is set), not from the registry\n`,
   );
-  const impl: typeof fetch = async (input) => {
-    const name = decodeURIComponent(new URL(String(input)).pathname.slice(1));
+  return async (url) => {
+    const name = decodeURIComponent(new URL(url).pathname.slice(1));
     const raw = await readFile(fixturePath, 'utf8');
     const all = JSON.parse(raw) as Record<string, unknown>;
     const packument = all[name];
-    if (packument === undefined) return new Response(null, { status: 404 });
-    return new Response(JSON.stringify(packument), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
+    if (packument === undefined) return { status: 404, body: '' };
+    return { status: 200, body: JSON.stringify(packument) };
   };
-  return impl;
 }
 
 export interface CliContext {
@@ -344,7 +341,7 @@ export async function createContext(
       timeoutMs: UPDATE_TIMEOUT_MS,
       ...(env['AILOUD_PACKUMENTS'] === undefined || env['AILOUD_PACKUMENTS'] === ''
         ? {}
-        : { fetchImpl: packumentFixtureFetch(env['AILOUD_PACKUMENTS']) }),
+        : { transport: packumentFixtureTransport(env['AILOUD_PACKUMENTS']) }),
     }),
     updateRegistryHost: new URL(UPDATE_REGISTRY).host,
     updateTimeoutMs: UPDATE_TIMEOUT_MS,

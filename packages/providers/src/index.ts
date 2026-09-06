@@ -53,6 +53,7 @@ export { LLAMA_VERSION, installLlama, llamaTarballUrl } from './provision/llamaI
 export type { InstallLlamaOptions, InstallLlamaResult } from './provision/llamaInstall.js';
 
 export { DEFAULT_REGISTRY, DEFAULT_TIMEOUT_MS, NpmRegistry } from './update/npmRegistry.js';
+export type { RegistryTransport } from './update/npmRegistry.js';
 export type { NpmRegistryOptions } from './update/npmRegistry.js';
 
 export { detectInstallMethod, installCommandFor, sweepCommandFor } from './update/installMethod.js';

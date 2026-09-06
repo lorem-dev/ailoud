@@ -317,5 +317,14 @@ export interface ManagedRecordingStore extends RecordingStore {
  * packages/providers; a port because packages/core reaches no network.
  */
 export interface VersionSource {
-  published(packageName: string): Promise<readonly PublishedVersion[]>;
+  /**
+   * `signal` exists so ONE implementation can serve both callers. Without it,
+   * the background update check could not abandon a request promptly and so
+   * grew a second HTTP client of its own -- which then drifted, missing a
+   * guard the first one had. Measured on Node 24: aborting a `fetch` leaves
+   * the process alive for about 10.5 SECONDS, while `https.request`'s native
+   * `signal` releases it in about 60ms. That measurement is why the provider
+   * uses `https.request`, and why this parameter is not optional cosmetics.
+   */
+  published(packageName: string, signal?: AbortSignal): Promise<readonly PublishedVersion[]>;
 }

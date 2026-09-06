@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { NpmRegistry } from './npmRegistry.js';
+import type { RegistryTransport } from './npmRegistry.js';
+
+/** A transport that answers with a fixed status and body, recording its calls. */
+const answering = (status: number, body: string) =>
+  vi.fn<RegistryTransport>(async () => ({ status, body }));
 
 const packument = {
   name: 'ailoud',
@@ -11,8 +16,8 @@ const packument = {
 
 describe('NpmRegistry', () => {
   it('reports every version, marking the deprecated ones', async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(packument), { status: 200 }));
-    const registry = new NpmRegistry({ fetchImpl });
+    const transport = answering(200, JSON.stringify(packument));
+    const registry = new NpmRegistry({ transport });
     expect(await registry.published('ailoud')).toEqual([
       { version: '1.0.0-dev.1', deprecated: true },
       { version: '1.0.0', deprecated: false },
@@ -20,37 +25,29 @@ describe('NpmRegistry', () => {
   });
 
   it('asks for the abbreviated packument', async () => {
-    const fetchImpl = vi.fn(
-      async (_url: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) =>
-        new Response(JSON.stringify(packument), { status: 200 }),
-    );
-    await new NpmRegistry({ fetchImpl }).published('ailoud');
-    const [, init] = fetchImpl.mock.calls[0]!;
-    expect((init as RequestInit).headers).toMatchObject({
-      accept: 'application/vnd.npm.install-v1+json',
-    });
+    const transport = answering(200, JSON.stringify(packument));
+    await new NpmRegistry({ transport }).published('ailoud');
+    const [, headers] = transport.mock.calls[0]!;
+    expect(headers).toMatchObject({ accept: 'application/vnd.npm.install-v1+json' });
   });
 
   it('escapes a scoped name', async () => {
-    const fetchImpl = vi.fn(
-      async (_url: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) =>
-        new Response(JSON.stringify(packument), { status: 200 }),
-    );
-    await new NpmRegistry({ fetchImpl }).published('@ailoud/core');
-    expect(fetchImpl.mock.calls[0]![0]).toBe('https://registry.npmjs.org/@ailoud%2fcore');
+    const transport = answering(200, JSON.stringify(packument));
+    await new NpmRegistry({ transport }).published('@ailoud/core');
+    expect(transport.mock.calls[0]![0]).toBe('https://registry.npmjs.org/@ailoud%2fcore');
   });
 
   it('throws with the status when the registry refuses', async () => {
-    const fetchImpl = async () => new Response('nope', { status: 503 });
-    await expect(new NpmRegistry({ fetchImpl }).published('ailoud')).rejects.toThrow(/503/);
+    const transport = answering(503, 'nope');
+    await expect(new NpmRegistry({ transport }).published('ailoud')).rejects.toThrow(/503/);
   });
 
   it('throws when the versions object is present but empty', async () => {
     // A 200 with `{"versions": {}}` used to resolve to an empty list, which
     // every caller reads as "nothing newer exists". A package with no versions
     // cannot be the one we are running.
-    const fetchImpl = async () => new Response('{"versions":{}}', { status: 200 });
-    await expect(new NpmRegistry({ fetchImpl }).published('ailoud')).rejects.toThrow(/no versions/);
+    const transport = answering(200, '{"versions":{}}');
+    await expect(new NpmRegistry({ transport }).published('ailoud')).rejects.toThrow(/no versions/);
   });
 
   it('treats an empty deprecation message as not deprecated', async () => {
@@ -64,8 +61,8 @@ describe('NpmRegistry', () => {
         '1.0.1': { version: '1.0.1', deprecated: 'do not use' },
       },
     });
-    const fetchImpl = async () => new Response(body, { status: 200 });
-    expect(await new NpmRegistry({ fetchImpl }).published('ailoud')).toEqual([
+    const transport = answering(200, body);
+    expect(await new NpmRegistry({ transport }).published('ailoud')).toEqual([
       { version: '1.0.0', deprecated: false },
       { version: '1.0.1', deprecated: true },
     ]);
@@ -74,7 +71,7 @@ describe('NpmRegistry', () => {
   it('throws when the body has no versions', async () => {
     // A silent empty answer would read as "you are up to date", which is the
     // one wrong thing a version check can say.
-    const fetchImpl = async () => new Response('{}', { status: 200 });
-    await expect(new NpmRegistry({ fetchImpl }).published('ailoud')).rejects.toThrow(/versions/);
+    const transport = answering(200, '{}');
+    await expect(new NpmRegistry({ transport }).published('ailoud')).rejects.toThrow(/versions/);
   });
 });
