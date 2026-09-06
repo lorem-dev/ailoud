@@ -436,9 +436,15 @@ describe('ailoud mcp uninstall', () => {
     expect(await exists(join(sandbox.home, '.claude.json'))).toBe(false);
   });
 
-  it('cleans every agent format it wrote', async () => {
+  // Both answers to the allow-list question, because the leftover only
+  // appeared for the "yes" one: the allow-list entries kept the settings
+  // files looking like they still held something of the user's.
+  it.each([
+    ['without the allow-list', [] as string[]],
+    ['with the allow-list too', ['--allow-shell']],
+  ])('cleans every agent format it wrote, %s', async (_name, extra) => {
     const targets = 'claude,codex,opencode,gemini';
-    await sandbox.run(['mcp', 'install', '--target', targets, '--location', 'local']);
+    await sandbox.run(['mcp', 'install', '--target', targets, '--location', 'local', ...extra]);
     await sandbox.run(['mcp', 'uninstall', '--target', targets, '--location', 'local']);
 
     for (const path of [
@@ -446,9 +452,13 @@ describe('ailoud mcp uninstall', () => {
       'opencode.jsonc',
       '.codex/config.toml',
       '.gemini/settings.json',
+      // The allow-lists: opencode's and Gemini's are the two files above,
+      // Claude Code's is its own, and Codex keeps one policy for the machine.
+      '.claude/settings.json',
     ]) {
       expect(await exists(join(sandbox.projectDir, path))).toBe(false);
     }
+    expect(await exists(join(sandbox.home, '.codex', 'policy.yaml'))).toBe(false);
     for (const path of ['AGENTS.md', '.claude/CLAUDE.md', 'GEMINI.md']) {
       // Created solely for the block, so removed with it.
       expect(await exists(join(sandbox.projectDir, path))).toBe(false);

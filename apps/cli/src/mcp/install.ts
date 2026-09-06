@@ -244,6 +244,15 @@ export async function uninstall(
       const after = removePermission(agent.permission.format, before, cwd);
       if (after === null) {
         files.push({ path, action: 'unchanged' });
+      } else if (after === '') {
+        // Decided here rather than left to the `isEmptyConfig` check above:
+        // for opencode and Gemini this IS the MCP configuration file, and
+        // that check ran first, while our permission keys were still in it.
+        // It therefore saw a file with settings in and kept it -- so an
+        // install that used the allow-list left `{}` behind where one that
+        // did not deleted the file outright.
+        await fs.removeFile(path);
+        files.push({ path, action: 'removed' });
       } else {
         await write(fs, path, after);
         files.push({ path, action: 'cleaned' });

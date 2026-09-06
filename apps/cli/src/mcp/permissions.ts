@@ -158,7 +158,7 @@ export function removePermission(
       for (const pattern of had) delete map[pattern];
       if (Object.keys(map).length === 0) delete (permission as Json)['bash'];
       if (Object.keys(permission as Json).length === 0) delete root['permission'];
-      return print(root);
+      return printOrEmpty(root);
     }
     case 'yaml-codex-policy':
       return removeCodexPolicy(previous);
@@ -188,7 +188,7 @@ export function removePermission(
       else (location as Json)['tool_approvals'] = kept;
       if (Object.keys(location as Json).length === 0) delete (locations as Json)[cwd];
       if (Object.keys(locations as Json).length === 0) delete root['locations'];
-      return print(root);
+      return printOrEmpty(root);
     }
   }
 }
@@ -236,6 +236,20 @@ export function hasPermission(format: PermissionFormat, text: string, cwd: strin
 
 function print(root: Json): string {
   return `${JSON.stringify(root, null, 2)}\n`;
+}
+
+/**
+ * The document, or the empty string when nothing of the user's is left in it.
+ *
+ * Used only by the removal paths, so the caller can delete a file rather than
+ * write back `{}` -- which records that an install once happened, which is
+ * what the uninstall was asked to undo. `$schema` counts as ours as well,
+ * for the same reason `isEmptyConfig` says so: opencode's file is created
+ * carrying it and nothing else when AILoud is all that is in it.
+ */
+function printOrEmpty(root: Json): string {
+  const keys = Object.keys(root).filter((key) => key !== '$schema');
+  return keys.length === 0 ? '' : print(root);
 }
 
 /**
@@ -293,7 +307,7 @@ function dropFromList(
   if (kept.length === 0) delete holder[key];
   else holder[key] = kept;
   if (Object.keys(holder).length === 0) delete root[container];
-  return print(root);
+  return printOrEmpty(root);
 }
 
 // --- YAML ------------------------------------------------------------------

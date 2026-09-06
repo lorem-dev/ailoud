@@ -249,6 +249,76 @@ describe('uninstall with the allow-list', () => {
     expect(settings.permissions).toBeUndefined();
     expect(settings.hooks).toEqual({ a: 1 });
   });
+
+  /**
+   * The property, for every agent and however the install was answered: a
+   * file holding nothing but what AILoud put there is deleted.
+   *
+   * Both shapes are listed, because the leftover looked different in each.
+   * For Claude Code and Codex the allow-list is a file of its own, and the
+   * uninstall wrote `{}` back into it. For opencode and Gemini it IS the MCP
+   * config, and the MCP step runs first: `isEmptyConfig` still saw our
+   * permission keys, read them as the user's settings and kept the file --
+   * so an install answered with the allow-list left a husk behind where one
+   * answered without it deleted the file outright.
+   */
+  const agents = [
+    { id: 'claude', config: `${CWD}/.mcp.json`, permission: `${CWD}/.claude/settings.json` },
+    {
+      id: 'gemini',
+      config: `${CWD}/.gemini/settings.json`,
+      permission: `${CWD}/.gemini/settings.json`,
+    },
+    { id: 'opencode', config: `${CWD}/opencode.jsonc`, permission: `${CWD}/opencode.jsonc` },
+    { id: 'codex', config: `${CWD}/.codex/config.toml`, permission: `${HOME}/.codex/policy.yaml` },
+  ] as const;
+
+  it.each(agents)('leaves nothing of $id behind after an allow-shell install', async (agent) => {
+    const fs = new MemFs({});
+    const target = findAgent(agent.id)!;
+    await install(fs, target, 'local', HOME, CWD, true);
+    expect(await fs.exists(agent.permission)).toBe(true);
+
+    await uninstall(fs, target, 'local', HOME, CWD);
+    expect(await fs.exists(agent.config)).toBe(false);
+    expect(await fs.exists(agent.permission)).toBe(false);
+  });
+
+  it.each(agents)('leaves nothing of $id behind without one either', async (agent) => {
+    const fs = new MemFs({});
+    const target = findAgent(agent.id)!;
+    await install(fs, target, 'local', HOME, CWD, false);
+
+    await uninstall(fs, target, 'local', HOME, CWD);
+    expect(await fs.exists(agent.config)).toBe(false);
+    expect(await fs.exists(agent.permission)).toBe(false);
+  });
+
+  it('leaves nothing of Copilot behind, whose allow-list is a file of its own', async () => {
+    const fs = new MemFs({});
+    const copilot = findAgent('copilot')!;
+    await install(fs, copilot, 'global', HOME, CWD, true);
+
+    await uninstall(fs, copilot, 'global', HOME, CWD);
+    expect(await fs.exists(`${HOME}/.copilot/mcp-config.json`)).toBe(false);
+    expect(await fs.exists(`${HOME}/.copilot/permissions-config.json`)).toBe(false);
+  });
+
+  it('keeps a settings file that still holds a setting the user wrote', async () => {
+    const fs = new MemFs({});
+    await install(fs, claude, 'local', HOME, CWD, true);
+    const settings = JSON.parse(await fs.readTextFile(`${CWD}/.claude/settings.json`));
+    await fs.writeTextFile(
+      `${CWD}/.claude/settings.json`,
+      JSON.stringify({ ...settings, model: 'opus' }),
+    );
+
+    await uninstall(fs, claude, 'local', HOME, CWD);
+    expect(await fs.exists(`${CWD}/.claude/settings.json`)).toBe(true);
+    expect(JSON.parse(await fs.readTextFile(`${CWD}/.claude/settings.json`))).toEqual({
+      model: 'opus',
+    });
+  });
 });
 
 describe('update with the allow-list', () => {

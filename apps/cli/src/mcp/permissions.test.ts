@@ -4,6 +4,8 @@ import { addPermission, hasPermission, removePermission } from './permissions.js
 
 const CWD = '/work/repo';
 const parse = (text: string) => JSON.parse(text);
+/** The identifier Copilot is given, spelled once here so the tests read as data. */
+const RULE = 'ailoud:*';
 
 describe('json-claude-permissions', () => {
   it('creates the allow list when there is no file', () => {
@@ -61,9 +63,18 @@ describe('json-claude-permissions', () => {
   it('clears the containers it emptied rather than leaving them behind', () => {
     // `"permissions": {"allow": []}` records that an install once happened,
     // which is what an uninstall is supposed to undo.
-    const once = addPermission('json-claude-permissions', null, CWD)!;
-    const out = removePermission('json-claude-permissions', once, CWD)!;
+    const before = JSON.stringify({
+      hooks: { a: 1 },
+      permissions: { allow: ['Bash(ailoud:*)'] },
+    });
+    const out = removePermission('json-claude-permissions', before, CWD)!;
     expect(parse(out).permissions).toBeUndefined();
+    expect(parse(out).hooks).toEqual({ a: 1 });
+  });
+
+  it('empties a file that held nothing but our rule, so the caller can delete it', () => {
+    const once = addPermission('json-claude-permissions', null, CWD)!;
+    expect(removePermission('json-claude-permissions', once, CWD)).toBe('');
   });
 });
 
@@ -135,10 +146,25 @@ describe('jsonc-opencode-permission', () => {
   });
 
   it('removes both patterns and clears the emptied containers', () => {
-    const once = addPermission('jsonc-opencode-permission', null, CWD)!;
-    const out = removePermission('jsonc-opencode-permission', once, CWD)!;
+    const before = JSON.stringify({
+      mcp: { ailoud: { type: 'local' } },
+      permission: { bash: { ailoud: 'allow', 'ailoud *': 'allow' } },
+    });
+    const out = removePermission('jsonc-opencode-permission', before, CWD)!;
     expect(parse(out).permission).toBeUndefined();
+    expect(parse(out).mcp.ailoud.type).toBe('local');
     expect(removePermission('jsonc-opencode-permission', '{}', CWD)).toBeNull();
+  });
+
+  it('empties a file left holding nothing but its own $schema', () => {
+    // opencode's file is created carrying `$schema` and nothing else when
+    // AILoud is all that is in it, so `$schema` alone is our scaffolding too
+    // and the caller deletes the file rather than writing back a husk.
+    const before = JSON.stringify({
+      $schema: 'https://opencode.ai/config.json',
+      permission: { bash: { ailoud: 'allow', 'ailoud *': 'allow' } },
+    });
+    expect(removePermission('jsonc-opencode-permission', before, CWD)).toBe('');
   });
 
   it('does not disturb another tool sharing the bash map', () => {
@@ -306,9 +332,34 @@ describe('json-copilot-locations', () => {
   });
 
   it('removes our identifier and clears whatever that emptied', () => {
-    const once = addPermission('json-copilot-locations', null, CWD)!;
-    const out = removePermission('json-copilot-locations', once, CWD)!;
+    const before = JSON.stringify({
+      mode: 'default',
+      locations: { [CWD]: { tool_approvals: [{ kind: 'commands', commandIdentifiers: [RULE] }] } },
+    });
+    const out = removePermission('json-copilot-locations', before, CWD)!;
     expect(parse(out).locations).toBeUndefined();
+    expect(parse(out).mode).toBe('default');
     expect(removePermission('json-copilot-locations', '{}', CWD)).toBeNull();
+  });
+
+  it('empties a file that held approvals for this directory alone', () => {
+    // Copilot's file is machine-wide but partly agent-managed, so it is only
+    // ever deleted when nothing but our own grant was in it.
+    const once = addPermission('json-copilot-locations', null, CWD)!;
+    expect(removePermission('json-copilot-locations', once, CWD)).toBe('');
+  });
+
+  it('keeps the file when another directory still has approvals of its own', () => {
+    const before = JSON.stringify({
+      locations: {
+        [CWD]: { tool_approvals: [{ kind: 'commands', commandIdentifiers: [RULE] }] },
+        '/other/repo': { tool_approvals: [{ kind: 'commands', commandIdentifiers: ['git'] }] },
+      },
+    });
+    const out = removePermission('json-copilot-locations', before, CWD)!;
+    expect(parse(out).locations[CWD]).toBeUndefined();
+    expect(parse(out).locations['/other/repo'].tool_approvals[0].commandIdentifiers).toEqual([
+      'git',
+    ]);
   });
 });
