@@ -222,6 +222,10 @@ describe('checkLanguageModel', () => {
     );
     expect(check.ok).toBe(true);
     expect(check.detail).toContain(process.execPath);
+    // download-llm-model REPAIRS exactly what this check inspects (the local
+    // GGUF file) -- unlike the claude-cli branch below, it belongs on the
+    // passing branch too, so --force can reinstall it.
+    expect(check.remedy).toEqual({ kind: 'download-llm-model' });
   });
 
   it('wants a key for a hosted endpoint, and says keys never live in the config file', async () => {
@@ -291,6 +295,12 @@ describe('checkLanguageModel', () => {
     );
     expect(check.ok).toBe(true);
     expect(check.detail).toContain('via subscription');
+    // install-llm is a SUBSTITUTE here (a fallback local model), not a repair
+    // of the Claude Code CLI this check actually inspects -- it must not
+    // survive onto a passing check, or --force would brew-install llama.cpp
+    // for someone whose Claude Code works fine. See Check.remedy's doc
+    // comment for the general rule this is the example of.
+    expect(check.remedy).toBeUndefined();
   });
 
   it('names the config key to switch away when the Claude CLI is absent', async () => {

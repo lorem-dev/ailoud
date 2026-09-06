@@ -27,6 +27,33 @@ export interface Check {
    * Present when `ailoud setup` / `doctor --fix` can repair this check
    * without a human. Absent means the repair needs judgment -- see
    * `Remedy`'s doc comment.
+   *
+   * Attached on a PASSING check too, whenever `remedy` genuinely repairs the
+   * exact thing this check inspects -- `ailoud setup --force` reads it off a
+   * passing check to reinstall something that already works (a corrupted
+   * file still passes an existence check; `--force` is the only way to
+   * replace it). This supersedes the original rule ("attach a Remedy to
+   * every failing Check ... never to a passing one"): that rule predates
+   * `--force`, which needs exactly the checks a plain failing-only filter
+   * throws away.
+   *
+   * The one thing that does NOT carry onto a passing check: a remedy that is
+   * a SUBSTITUTE for the thing being checked -- an alternative path offered
+   * only because the real thing is missing -- rather than a repair of it.
+   * `checkLanguageModel`'s claude-cli branch is the example: it checks the
+   * Claude Code CLI, but its remedy installs llama.cpp (a fallback local
+   * model, offered when Claude Code isn't there), which does not repair
+   * Claude Code at all. Carried onto a passing check, `--force` would
+   * brew-install llama.cpp for someone whose Claude Code is fine and who
+   * never asked for a local summariser -- so that check strips its own
+   * `remedy` back off when it passes. When adding a check, ask whether its
+   * remedy fixes what THIS check inspects, or offers an alternative for when
+   * it can't be fixed; only the former belongs on the passing branch.
+   *
+   * `checkMediaRoot` is the one deliberate exception on the other side: its
+   * remedy (`create-directory`) IS a repair, but it is left off the passing
+   * branch anyway, because recreating an already-writable directory is a
+   * pure no-op that would only add a line of noise to every `--force` plan.
    */
   readonly remedy?: Remedy;
   /**

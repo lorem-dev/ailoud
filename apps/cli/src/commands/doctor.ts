@@ -44,11 +44,11 @@ export async function checkBinary(
   detailOverride?: string,
   remedy?: Remedy,
 ): Promise<Check> {
-  // `remedy` is attached on every branch below, passing included: `Check.remedy`
-  // means "repairable", not "currently broken" (see its doc comment), and
-  // `ailoud setup --force` reads it off passing checks too, to reinstall
-  // something that already works. Only a check with no remedy at all -- the
-  // database check -- has nothing to attach here.
+  // `remedy` is attached on every branch below, passing included -- see
+  // `Check.remedy`'s doc comment for why, and for the one caveat: a caller
+  // whose `remedy` is a substitute rather than a repair of the exact thing
+  // this function checked (checkLanguageModel's claude-cli branch is the
+  // example) must strip it back off its own passing result.
   try {
     const result = await run(binary, args, { timeoutMs: 10_000 });
     if (result.code !== 0) {
@@ -338,8 +338,18 @@ export async function checkLanguageModel(
     });
     return {
       ...result,
+      // `install-llm` here is a SUBSTITUTE for a missing Claude Code CLI --
+      // "install a local model instead" -- not a repair of the CLI itself,
+      // which is exactly what checkBinary's now-passing remedy would
+      // otherwise carry forward (see Check.remedy's doc comment on that
+      // distinction). Stripped back off on a passing check: `--force` must
+      // never brew-install llama.cpp for someone whose Claude Code is fine
+      // and who never asked for a local summariser.
       ...(result.ok
-        ? { detail: `${llm.claudeCli.binary} (${llm.claudeCli.model}, via subscription)` }
+        ? {
+            detail: `${llm.claudeCli.binary} (${llm.claudeCli.model}, via subscription)`,
+            remedy: undefined,
+          }
         : {}),
       optional: true,
     };
@@ -591,7 +601,10 @@ export function registerDoctor(
     .command('doctor')
     .option('--fix', 'provision anything that failed a check, using the same engine as setup')
     .option('--yes', 'confirm the fix plan without prompting')
-    .option('--model <name>', 'transcription model to download if one is needed (default: small)')
+    .option(
+      '--model <name>',
+      'transcription model to download if one is needed (default: the configured one, else small)',
+    )
     .option('--llm <choice>', 'summariser to set up: local, claude-cli, claude-api, openai, skip')
     .option(
       '--llm-model <id>',
