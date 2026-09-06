@@ -314,18 +314,23 @@ export interface SelfUpdateDeps {
    * one seam that would otherwise run a real package manager, so every test
    * in this file injects a fake here instead of that binding.
    *
-   * Used for the package-manager install ONLY when `interactive` is true --
-   * `runInteractive` has no timeout by design, which is only safe when a real
-   * terminal is watching and can interrupt it. Also used, unconditionally,
-   * for the post-install `self sync` sweep, which never prompts for input.
+   * Used for the package-manager install, and for the post-install `self
+   * sync` sweep, but ONLY when `interactive` is true for either -- `run
+   * Interactive` has no timeout by design, which is only safe when a real
+   * terminal is watching and can interrupt it. Neither spawn is safe to
+   * leave ungated: `self sync` does not prompt for input either, but "does
+   * not prompt" is not the same as "cannot stall" -- a registered project on
+   * a dead network mount is enough to hang this unconditionally, which is
+   * exactly the defect the non-interactive branch below exists to close.
    */
   readonly spawn: (command: string, args: readonly string[]) => Promise<number>;
   /**
-   * Runs the package-manager install BOUNDED, for the one case `spawn`
-   * (`runInteractive`) must never be used non-interactively: `--force` with
-   * no terminal attached. Bound to `run` (from `@ailoud/providers`) in
-   * production, given a generous timeout by `updateSelf` itself -- see its
-   * own doc comment for why an unbounded wait is not safe there.
+   * Runs the package-manager install, and the post-install sweep, BOUNDED --
+   * for the one case `spawn` (`runInteractive`) must never be used for
+   * either: `--force` with no terminal attached. Bound to `run` (from
+   * `@ailoud/providers`) in production, given a generous but finite timeout
+   * by `updateSelf` itself -- see its own doc comment for why an unbounded
+   * wait is not safe there.
    */
   readonly runCommand: (
     command: string,
@@ -372,6 +377,16 @@ export function boundedDetectRun(
  */
 const FORCE_INSTALL_TIMEOUT_MS = 10 * 60_000;
 
+/**
+ * How long the FORCED, non-interactive `self sync` sweep is allowed to run
+ * before it is treated as hung rather than merely slow. Same duration and
+ * the same reasoning as `FORCE_INSTALL_TIMEOUT_MS`: this exists only to turn
+ * a stall -- a registered project sitting on a dead network mount, say --
+ * into a failure instead of an infinite, silent wait. See `updateSelf`'s own
+ * doc comment for the full reasoning.
+ */
+const FORCE_SWEEP_TIMEOUT_MS = 10 * 60_000;
+
 /** One line in the update log, naming only the action taken. */
 async function logUpdateAction(context: CliContext, status: string): Promise<void> {
   await appendUpdateLog(
@@ -408,15 +423,18 @@ const defaultConfirm = async (message: string): Promise<boolean> => {
  * those two argvs, anchored to `deps.execPath` for `npm-global` and to
  * `pnpm bin -g` for `pnpm-global` -- see their own doc comments.
  *
- * The install itself only ever waits unboundedly (`deps.spawn`, bound to
- * `runInteractive`) when `deps.interactive` is true, i.e. a real terminal is
- * attached and can answer a prompt or interrupt it. `--force` with no
- * terminal is the one path that can still reach the install with nobody able
- * to answer a prompt -- some package managers do prompt on first global use
- * (`pnpm add -g` before its bin/PATH setup has run once) -- so that path uses
- * `deps.runCommand` (bound to the bounded `run`) instead, with a generous but
- * finite timeout, so a manager stuck waiting on input FAILS after that
- * timeout rather than hanging forever. This follows the same convention
+ * Both the install AND the sweep only ever wait unboundedly (`deps.spawn`,
+ * bound to `runInteractive`) when `deps.interactive` is true, i.e. a real
+ * terminal is attached and can answer a prompt or interrupt it. `--force`
+ * with no terminal is the one path that can still reach either spawn with
+ * nobody able to answer a prompt or interrupt a stall -- some package
+ * managers do prompt on first global use (`pnpm add -g` before its bin/PATH
+ * setup has run once), and the sweep can stall for reasons of its own (a
+ * registered project on a dead network mount, say) even though it never
+ * prompts -- so that path uses `deps.runCommand` (bound to the bounded
+ * `run`) instead, for both, with a generous but finite timeout, so either
+ * one stuck waiting FAILS after that timeout, with its output shown, rather
+ * than hanging forever. This follows the same convention
  * `provision/llamaInstall.ts` uses for `runInteractive`: gate on
  * interactivity before ever calling it.
  *
@@ -555,7 +573,26 @@ export async function updateSelf(deps: SelfUpdateDeps, options: SelfUpdateOption
   }
   const sweepArgs = sweep.slice(1);
   try {
-    await deps.spawn(sweepCommand, sweepArgs);
+    if (deps.interactive) {
+      await deps.spawn(sweepCommand, sweepArgs);
+    } else {
+      // Same reasoning as the install spawn above: deps.spawn is bound to
+      // runInteractive, which has no timeout and is only safe to call when a
+      // real terminal is attached to interrupt it. `self sync` never prompts
+      // for input, but "does not prompt" is not the same as "cannot stall" --
+      // a registered project on a dead network mount is enough to hang this
+      // unconditionally, and this is the exact path (--force, no TTY) that
+      // used to reach it ungated. The bounded runCommand fails instead, after
+      // a generous wait, with its output printed either way.
+      const bounded = await deps.runCommand(sweepCommand, sweepArgs, {
+        timeoutMs: FORCE_SWEEP_TIMEOUT_MS,
+      });
+      if (bounded.stdout.length > 0) context.ui.content(bounded.stdout);
+      if (bounded.stderr.length > 0) context.ui.content(bounded.stderr);
+      if (bounded.code !== 0) {
+        throw new FailureError(`"${sweep.join(' ')}" exited with code ${bounded.code}`);
+      }
+    }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     context.ui.content(`Could not run "ailoud self sync" automatically (${reason}).`);

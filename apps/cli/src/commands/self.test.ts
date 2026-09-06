@@ -666,6 +666,54 @@ describe('updateSelf', () => {
     expect((error as Error).message).toContain('timed out');
   }, 2000);
 
+  it('bounds the post-install sweep too when there is no terminal, instead of hanging', async () => {
+    // Finding C from the review: the sweep spawn called deps.spawn
+    // (runInteractive) unconditionally, ignoring deps.interactive entirely --
+    // unlike the install spawn just above, which is correctly gated. A
+    // --force run with no TTY whose sweep stalls (a registered project on a
+    // dead network mount, say) used to hang the parent forever with no
+    // output. Given its own short vitest timeout for the same reason as the
+    // install test above: a regression here must show up as a FAILING test,
+    // not a hung suite.
+    const ctx = withTarget();
+    const deps = npmGlobalDeps(ctx, {
+      interactive: false,
+      runCommand: async (command) => {
+        // The install succeeds...
+        if (command === '/usr/local/bin/npm') return { code: 0, stdout: '', stderr: '' };
+        // ...but the sweep, bounded the same way, times out.
+        throw new FailureError('ailoud self sync timed out after 600000 ms and was killed');
+      },
+      // Would hang forever if the sweep were ever routed through the
+      // unbounded spawn (runInteractive) non-interactively.
+      spawn: () => new Promise<number>(() => undefined),
+    });
+
+    await expect(updateSelf(deps, { force: true })).resolves.toBeUndefined();
+
+    expect(
+      ctx.lines.some((line) => line.includes('ailoud self sync') && line.includes('timed out')),
+    ).toBe(true);
+  }, 2000);
+
+  it('prints the sweep output and reports a non-zero exit, bounded and with no terminal', async () => {
+    const ctx = withTarget();
+    const deps = npmGlobalDeps(ctx, {
+      interactive: false,
+      runCommand: async (command) => {
+        if (command === '/usr/local/bin/npm') return { code: 0, stdout: '', stderr: '' };
+        return { code: 1, stdout: 'refreshed 2 of 3 projects', stderr: 'one project failed' };
+      },
+      spawn: () => new Promise<number>(() => undefined),
+    });
+
+    await expect(updateSelf(deps, { force: true })).resolves.toBeUndefined();
+
+    expect(ctx.lines).toContain('refreshed 2 of 3 projects');
+    expect(ctx.lines).toContain('one project failed');
+    expect(ctx.lines.some((line) => line.includes('Could not run "ailoud self sync"'))).toBe(true);
+  }, 2000);
+
   it('logs a throwing install spawn, and does not trigger the sweep', async () => {
     // If the install spawn THROWS (e.g. the manager binary was not found)
     // rather than resolving with a non-zero code, the sweep is correctly
