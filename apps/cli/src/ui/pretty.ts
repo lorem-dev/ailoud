@@ -346,6 +346,10 @@ export class PrettyUi implements Ui {
     if (note !== null) log.info(this.wrap(note));
   }
 
+  public success(message: string): void {
+    log.success(this.wrap(message));
+  }
+
   public warn(message: string): void {
     log.warn(this.wrap(message));
   }

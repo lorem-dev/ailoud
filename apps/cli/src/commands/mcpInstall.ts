@@ -6,7 +6,7 @@ import { AGENTS, agentIds, findAgent, globalOnly } from '../mcp/agents.js';
 import type { AgentTarget, Scope } from '../mcp/agents.js';
 import { defaultHome } from '../mcp/agents.js';
 import { detect, ensureProjectLibrary, install, uninstall, update } from '../mcp/install.js';
-import type { AgentOutcome } from '../mcp/install.js';
+import type { AgentOutcome, FileOutcome } from '../mcp/install.js';
 import { isInteractive } from './setup.js';
 import { rememberProject } from '../projects.js';
 import { VERSION } from '../version.js';
@@ -97,12 +97,25 @@ async function askScope(agents: readonly AgentTarget[]): Promise<Scope> {
   return parseScope(String(answer));
 }
 
+/**
+ * One line for a file a `mcp install`/`uninstall`/`update` action touched (or
+ * left alone). `created` and `updated` actually changed something on disk, so
+ * they are marked as successes; the rest -- `unchanged`, `removed`, `cleaned`,
+ * `absent` -- are informational: true, but not an achievement.
+ */
+function reportFile(context: CliContext, file: FileOutcome): void {
+  const line = `${file.action.padEnd(9)} ${file.path}`;
+  if (file.action === 'created' || file.action === 'updated') {
+    context.ui.success(line);
+  } else {
+    context.ui.note(line);
+  }
+}
+
 /** One line per file touched, so the user can see exactly what changed. */
 function report(context: CliContext, outcomes: readonly AgentOutcome[]): void {
   for (const outcome of outcomes) {
-    for (const file of outcome.files) {
-      context.ui.content(`${file.action.padEnd(9)} ${file.path}`);
-    }
+    for (const file of outcome.files) reportFile(context, file);
   }
   const notes = [...new Set(outcomes.map((outcome) => outcome.note))];
   for (const note of notes) context.ui.note(`note: ${note}`);
@@ -191,7 +204,7 @@ export function registerMcpInstall(parent: Command, context: CliContext): void {
         // project rather than joining the per-user collection.
         if (scope === 'local' && inScope.length > 0) {
           const library = await ensureProjectLibrary(context.fs, cwd());
-          context.ui.content(`${library.action.padEnd(9)} ${library.path}`);
+          reportFile(context, library);
         }
 
         for (const agent of inScope) {

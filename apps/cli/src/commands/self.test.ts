@@ -323,9 +323,12 @@ describe('ailoud self sync (CLI)', () => {
 
     expect(error).toBeInstanceOf(FailureError);
     expect(exitCodeFor(error)).toBe(1);
-    expect(ctx.lines.some((line) => line.startsWith('failed:') && line.includes('/proj/a'))).toBe(
-      true,
-    );
+    // The row now carries the "warning: " marker `ui.warn` adds for a
+    // `failed:` status (see registerSelfSync), so the assertion looks for
+    // that prefix rather than the bare status word.
+    expect(
+      ctx.lines.some((line) => line.startsWith('warning: failed:') && line.includes('/proj/a')),
+    ).toBe(true);
   });
 });
 

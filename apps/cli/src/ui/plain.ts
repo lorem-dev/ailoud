@@ -127,6 +127,14 @@ export class PlainUi implements Ui {
     if (note !== null) this.write(`note: ${note}`);
   }
 
+  public success(message: string): void {
+    // Same "ok  " prefix `checks()` uses for a passing check, not a new
+    // vocabulary: one greppable shape for "this succeeded" across the whole
+    // plain renderer, since PlainUi is what runs whenever stdout is not a
+    // terminal.
+    this.write(`ok  ${message}`);
+  }
+
   public warn(message: string): void {
     this.write(`warning: ${message}`);
   }

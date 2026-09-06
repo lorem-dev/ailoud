@@ -593,8 +593,12 @@ export async function runProvisioning(
     });
 
     for (const outcome of result.outcomes) {
-      const status = outcome.ok ? 'ok' : 'FAILED';
-      context.ui.content(`${status}  ${describeAction(outcome.action)} -- ${outcome.detail}`);
+      const line = `${describeAction(outcome.action)} -- ${outcome.detail}`;
+      if (outcome.ok) {
+        context.ui.success(line);
+      } else {
+        context.ui.warn(line);
+      }
     }
 
     const updatedKeys = Object.keys(result.updates);

@@ -188,7 +188,12 @@ export function registerReports(parent: Command, context: CliContext): void {
 
         for (const summary of summaries) {
           const deleted = await context.store.deleteSummary(summary.id);
-          context.ui.content(`${summary.id}  ${deleted ? 'deleted' : 'was already gone'}`);
+          const line = `${summary.id}  ${deleted ? 'deleted' : 'was already gone'}`;
+          if (deleted) {
+            context.ui.success(line);
+          } else {
+            context.ui.note(line);
+          }
         }
       });
     });

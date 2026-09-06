@@ -160,6 +160,17 @@ export interface Ui {
   checks(checks: readonly Check[]): void;
 
   /**
+   * A status outcome that succeeded -- e.g. one file `mcp install` wrote, or
+   * one project `self sync` actually refreshed. Distinct from `content()`,
+   * which reports payload rather than an outcome, and from the frame's own
+   * success status, which speaks for the whole command rather than one
+   * outcome inside it. Used only where the thing being reported genuinely
+   * carries an enumerated status -- decorating a line that is not one of
+   * several possible outcomes would make this marker mean nothing.
+   */
+  success(message: string): void;
+
+  /**
    * A non-fatal problem worth the user's attention, e.g. `--diarize` failing
    * to produce speaker labels. Distinct from the frame's own failure
    * reporting: the command otherwise succeeded, so this must not look like
