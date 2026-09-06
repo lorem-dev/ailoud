@@ -40,6 +40,16 @@
 
 ## Development
 
+### Added
+
+- `mcp install` can add `ailoud` to an agent's command allow-list, so the agent
+  runs it without asking each time. `--allow-shell` answers without a prompt.
+
+### Changed
+
+- A project's rules block now goes to `.claude/CLAUDE.md`, and a block already
+  present in several rules files is kept current in all of them.
+
 ## Version 1.1.0
 
 ### Added
