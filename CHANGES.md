@@ -47,8 +47,8 @@
 
 ### Changed
 
-- A project's rules block now goes to `.claude/CLAUDE.md`, and a block already
-  present in several rules files is kept current in all of them.
+- New rules blocks now go to `.claude/CLAUDE.md`; blocks already in a
+  project's own rules files stay there and are all kept current.
 
 ## Version 1.1.0
 

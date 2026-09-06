@@ -103,14 +103,14 @@ answer it without a prompt.
 permission question is not the same as one answered yes. Use `-y --allow-shell`
 to ask for the allow-list in a script.
 
-| Agent              | File                                                     | Entry                                             |
-| ------------------ | -------------------------------------------------------- | ------------------------------------------------- |
-| Claude Code        | `.claude/settings.json`, or `~/.claude/settings.json`    | `permissions.allow: ["Bash(ailoud:*)"]`           |
-| Codex CLI          | `~/.codex/policy.yaml`                                   | `allow: ["ailoud", "ailoud *"]`                   |
-| opencode           | `opencode.jsonc`, or `~/.config/opencode/opencode.jsonc` | `permission.bash`                                 |
-| Gemini CLI         | `.gemini/settings.json`, or `~/.gemini/settings.json`    | `tools.allowed: ["run_shell_command(ailoud)"]`    |
-| GitHub Copilot CLI | `~/.copilot/permissions-config.json`                     | a `commands` approval for this directory          |
-| Hermes Agent       | --                                                       | Hermes records approvals itself; nothing to write |
+| Agent              | File                                                     | Entry                                                       |
+| ------------------ | -------------------------------------------------------- | ----------------------------------------------------------- |
+| Claude Code        | `.claude/settings.json`, or `~/.claude/settings.json`    | `permissions.allow: ["Bash(ailoud:*)"]`                     |
+| Codex CLI          | `~/.codex/policy.yaml`                                   | `allow: ["ailoud", "ailoud *"]`                             |
+| opencode           | `opencode.jsonc`, or `~/.config/opencode/opencode.jsonc` | `permission.bash: {"ailoud": "allow", "ailoud *": "allow"}` |
+| Gemini CLI         | `.gemini/settings.json`, or `~/.gemini/settings.json`    | `tools.allowed: ["run_shell_command(ailoud)"]`              |
+| GitHub Copilot CLI | `~/.copilot/permissions-config.json`                     | a `commands` approval for this directory                    |
+| Hermes Agent       | --                                                       | Hermes records approvals itself; nothing to write           |
 
 Codex keeps one policy file for the machine even for a per-project install, and
 Copilot scopes its approval to the directory you ran the install in.
