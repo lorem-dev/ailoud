@@ -268,6 +268,34 @@ describe('update with the allow-list', () => {
     const outcome = await update(fs, claude, 'local', HOME, CWD);
     expect(actions(outcome!.files)[`${CWD}/.claude/settings.json`]).toBe('unchanged');
   });
+
+  it('never treats a stray permission entry as evidence the agent was configured here', async () => {
+    // Codex's policy.yaml is one file for the whole machine. A different
+    // project's install may have already put our entry there; this project
+    // has no Codex MCP configuration and no rules block of its own.
+    const fs = new MemFs({});
+    const codex = findAgent('codex')!;
+    await fs.writeTextFile(
+      `${HOME}/.codex/policy.yaml`,
+      '# AILoud permissions\nallow:\n  - "ailoud"\n  - "ailoud *"\n',
+    );
+    expect(await update(fs, codex, 'local', HOME, CWD)).toBeNull();
+    expect(await fs.exists(`${CWD}/.codex/config.toml`)).toBe(false);
+    expect(await fs.exists(`${CWD}/AGENTS.md`)).toBe(false);
+  });
+
+  it('refreshes the permission entry rather than dropping it when the agent is configured here', async () => {
+    const fs = new MemFs({});
+    const codex = findAgent('codex')!;
+    await install(fs, codex, 'local', HOME, CWD, true);
+    const before = await fs.readTextFile(`${HOME}/.codex/policy.yaml`);
+
+    const outcome = await update(fs, codex, 'local', HOME, CWD);
+
+    expect(outcome).not.toBeNull();
+    expect(actions(outcome!.files)[`${HOME}/.codex/policy.yaml`]).toBe('unchanged');
+    expect(await fs.readTextFile(`${HOME}/.codex/policy.yaml`)).toBe(before);
+  });
 });
 
 describe('ensureProjectLibrary', () => {
