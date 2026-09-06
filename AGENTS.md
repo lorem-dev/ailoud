@@ -189,6 +189,13 @@ matching the `skillkeeper` repository this project inherits its conventions
 from. They are working notes for driving an implementation, not a published
 record.
 
+**Never commit one, and never put one anywhere else.** Not under `.agents/`,
+not under `docs/`, not beside the code it describes. A spec in the history is
+a second description of the software that stops being true the moment the
+code moves on, and a reader who finds it has no way to tell it is stale. If
+a skill or a habit tells you to write a plan to some other path, `.superpowers/`
+wins.
+
 The consequence is that a fresh clone carries no design document. Anything a
 contributor must know to work here belongs in this file, in README.md, or in
 CONTRIBUTING.md -- not in a plan only the maintainer has.
