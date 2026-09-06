@@ -238,13 +238,13 @@ Python tooling here is driven by `uv`, never `pip` or a hand-rolled venv.
 
 ### Structure
 
-Four sections, and new pages belong in one of them:
+Four sections, in nav order, and new pages belong in one of them:
 
 | Section         | Holds                                            |
 | --------------- | ------------------------------------------------ |
 | Getting Started | install, set up, first transcript, first summary |
-| Usage           | one page per thing you do with the CLI           |
 | MCP             | configuring and using the MCP server             |
+| Usage           | one page per thing you do with the CLI           |
 | Development     | architecture, the gate, releasing                |
 
 Every page added to `docs/` must appear in `nav:` in `mkdocs.yml`, or the
