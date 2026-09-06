@@ -372,15 +372,17 @@ describe('checkBinary', () => {
     expect(check.remedy).toEqual({ kind: 'install-ffmpeg' });
   });
 
-  it('attaches no remedy to a passing check', async () => {
+  it('keeps the remedy on a passing check too, so --force can still reinstall it', async () => {
     // node is guaranteed present in the test environment and exits 0 on
     // --version, unlike ffmpeg or whisper-cli which this suite cannot
-    // assume are installed.
+    // assume are installed. `Check.remedy` means "repairable", not
+    // "currently broken" -- see its doc comment -- and `ailoud setup --force`
+    // reads it off passing checks to reinstall something that already works.
     const check = await checkBinary('node', 'node', ['--version'], 'install it', undefined, {
       kind: 'install-ffmpeg',
     });
     expect(check.ok).toBe(true);
-    expect(check.remedy).toBeUndefined();
+    expect(check.remedy).toEqual({ kind: 'install-ffmpeg' });
   });
 });
 
@@ -394,15 +396,17 @@ describe('checkModel', () => {
     expect(check.remedy).toEqual({ kind: 'download-model', slot: 'transcription' });
   });
 
-  it('attaches no remedy to a passing check', async () => {
+  it('keeps the remedy on a passing check too, for --force and for switching models', async () => {
     // process.execPath is a real file guaranteed to exist on disk, so the
     // access() check this exercises succeeds without needing a fixture.
+    // `ailoud setup --model <other>` on a machine whose configured model is
+    // already present needs this remedy to switch models at all.
     const check = await checkModel('/c', process.execPath, {
       kind: 'download-model',
       slot: 'transcription',
     });
     expect(check.ok).toBe(true);
-    expect(check.remedy).toBeUndefined();
+    expect(check.remedy).toEqual({ kind: 'download-model', slot: 'transcription' });
   });
 });
 

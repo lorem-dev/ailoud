@@ -7,6 +7,7 @@ import {
   EMBEDDING_MODEL,
   EnvironmentError,
   SEGMENTATION_MODEL,
+  UsageError,
   VAD_MODEL,
   findModel,
 } from '@ailoud/core';
@@ -18,6 +19,7 @@ import {
   describePlan,
   formatBytes,
   isInteractive,
+  isSwitchingModel,
   planNeedsPackageManager,
   requireConsent,
   resolveModelName,
@@ -35,6 +37,7 @@ import { context } from './testContext.js';
 import { parseConfig } from '../config.js';
 import { Command } from 'commander';
 import { registerSetup } from './setup.js';
+import { registerDoctor } from './doctor.js';
 
 describe('isInteractive', () => {
   it('is false under CI even with a real tty', () => {
@@ -73,6 +76,15 @@ describe('resolveModelName', () => {
 
   it('rejects an unknown --model by name', async () => {
     await expect(resolveModelName({ model: 'huge', interactive: false })).rejects.toThrow(/huge/);
+  });
+
+  it('raises a UsageError naming the valid models for an unknown --model', async () => {
+    await expect(resolveModelName({ model: 'huge', interactive: false })).rejects.toThrow(
+      UsageError,
+    );
+    await expect(resolveModelName({ model: 'huge', interactive: false })).rejects.toThrow(
+      /tiny, base, small, medium, large-v3-turbo/,
+    );
   });
 
   it('prompts when interactive and no --model, returning the picked value', async () => {
@@ -440,6 +452,97 @@ describe('collectRemedies / unfixableChecks', () => {
         false,
       );
     });
+  });
+});
+
+describe('collectRemedies with a scope', () => {
+  const passingFfmpeg: Check = {
+    name: 'ffmpeg',
+    ok: true,
+    detail: 'fine',
+    remedy: { kind: 'install-ffmpeg' },
+  };
+  const passingConfigFile: Check = { name: 'config file', ok: true, detail: 'present' };
+  const failingFfprobe: Check = {
+    name: 'ffprobe',
+    ok: false,
+    detail: 'gone',
+    remedy: { kind: 'install-ffmpeg' },
+  };
+  const passingTranscriptionModel: Check = {
+    name: 'whisper model',
+    ok: true,
+    detail: '/data/models/ggml-small.bin',
+    remedy: { kind: 'download-model', slot: 'transcription' },
+  };
+  const passingVadModel: Check = {
+    name: 'vad model',
+    ok: true,
+    detail: '/data/models/ggml-silero-v5.1.2.bin',
+    remedy: { kind: 'download-model', slot: 'vad' },
+    optional: true,
+  };
+
+  it('is unchanged with no scope at all: only failing checks contribute', () => {
+    const checks = [passingFfmpeg, passingConfigFile, failingFfprobe];
+    expect(collectRemedies(checks)).toEqual([{ kind: 'install-ffmpeg' }]);
+  });
+
+  it('is unchanged with an empty scope object', () => {
+    const checks = [passingFfmpeg, passingConfigFile, failingFfprobe];
+    expect(collectRemedies(checks, {})).toEqual([{ kind: 'install-ffmpeg' }]);
+  });
+
+  it('force takes remedies from passing checks too, but still skips checks that carry none', () => {
+    const checks = [passingFfmpeg, passingConfigFile, failingFfprobe];
+    // passingConfigFile has no remedy at all, so it contributes nothing even
+    // though force takes every passing check's remedy: there is none to take.
+    expect(collectRemedies(checks, { force: true })).toEqual([
+      { kind: 'install-ffmpeg' },
+      { kind: 'install-ffmpeg' },
+    ]);
+  });
+
+  it('switchingModel takes the passing transcription download-model remedy, and nothing else that was passing', () => {
+    const checks = [passingTranscriptionModel, passingVadModel, passingFfmpeg];
+    expect(collectRemedies(checks, { switchingModel: true })).toEqual([
+      { kind: 'download-model', slot: 'transcription' },
+    ]);
+  });
+
+  it('switchingModel still takes every failing check too, same as no scope', () => {
+    const checks = [passingTranscriptionModel, failingFfprobe];
+    expect(collectRemedies(checks, { switchingModel: true })).toEqual([
+      { kind: 'download-model', slot: 'transcription' },
+      { kind: 'install-ffmpeg' },
+    ]);
+  });
+});
+
+describe('isSwitchingModel', () => {
+  it('is false when the configured file is the model already named', () => {
+    expect(isSwitchingModel('small', '/data/models/ggml-small.bin')).toBe(false);
+  });
+
+  it('is true when a different model is named', () => {
+    expect(isSwitchingModel('medium', '/data/models/ggml-small.bin')).toBe(true);
+  });
+
+  it('compares by filename, so a configured path in an unusual directory still matches', () => {
+    expect(isSwitchingModel('small', '/some/unusual/path/ggml-small.bin')).toBe(false);
+    expect(isSwitchingModel('medium', '/some/unusual/path/ggml-small.bin')).toBe(true);
+  });
+
+  it('is false with no --model at all', () => {
+    expect(isSwitchingModel(undefined, '/data/models/ggml-small.bin')).toBe(false);
+  });
+
+  it('is false with nothing configured yet, regardless of --model', () => {
+    expect(isSwitchingModel('small', null)).toBe(false);
+  });
+
+  it('treats an unrecognized name as a switch, leaving the actual validation to resolveModelName', () => {
+    expect(isSwitchingModel('huge', '/data/models/ggml-small.bin')).toBe(true);
   });
 });
 
@@ -1344,6 +1447,129 @@ describe('runProvisioning', () => {
     ];
 
     await expect(runProvisioning(ctx, { yes: true }, checks, 'linux')).resolves.toBeUndefined();
+  });
+
+  describe('--force', () => {
+    it('does nothing extra without it: a passing check plans nothing, same as before this option existed', async () => {
+      const ctx = provisioningContext(badConfig);
+      const checks: readonly Check[] = [
+        {
+          name: 'whisper model',
+          ok: true,
+          detail: 'healthy',
+          remedy: { kind: 'download-model', slot: 'transcription' },
+        },
+      ];
+
+      await expect(runProvisioning(ctx, { yes: true }, checks, 'linux')).resolves.toBeUndefined();
+
+      expect(providers.downloadFile).not.toHaveBeenCalled();
+      expect(ctx.lines.at(-1)).toBe('Everything ailoud needs is already in place.');
+    });
+
+    it('builds a non-empty plan on an all-green environment, instead of "already in place"', async () => {
+      // The point of --force: this is the exact fixture the test right above
+      // uses (a single PASSING check carrying a remedy), and the only
+      // difference is the option -- proof the flag, not some other change in
+      // the checks, is what widens the plan.
+      providers.downloadFile.mockImplementation(async (_url: string, target: string) => {
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, 'dummy-model-bytes');
+      });
+      const ctx = provisioningContext(badConfig);
+      const checks: readonly Check[] = [
+        {
+          name: 'whisper model',
+          ok: true,
+          detail: 'healthy',
+          remedy: { kind: 'download-model', slot: 'transcription' },
+        },
+      ];
+
+      await expect(
+        runProvisioning(ctx, { yes: true, force: true }, checks, 'linux'),
+      ).resolves.toBeUndefined();
+
+      expect(providers.downloadFile).toHaveBeenCalled();
+      expect(ctx.lines).not.toContain('Everything ailoud needs is already in place.');
+    });
+  });
+
+  describe('switching models', () => {
+    it('names the old model file after a real switch, without deleting it', async () => {
+      // The download writes the new model under its own filename rather than
+      // overwriting the old one (see provisionRunner.ts), so the previous
+      // .bin is still on disk afterwards -- this is what proves it is named
+      // rather than silently orphaned.
+      const oldModelPath = join(tmp, 'ggml-small.bin');
+      await writeFile(oldModelPath, 'old model', 'utf8');
+      providers.downloadFile.mockImplementation(async (_url: string, target: string) => {
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, 'new model bytes');
+      });
+
+      const ctx = provisioningContext({
+        ...badConfig,
+        stt: {
+          ...badConfig.stt,
+          whisperCpp: { ...badConfig.stt.whisperCpp, model: oldModelPath },
+        },
+      });
+      const checks: readonly Check[] = [
+        {
+          name: 'whisper model',
+          ok: true,
+          detail: oldModelPath,
+          remedy: { kind: 'download-model', slot: 'transcription' },
+        },
+      ];
+
+      // No --force here: naming a different model than the one configured is
+      // what triggers this on its own.
+      await expect(
+        runProvisioning(ctx, { yes: true, model: 'medium' }, checks, 'linux'),
+      ).resolves.toBeUndefined();
+
+      const output = ctx.lines.join('\n');
+      expect(output).toContain(oldModelPath);
+      expect(output).toMatch(/does not delete it automatically/);
+      await expect(stat(oldModelPath)).resolves.toBeDefined();
+    });
+
+    it('says nothing about an old file when the model did not actually change', async () => {
+      const modelPath = join(tmp, 'ggml-small.bin');
+      await writeFile(modelPath, 'the model', 'utf8');
+      const ctx = provisioningContext({
+        ...badConfig,
+        stt: { ...badConfig.stt, whisperCpp: { ...badConfig.stt.whisperCpp, model: modelPath } },
+      });
+      const checks: readonly Check[] = [
+        {
+          name: 'whisper model',
+          ok: true,
+          detail: modelPath,
+          remedy: { kind: 'download-model', slot: 'transcription' },
+        },
+      ];
+
+      // --model names the same model that is already configured: force is
+      // what would still act on it, not a name that names nothing new.
+      await expect(
+        runProvisioning(ctx, { yes: true, model: 'small' }, checks, 'linux'),
+      ).resolves.toBeUndefined();
+
+      expect(providers.downloadFile).not.toHaveBeenCalled();
+      expect(ctx.lines.join('\n')).not.toMatch(/does not delete it automatically/);
+    });
+  });
+});
+
+describe('doctor --fix does not inherit --force', () => {
+  it('registerDoctor never registers a --force flag, so DoctorOptions.force stays undefined', () => {
+    const program = new Command();
+    registerDoctor(program, context(), 'linux');
+    const doctorCommand = program.commands.find((command) => command.name() === 'doctor');
+    expect(doctorCommand?.options.some((option) => option.long === '--force')).toBe(false);
   });
 });
 

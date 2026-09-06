@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { confirm, isCancel, select } from '@clack/prompts';
 import { chooseLlm, remediesForChoice } from '../llmChoice.js';
 import type { Command } from 'commander';
@@ -400,12 +400,48 @@ export function blocksReadiness(check: Check): boolean {
 }
 
 /**
- * The remedies of the checks that failed -- the single definition of "what
- * provisioning should act on", shared by `setup` and `doctor --fix`.
+ * Widens which passing checks contribute their remedy, on top of every
+ * failing check's (which always contributes -- see `collectRemedies`).
+ *
+ * The two flags are independent because they answer different questions:
+ * `force` is "reinstall everything, I asked for it explicitly"; `switchingModel`
+ * is "one specific thing changed, act on just that". A `--force --model medium`
+ * run sets both -- `force` alone would already cover what `switchingModel`
+ * asks for, but leaving `switchingModel` out of that run would be relying on
+ * `force`'s breadth by accident rather than by the actual reason the model
+ * remedy is present.
+ */
+export interface RemedyScope {
+  /** Take every repairable check's remedy, not only the failing ones. */
+  readonly force?: boolean;
+  /** Take the transcription-model remedy even from a passing check. */
+  readonly switchingModel?: boolean;
+}
+
+/**
+ * The remedies provisioning should act on -- the single definition of "what
+ * to do", shared by `setup` and `doctor --fix`.
  *
  * Both entry points used to keep a verbatim copy of this filter. That is the
  * exact drift the one-engine design exists to prevent, so it lives here and
  * `runProvisioning` is the only caller.
+ *
+ * With no `scope` (or both flags false/absent), only failing checks
+ * contribute -- the original behaviour, unchanged, and what `doctor --fix`
+ * still gets since it never sets `force`.
+ *
+ * `scope.force` takes a passing check's remedy too, for every check that
+ * carries one -- including `install-ffmpeg` and the macOS brew route for
+ * whisper. The user asked for the widest scope by passing `--force`; this is
+ * the one place that scope is decided, so `--force` cannot drift into a
+ * second installation route that skips some remedies `setup`'s normal path
+ * would have used.
+ *
+ * `scope.switchingModel` takes only the transcription `download-model`
+ * remedy from a passing check, and only that one: `--model <name>` on a
+ * machine whose configured model is already healthy must still switch
+ * models, without also reinstalling ffmpeg or whisper just because a
+ * transcription-model check happened to pass alongside them.
  *
  * Deliberately NOT filtered by `blocksReadiness`: an optional check's
  * remedy belongs in the plan just as much as a mandatory one's -- `setup`
@@ -413,9 +449,17 @@ export function blocksReadiness(check: Check): boolean {
  * optional check being fixable is for. Only the ready/not-ready decision
  * itself treats the two differently.
  */
-export function collectRemedies(checks: readonly Check[]): readonly Remedy[] {
+export function collectRemedies(checks: readonly Check[], scope?: RemedyScope): readonly Remedy[] {
   return checks
-    .filter((check) => !check.ok)
+    .filter((check) => {
+      if (!check.ok) return true;
+      if (scope?.force === true) return true;
+      return (
+        scope?.switchingModel === true &&
+        check.remedy?.kind === 'download-model' &&
+        check.remedy.slot === 'transcription'
+      );
+    })
     .flatMap((check) => (check.remedy !== undefined ? [check.remedy] : []));
 }
 
@@ -453,6 +497,43 @@ export interface SetupOptions {
   readonly model?: string;
   readonly llm?: string;
   readonly llmModel?: string;
+  /**
+   * `doctor --fix` inherits this field (`DoctorOptions extends SetupOptions`)
+   * but `registerDoctor` never registers a `--force` flag, so it stays
+   * `undefined` there -- `doctor --fix` keeps acting only on what actually
+   * failed, exactly as before this option existed.
+   */
+  readonly force?: boolean;
+}
+
+/**
+ * Whether `--model <name>` names a different model from the one already
+ * configured, i.e. whether provisioning should switch rather than leave a
+ * healthy transcription model alone.
+ *
+ * `configuredModel` is a filesystem path (`config.stt.whisperCpp.model`);
+ * `model` is a catalogue name (`--model`). They are compared by filename,
+ * via `findModel(model).file` against the basename of `configuredModel` --
+ * the two are not otherwise comparable, and the configured path's directory
+ * is `dataDir`-dependent and not part of the model's identity.
+ *
+ * An unrecognized `model` counts as switching (returns `true`) rather than
+ * `false`: this function only decides whether the transcription remedy is
+ * worth taking from a passing check, it never validates the name itself --
+ * `resolveModelName` (via `chooseModel`) does that and raises the real
+ * `UsageError` naming the valid models. Returning `false` here for a bad name
+ * would risk `collectRemedies` finding nothing to do on an otherwise healthy
+ * machine, short-circuiting to "already in place" before that validation is
+ * ever reached.
+ */
+export function isSwitchingModel(
+  model: string | undefined,
+  configuredModel: string | null,
+): boolean {
+  if (model === undefined || configuredModel === null) return false;
+  const found = findModel(model);
+  if (found === undefined) return true;
+  return basename(configuredModel) !== found.file;
 }
 
 /**
@@ -497,10 +578,19 @@ export async function runProvisioning(
   }
 
   const interactive = isInteractive(process.env, process.stdin.isTTY === true);
+  // The path `--model` would replace, read before anything downloads: it is
+  // both what decides `switchingModel` below and, after a successful switch,
+  // the file `writeConfigUpdates` is about to orphan (see the note printed
+  // near the end of this function).
+  const configuredModel = context.config.stt.whisperCpp.model;
+  const scope: RemedyScope = {
+    force: options.force === true,
+    switchingModel: isSwitchingModel(options.model, configuredModel),
+  };
   // Asked before the "nothing to fix" test below, not after: choosing a hosted
   // engine REMOVES the local install and download from the list, so the answer
   // can be the difference between a plan and an empty one.
-  const collected = collectRemedies(checks);
+  const collected = collectRemedies(checks, scope);
   const llmChoice = await chooseLlm({
     ...(options.llm === undefined ? {} : { llm: options.llm }),
     ...(options.llmModel === undefined ? {} : { llmModel: options.llmModel }),
@@ -607,6 +697,25 @@ export async function runProvisioning(
       context.ui.content(`Updated ${context.paths.configFile}: ${updatedKeys.join(', ')}`);
     }
 
+    // A model switch downloads the new file under its own name rather than
+    // overwriting the old one (see provisionRunner.ts's download-model
+    // branch), so the previous .bin is still sitting on disk -- up to 1.6 GB
+    // ailoud has no garbage collection for and will not delete unasked. Named
+    // once, here, rather than silently orphaned: `configuredModel` is the
+    // path from BEFORE this run (captured at the top of this function), and
+    // it is only worth naming when the file that now backs `result.updates`
+    // is genuinely a different one.
+    if (
+      result.updates.model !== undefined &&
+      configuredModel !== null &&
+      basename(configuredModel) !== basename(result.updates.model)
+    ) {
+      context.ui.content(
+        `The previous transcription model is still at ${configuredModel} -- ailoud does not ` +
+          'delete it automatically; remove it by hand if you no longer need it.',
+      );
+    }
+
     // Re-read unconditionally, even when result.updates was empty: an action
     // can change what the checks see (e.g. installing a binary onto PATH)
     // without writing anything back to the config file.
@@ -680,6 +789,7 @@ export function registerSetup(
       '--llm-model <id>',
       'model id for the chosen summariser (default: ask, or keep the configured one)',
     )
+    .option('--force', 'reinstall even when everything checks out')
     .description('Install ffmpeg and whisper.cpp, and download the models ailoud needs')
     .action(async (options: SetupOptions) => {
       await context.ui.frame('Setting up ailoud', async () => {
