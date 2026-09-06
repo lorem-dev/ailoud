@@ -1,15 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { parseDocument } from 'yaml';
-import { addPermission, hasPermission, removePermission } from './permissions.js';
+import { addPermission, describeRefusal, hasPermission, removePermission } from './permissions.js';
+import type { PermissionFormat } from './permissions.js';
 
 const CWD = '/work/repo';
 const parse = (text: string) => JSON.parse(text);
 /** The identifier Copilot is given, spelled once here so the tests read as data. */
 const RULE = 'ailoud:*';
 
+/** The edited text, failing the test rather than the type checker on a refusal. */
+function added(format: PermissionFormat, previous: string | null): string {
+  const edit = addPermission(format, previous, CWD);
+  if (!edit.ok) throw new Error(`refused to edit the ${format} file: ${edit.reason}`);
+  return edit.text;
+}
+
 describe('json-claude-permissions', () => {
   it('creates the allow list when there is no file', () => {
-    const out = addPermission('json-claude-permissions', null, CWD)!;
+    const out = added('json-claude-permissions', null);
     expect(parse(out).permissions.allow).toEqual(['Bash(ailoud:*)']);
   });
 
@@ -20,7 +28,7 @@ describe('json-claude-permissions', () => {
       permissions: { allow: ['Bash(git status)'], deny: ['Bash(rm:*)'] },
       hooks: { UserPromptSubmit: [{ command: 'x' }] },
     });
-    const out = addPermission('json-claude-permissions', before, CWD)!;
+    const out = added('json-claude-permissions', before);
     const root = parse(out);
     expect(root.permissions.allow).toEqual(['Bash(git status)', 'Bash(ailoud:*)']);
     expect(root.permissions.deny).toEqual(['Bash(rm:*)']);
@@ -28,26 +36,29 @@ describe('json-claude-permissions', () => {
   });
 
   it('is idempotent, so a second install reports unchanged rather than a write', () => {
-    const once = addPermission('json-claude-permissions', null, CWD)!;
-    expect(addPermission('json-claude-permissions', once, CWD)).toBe(once);
+    const once = added('json-claude-permissions', null);
+    expect(added('json-claude-permissions', once)).toBe(once);
   });
 
   it('returns a hand-formatted file untouched when the rule is already there', () => {
     // Reformatting a file that already has the rule would report a write on
     // a file that needed none, on the very first install against it.
     const input = '{"unrelated":true,"permissions":{"allow":["Bash(ailoud:*)"]}}';
-    expect(addPermission('json-claude-permissions', input, CWD)).toBe(input);
+    expect(added('json-claude-permissions', input)).toBe(input);
   });
 
   it('refuses to rewrite a file it cannot parse', () => {
     // Rewriting it would destroy hand-written settings; the caller reports
     // this as skipped and names the path.
-    expect(addPermission('json-claude-permissions', '{ this is not json', CWD)).toBeNull();
+    expect(addPermission('json-claude-permissions', '{ this is not json', CWD)).toEqual({
+      ok: false,
+      reason: 'unreadable',
+    });
   });
 
   it('reports whether the rule is present', () => {
     expect(hasPermission('json-claude-permissions', '{}', CWD)).toBe(false);
-    const once = addPermission('json-claude-permissions', null, CWD)!;
+    const once = added('json-claude-permissions', null);
     expect(hasPermission('json-claude-permissions', once, CWD)).toBe(true);
   });
 
@@ -73,7 +84,7 @@ describe('json-claude-permissions', () => {
   });
 
   it('empties a file that held nothing but our rule, so the caller can delete it', () => {
-    const once = addPermission('json-claude-permissions', null, CWD)!;
+    const once = added('json-claude-permissions', null);
     expect(removePermission('json-claude-permissions', once, CWD)).toBe('');
   });
 });
@@ -82,26 +93,26 @@ describe('json-gemini-tools', () => {
   it('writes tools.allowed, never tools.core', () => {
     // tools.core is a restricting allowlist: writing into it would disable
     // every other built-in tool the user has.
-    const out = addPermission('json-gemini-tools', null, CWD)!;
+    const out = added('json-gemini-tools', null);
     expect(parse(out).tools.allowed).toEqual(['run_shell_command(ailoud)']);
     expect(parse(out).tools.core).toBeUndefined();
   });
 
   it('keeps an existing core allowlist untouched', () => {
     const before = JSON.stringify({ tools: { core: ['read_file'] } });
-    const out = addPermission('json-gemini-tools', before, CWD)!;
+    const out = added('json-gemini-tools', before);
     expect(parse(out).tools.core).toEqual(['read_file']);
     expect(parse(out).tools.allowed).toEqual(['run_shell_command(ailoud)']);
   });
 
   it('is idempotent, so a second install reports unchanged rather than a write', () => {
-    const once = addPermission('json-gemini-tools', null, CWD)!;
-    expect(addPermission('json-gemini-tools', once, CWD)).toBe(once);
+    const once = added('json-gemini-tools', null);
+    expect(added('json-gemini-tools', once)).toBe(once);
   });
 
   it('returns a hand-formatted file untouched when the rule is already there', () => {
     const input = '{"other":1,"tools":{"allowed":["run_shell_command(ailoud)"]}}';
-    expect(addPermission('json-gemini-tools', input, CWD)).toBe(input);
+    expect(added('json-gemini-tools', input)).toBe(input);
   });
 
   it('removes only our entry', () => {
@@ -119,30 +130,33 @@ describe('jsonc-opencode-permission', () => {
     // opencode matches a command against a glob, and `ailoud *` does not
     // match a bare `ailoud` -- which is what `ailoud audio ls` collapses to
     // for an agent that runs the top-level alias.
-    const out = addPermission('jsonc-opencode-permission', null, CWD)!;
+    const out = added('jsonc-opencode-permission', null);
     expect(parse(out).permission.bash).toEqual({ ailoud: 'allow', 'ailoud *': 'allow' });
   });
 
   it('keeps the mcp block a previous install wrote', () => {
     const before = JSON.stringify({ mcp: { ailoud: { type: 'local' } } });
-    const out = addPermission('jsonc-opencode-permission', before, CWD)!;
+    const out = added('jsonc-opencode-permission', before);
     expect(parse(out).mcp.ailoud.type).toBe('local');
   });
 
   it('leaves a blanket permission setting alone', () => {
     // `"permission": "ask"` applies to every tool. Expanding it into an
     // object would silently drop that default for everything but bash.
-    expect(addPermission('jsonc-opencode-permission', '{"permission":"ask"}', CWD)).toBeNull();
+    expect(addPermission('jsonc-opencode-permission', '{"permission":"ask"}', CWD)).toEqual({
+      ok: false,
+      reason: 'blanket',
+    });
   });
 
   it('is idempotent, so a second install reports unchanged rather than a write', () => {
-    const once = addPermission('jsonc-opencode-permission', null, CWD)!;
-    expect(addPermission('jsonc-opencode-permission', once, CWD)).toBe(once);
+    const once = added('jsonc-opencode-permission', null);
+    expect(added('jsonc-opencode-permission', once)).toBe(once);
   });
 
   it('returns a hand-formatted file untouched when the rule is already there', () => {
     const input = '{"foo":"bar","permission":{"bash":{"ailoud":"allow","ailoud *":"allow"}}}';
-    expect(addPermission('jsonc-opencode-permission', input, CWD)).toBe(input);
+    expect(added('jsonc-opencode-permission', input)).toBe(input);
   });
 
   it('removes both patterns and clears the emptied containers', () => {
@@ -199,14 +213,14 @@ describe('jsonc-opencode-permission', () => {
     // The early return in `addPermission` is gated on `hasPermission`, which
     // must not answer true for a half-written rule.
     const before = JSON.stringify({ permission: { bash: { ailoud: 'allow' } } });
-    const out = addPermission('jsonc-opencode-permission', before, CWD)!;
+    const out = added('jsonc-opencode-permission', before);
     expect(parse(out).permission.bash).toEqual({ ailoud: 'allow', 'ailoud *': 'allow' });
   });
 });
 
 describe('yaml-codex-policy', () => {
   it('writes an allow list when there is no file', () => {
-    const out = addPermission('yaml-codex-policy', null, CWD)!;
+    const out = added('yaml-codex-policy', null);
     expect(parseDocument(out).toJSON().allow).toEqual(['ailoud', 'ailoud *']);
   });
 
@@ -214,7 +228,7 @@ describe('yaml-codex-policy', () => {
     // Two `allow:` mappings in one document is a duplicate key, which is a
     // YAML error -- the file stops loading and every rule in it is lost.
     const before = '# Locksmith permissions\nallow:\n  - "locksmith get *"\n';
-    const out = addPermission('yaml-codex-policy', before, CWD)!;
+    const out = added('yaml-codex-policy', before);
     expect(out.match(/^allow:/gm)).toHaveLength(1);
     expect(parseDocument(out).toJSON().allow).toEqual(['locksmith get *', 'ailoud', 'ailoud *']);
   });
@@ -232,7 +246,7 @@ describe('yaml-codex-policy', () => {
       '  - "locksmith get *" # secrets',
       '',
     ].join('\n');
-    const out = addPermission('yaml-codex-policy', before, CWD)!;
+    const out = added('yaml-codex-policy', before);
     expect(out).toContain('# git tools, added by hand');
     expect(out).toContain('# secrets');
     expect(out).toContain('# header');
@@ -245,14 +259,22 @@ describe('yaml-codex-policy', () => {
   });
 
   it('is idempotent', () => {
-    const once = addPermission('yaml-codex-policy', null, CWD)!;
-    expect(addPermission('yaml-codex-policy', once, CWD)).toBe(once);
+    const once = added('yaml-codex-policy', null);
+    expect(added('yaml-codex-policy', once)).toBe(once);
     expect(hasPermission('yaml-codex-policy', once, CWD)).toBe(true);
   });
 
   it('refuses a file it cannot parse and one whose allow is not a list', () => {
-    expect(addPermission('yaml-codex-policy', 'allow:\n  - [unclosed', CWD)).toBeNull();
-    expect(addPermission('yaml-codex-policy', 'allow: everything\n', CWD)).toBeNull();
+    expect(addPermission('yaml-codex-policy', 'allow:\n  - [unclosed', CWD)).toEqual({
+      ok: false,
+      reason: 'unreadable',
+    });
+    // Parses cleanly; it is the shape of `allow` we refuse to reinterpret,
+    // and calling that a YAML error would send the user hunting a typo.
+    expect(addPermission('yaml-codex-policy', 'allow: everything\n', CWD)).toEqual({
+      ok: false,
+      reason: 'foreign',
+    });
   });
 
   it('removes both patterns, and says so when there were none', () => {
@@ -264,7 +286,7 @@ describe('yaml-codex-policy', () => {
 
   it('adds the missing pattern when only one of the two is already present', () => {
     const before = 'allow:\n  - "ailoud"\n';
-    const out = addPermission('yaml-codex-policy', before, CWD)!;
+    const out = added('yaml-codex-policy', before);
     expect(parseDocument(out).toJSON().allow).toEqual(['ailoud', 'ailoud *']);
   });
 
@@ -296,7 +318,7 @@ describe('yaml-codex-policy', () => {
     // The document API renders a mapping with no keys left as the literal
     // `{}` -- a file that still records an install. The caller deletes a file
     // that comes back empty.
-    const once = addPermission('yaml-codex-policy', null, CWD)!;
+    const once = added('yaml-codex-policy', null);
     expect(removePermission('yaml-codex-policy', once, CWD)).toBe('');
   });
 
@@ -313,7 +335,7 @@ describe('json-copilot-locations', () => {
   it('keys the approval by the directory it was granted for', () => {
     // Copilot scopes shell approvals to a repository root, unlike its
     // machine-wide MCP configuration.
-    const out = addPermission('json-copilot-locations', null, CWD)!;
+    const out = added('json-copilot-locations', null);
     expect(parse(out).locations[CWD].tool_approvals).toEqual([
       { kind: 'commands', commandIdentifiers: ['ailoud:*'] },
     ]);
@@ -325,7 +347,7 @@ describe('json-copilot-locations', () => {
         [CWD]: { tool_approvals: [{ kind: 'commands', commandIdentifiers: ['git status'] }] },
       },
     });
-    const out = addPermission('json-copilot-locations', before, CWD)!;
+    const out = added('json-copilot-locations', before);
     const approvals = parse(out).locations[CWD].tool_approvals;
     expect(approvals).toHaveLength(1);
     expect(approvals[0].commandIdentifiers).toEqual(['git status', 'ailoud:*']);
@@ -337,7 +359,7 @@ describe('json-copilot-locations', () => {
         '/other/repo': { tool_approvals: [{ kind: 'commands', commandIdentifiers: ['git'] }] },
       },
     });
-    const out = addPermission('json-copilot-locations', before, CWD)!;
+    const out = added('json-copilot-locations', before);
     expect(parse(out).locations['/other/repo'].tool_approvals[0].commandIdentifiers).toEqual([
       'git',
     ]);
@@ -345,8 +367,8 @@ describe('json-copilot-locations', () => {
   });
 
   it('is idempotent and reports presence per directory', () => {
-    const once = addPermission('json-copilot-locations', null, CWD)!;
-    expect(addPermission('json-copilot-locations', once, CWD)).toBe(once);
+    const once = added('json-copilot-locations', null);
+    expect(added('json-copilot-locations', once)).toBe(once);
     expect(hasPermission('json-copilot-locations', once, CWD)).toBe(true);
     expect(hasPermission('json-copilot-locations', once, '/other/repo')).toBe(false);
   });
@@ -365,7 +387,7 @@ describe('json-copilot-locations', () => {
   it('empties a file that held approvals for this directory alone', () => {
     // Copilot's file is machine-wide but partly agent-managed, so it is only
     // ever deleted when nothing but our own grant was in it.
-    const once = addPermission('json-copilot-locations', null, CWD)!;
+    const once = added('json-copilot-locations', null);
     expect(removePermission('json-copilot-locations', once, CWD)).toBe('');
   });
 
@@ -381,5 +403,27 @@ describe('json-copilot-locations', () => {
     expect(parse(out).locations['/other/repo'].tool_approvals[0].commandIdentifiers).toEqual([
       'git',
     ]);
+  });
+});
+
+describe('describeRefusal', () => {
+  it('names the syntax the file is actually written in', () => {
+    // `policy.yaml` is never JSON, so "not valid JSON" sent a Codex user
+    // hunting for a problem their file could not have.
+    expect(describeRefusal('yaml-codex-policy', 'unreadable')).toContain('not valid YAML');
+    expect(describeRefusal('json-claude-permissions', 'unreadable')).toContain('not valid JSON');
+  });
+
+  it('does not call a file unparseable when parsing it was never the problem', () => {
+    // Both of these parse. One holds a blanket setting we will not expand,
+    // the other a shape we will not reinterpret.
+    for (const message of [
+      describeRefusal('jsonc-opencode-permission', 'blanket'),
+      describeRefusal('yaml-codex-policy', 'foreign'),
+    ]) {
+      expect(message).not.toContain('not valid');
+      expect(message).toContain('by hand');
+    }
+    expect(describeRefusal('jsonc-opencode-permission', 'blanket')).toContain('every tool');
   });
 });

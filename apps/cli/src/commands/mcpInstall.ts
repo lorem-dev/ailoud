@@ -135,14 +135,16 @@ export async function resolveAllowShell(
  * the allow-list entry and did not get it; the rest -- `unchanged`, `removed`,
  * `cleaned`, `absent` -- are informational: true, but not an achievement.
  */
-function reportFile(context: CliContext, file: FileOutcome): void {
+export function reportFile(context: CliContext, file: FileOutcome): void {
   const line = `${file.action.padEnd(9)} ${file.path}`;
   if (file.action === 'created' || file.action === 'updated') {
     context.ui.success(line);
   } else if (file.action === 'skipped') {
     // The user asked for something and did not get it, which is not the same
-    // as nothing needing doing.
-    context.ui.warn(`${line} (not valid JSON; left alone -- add the entry by hand)`);
+    // as nothing needing doing. The detail comes from the writer, which knows
+    // which of its refusals this was; the line used to say "not valid JSON"
+    // for all of them, including a YAML file and a file that parsed fine.
+    context.ui.warn(file.detail === undefined ? line : `${line} (${file.detail})`);
   } else {
     context.ui.note(line);
   }

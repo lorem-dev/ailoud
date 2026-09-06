@@ -51,9 +51,34 @@ const CODEX_HEADER = 'AILoud permissions';
 type Json = Record<string, unknown>;
 
 /**
- * Adds our entry, or null when the file is there and cannot be edited safely.
+ * Why an allow-list was left alone.
  *
- * Null rather than a throw: the allow-list is a convenience on top of an
+ * Three separate problems, and what the user should do about each differs,
+ * so the caller cannot report them with one sentence. It used to: every
+ * refusal printed "not valid JSON", which sent a Codex user hunting a JSON
+ * error in a YAML file and an opencode user hunting a syntax error in a file
+ * whose syntax was fine.
+ */
+export type PermissionRefusal =
+  /** The file is there and does not parse. */
+  | 'unreadable'
+  /** opencode's `"permission": "ask"` -- one default covering every tool. */
+  | 'blanket'
+  /** A key we would write into holds a shape we will not reinterpret. */
+  | 'foreign';
+
+/** The file as it should now read, or why there is no such text. */
+export type PermissionEdit =
+  | { readonly ok: true; readonly text: string }
+  | { readonly ok: false; readonly reason: PermissionRefusal };
+
+const edited = (text: string): PermissionEdit => ({ ok: true, text });
+const refused = (reason: PermissionRefusal): PermissionEdit => ({ ok: false, reason });
+
+/**
+ * Adds our entry, or says why the file cannot be edited safely.
+ *
+ * A refusal rather than a throw: the allow-list is a convenience on top of an
  * install, and failing the whole install -- after the MCP configuration and
  * the rules block were already written -- because one settings file has a
  * stray comma would be a worse outcome than saying so and moving on.
@@ -62,30 +87,30 @@ export function addPermission(
   format: PermissionFormat,
   previous: string | null,
   cwd: string,
-): string | null {
+): PermissionEdit {
   // Checked before any parse-and-reserialise: a hand-formatted file that
   // already carries the rule must come back untouched, not reformatted to
   // this module's own JSON.stringify style. `editJson`'s byte-identical
   // return only works when `previous` was itself produced by `print()`.
-  if (previous !== null && hasPermission(format, previous, cwd)) return previous;
+  if (previous !== null && hasPermission(format, previous, cwd)) return edited(previous);
   switch (format) {
     case 'json-claude-permissions':
       return editJson(previous, (root) => {
         const permissions = objectAt(root, 'permissions');
         const allow = stringsAt(permissions, 'allow');
-        if (allow === null) return false;
+        if (allow === null) return 'foreign';
         if (!allow.includes(CLAUDE_RULE)) allow.push(CLAUDE_RULE);
         permissions['allow'] = allow;
-        return true;
+        return null;
       });
     case 'json-gemini-tools':
       return editJson(previous, (root) => {
         const tools = objectAt(root, 'tools');
         const allowed = stringsAt(tools, 'allowed');
-        if (allowed === null) return false;
+        if (allowed === null) return 'foreign';
         if (!allowed.includes(GEMINI_RULE)) allowed.push(GEMINI_RULE);
         tools['allowed'] = allowed;
-        return true;
+        return null;
       });
     case 'jsonc-opencode-permission':
       return editJson(previous, (root) => {
@@ -93,12 +118,12 @@ export function addPermission(
         // into an object would drop that default for everything but bash.
         const current = root['permission'];
         if (current !== undefined && (typeof current !== 'object' || current === null)) {
-          return false;
+          return 'blanket';
         }
         const permission = objectAt(root, 'permission');
         const bash = objectAt(permission, 'bash');
         for (const pattern of GLOB_RULES) bash[pattern] = 'allow';
-        return true;
+        return null;
       });
     case 'yaml-codex-policy':
       return addCodexPolicy(previous);
@@ -107,7 +132,7 @@ export function addPermission(
         const locations = objectAt(root, 'locations');
         const location = objectAt(locations, cwd);
         const approvals = location['tool_approvals'];
-        if (approvals !== undefined && !Array.isArray(approvals)) return false;
+        if (approvals !== undefined && !Array.isArray(approvals)) return 'foreign';
         const list = Array.isArray(approvals) ? [...approvals] : [];
         const commands = list.find(
           (entry): entry is Json =>
@@ -117,13 +142,31 @@ export function addPermission(
           list.push({ kind: 'commands', commandIdentifiers: [COPILOT_RULE] });
         } else {
           const ids = stringsAt(commands, 'commandIdentifiers');
-          if (ids === null) return false;
+          if (ids === null) return 'foreign';
           if (!ids.includes(COPILOT_RULE)) ids.push(COPILOT_RULE);
           commands['commandIdentifiers'] = ids;
         }
         location['tool_approvals'] = list;
-        return true;
+        return null;
       });
+  }
+}
+
+/**
+ * The refusal as a sentence, naming the format's own syntax.
+ *
+ * Here rather than in the command, because which of these files is JSON and
+ * which is YAML is this module's knowledge; the command only prints it.
+ */
+export function describeRefusal(format: PermissionFormat, reason: PermissionRefusal): string {
+  const byHand = 'left alone -- add the entry by hand';
+  switch (reason) {
+    case 'unreadable':
+      return `not valid ${format === 'yaml-codex-policy' ? 'YAML' : 'JSON'}; ${byHand}`;
+    case 'blanket':
+      return `"permission" is one blanket setting for every tool; ${byHand}`;
+    case 'foreign':
+      return `the allow-list key holds something unexpected; ${byHand}`;
   }
 }
 
@@ -257,17 +300,22 @@ function printOrEmpty(root: Json): string {
 }
 
 /**
- * Parses, mutates, re-serialises. The mutation returns false to abandon the
- * edit, for a file whose shape we would have to reinterpret to write into.
+ * Parses, mutates, re-serialises. The mutation names a refusal to abandon the
+ * edit, or null to keep it -- for a file whose shape we would have to
+ * reinterpret to write into.
  */
-function editJson(previous: string | null, mutate: (root: Json) => boolean): string | null {
+function editJson(
+  previous: string | null,
+  mutate: (root: Json) => PermissionRefusal | null,
+): PermissionEdit {
   const root = previous === null ? {} : tryParseJson(previous);
-  if (root === null) return null;
-  if (!mutate(root)) return null;
+  if (root === null) return refused('unreadable');
+  const refusal = mutate(root);
+  if (refusal !== null) return refused(refusal);
   const out = print(root);
   // Byte-identical when nothing was missing, so the caller reports
   // `unchanged` instead of claiming a write it did not make.
-  return previous !== null && out === previous ? previous : out;
+  return edited(previous !== null && out === previous ? previous : out);
 }
 
 function objectAt(root: Json, key: string): Json {
@@ -321,13 +369,22 @@ function dropFromList(
  * read or `allow` is holding something that is not a list of strings.
  */
 function codexAllowList(text: string): string[] | null {
-  let doc;
+  const doc = codexDocument(text);
+  return doc === null ? null : allowStrings(doc);
+}
+
+/** The parsed policy file, or null when it is not readable YAML at all. */
+function codexDocument(text: string): Document | null {
   try {
-    doc = parseDocument(text);
+    const doc = parseDocument(text);
+    return doc.errors.length > 0 ? null : doc;
   } catch {
     return null;
   }
-  if (doc.errors.length > 0) return null;
+}
+
+/** Split from the parse so a refusal can say which of the two went wrong. */
+function allowStrings(doc: Document): string[] | null {
   const listed = doc.get('allow');
   if (listed === undefined || listed === null) return [];
   const asJson = (listed as { toJSON?: () => unknown }).toJSON?.();
@@ -344,23 +401,26 @@ function codexAllowList(text: string): string[] | null {
  * `allow:` mapping: a duplicate key is a YAML error, and the file it breaks
  * is the one holding every command the user has already approved.
  */
-function addCodexPolicy(previous: string | null): string | null {
+function addCodexPolicy(previous: string | null): PermissionEdit {
   if (previous === null || previous.trim() === '') {
     // Emitted directly rather than through the document API, which renders
     // everything built from an empty seed in flow style -- valid YAML that no
     // hand-written policy file looks like.
-    return [
-      `# ${CODEX_HEADER}`,
-      'allow:',
-      ...GLOB_RULES.map((r) => `  - ${JSON.stringify(r)}`),
-      '',
-    ].join('\n');
+    return edited(
+      [
+        `# ${CODEX_HEADER}`,
+        'allow:',
+        ...GLOB_RULES.map((r) => `  - ${JSON.stringify(r)}`),
+        '',
+      ].join('\n'),
+    );
   }
-  const current = codexAllowList(previous);
-  if (current === null) return null;
+  const doc = codexDocument(previous);
+  if (doc === null) return refused('unreadable');
+  const current = allowStrings(doc);
+  if (current === null) return refused('foreign');
   const missing = GLOB_RULES.filter((pattern) => !current.includes(pattern));
-  if (missing.length === 0) return previous;
-  const doc = parseDocument(previous);
+  if (missing.length === 0) return edited(previous);
   const listed = doc.get('allow', true);
   if (isSeq(listed)) {
     // Appended to the sequence node in place. `doc.set('allow', [...])`
@@ -373,7 +433,7 @@ function addCodexPolicy(previous: string | null): string | null {
     // into, so the key is created.
     doc.set('allow', missing.map(quoted));
   }
-  return doc.toString();
+  return edited(doc.toString());
 }
 
 /**

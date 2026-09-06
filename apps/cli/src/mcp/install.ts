@@ -4,19 +4,27 @@ import type { Fs } from '@ailoud/core';
 import { PROJECT_DIR } from '../config.js';
 import { addServer, hasServer, isEmptyConfig, removeServer } from './agentConfig.js';
 import type { AgentTarget, Scope } from './agents.js';
-import { addPermission, hasPermission, removePermission } from './permissions.js';
+import { addPermission, describeRefusal, hasPermission, removePermission } from './permissions.js';
 import { hasBlock, withBlock, withoutBlock } from './rulesBlock.js';
 
 /** What happened to one file, for the report a command prints. */
 export interface FileOutcome {
   readonly path: string;
   /**
-   * `skipped` is the allow-list writer declining to rewrite a settings file it
-   * could not parse. Distinct from `unchanged`, which means nothing needed
-   * doing: this one means the user asked for something and did not get it.
+   * `skipped` is the allow-list writer declining to rewrite a settings file
+   * it will not touch safely. Distinct from `unchanged`, which means nothing
+   * needed doing: this one means the user asked for something and did not get
+   * it. `detail` below says which refusal it was.
    */
   readonly action:
     'created' | 'updated' | 'unchanged' | 'removed' | 'cleaned' | 'absent' | 'skipped';
+  /**
+   * Why, for an action that does not say on its own. Only `skipped` carries
+   * one: the reasons the allow-list writer declines are different problems
+   * with different fixes, and one catch-all sentence sent users looking for
+   * a fault their file did not have.
+   */
+  readonly detail?: string;
 }
 
 export interface AgentOutcome {
@@ -116,8 +124,15 @@ async function writePermission(
   if (agent.permission === undefined) return null;
   const path = agent.permission.path(scope, home, cwd);
   const before = await readIfPresent(fs, path);
-  const after = addPermission(agent.permission.format, before, cwd);
-  if (after === null) return { path, action: 'skipped' };
+  const edit = addPermission(agent.permission.format, before, cwd);
+  if (!edit.ok) {
+    return {
+      path,
+      action: 'skipped',
+      detail: describeRefusal(agent.permission.format, edit.reason),
+    };
+  }
+  const after = edit.text;
   if (before === null) {
     await write(fs, path, after);
     return { path, action: 'created' };

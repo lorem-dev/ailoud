@@ -219,6 +219,26 @@ describe('install with the allow-list', () => {
     const outcome = await install(fs, claude, 'local', HOME, CWD, true);
     expect(actions(outcome.files)[`${CWD}/.claude/settings.json`]).toBe('skipped');
     expect(await fs.readTextFile(`${CWD}/.claude/settings.json`)).toBe('{ broken');
+    const skipped = outcome.files.find((file) => file.action === 'skipped')!;
+    expect(skipped.detail).toContain('not valid JSON');
+  });
+
+  it('says which refusal it was, per agent, rather than one catch-all', async () => {
+    // The three reasons an allow-list is left alone are different problems.
+    // Reported as one, they send a Codex user looking for a JSON error in a
+    // YAML file and an opencode user looking for a syntax error in a file
+    // whose syntax is fine.
+    const fs = new MemFs({});
+    await fs.writeTextFile(`${HOME}/.codex/policy.yaml`, 'allow: everything\n');
+    await fs.writeTextFile(`${CWD}/opencode.jsonc`, '{"permission":"ask"}');
+
+    const codexFiles = (await install(fs, findAgent('codex')!, 'local', HOME, CWD, true)).files;
+    const codex = codexFiles.find((file) => file.action === 'skipped')!;
+    expect(codex.detail).not.toContain('JSON');
+
+    const openFiles = (await install(fs, findAgent('opencode')!, 'local', HOME, CWD, true)).files;
+    const open = openFiles.find((file) => file.action === 'skipped')!;
+    expect(open.detail).toContain('every tool');
   });
 
   it('reports nothing for an agent with no allow-list of its own', async () => {
