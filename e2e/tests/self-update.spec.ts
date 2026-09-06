@@ -254,7 +254,10 @@ describe('ailoud self sync', () => {
   });
 
   it('refreshes a rules block, and is idempotent on a second run', async () => {
-    const claudeMd = join(sandbox.projectDir, 'CLAUDE.md');
+    // A fresh project has no CLAUDE.md, so `mcp install` writes the block to
+    // the preferred candidate, .claude/CLAUDE.md -- that is the file `self
+    // sync` must find stale and rewrite for this test to prove anything.
+    const claudeMd = join(sandbox.projectDir, '.claude', 'CLAUDE.md');
 
     // `mcp install --location local` registers the project itself, with this
     // build's rules version, the moment it succeeds (see
