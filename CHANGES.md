@@ -42,8 +42,26 @@
 
 ### Added
 
-- `ailoud self update` checks for a newer version, installs it, and refreshes
-  the rules block in every registered project.
+- `ailoud self update` installs a newer version, then refreshes the agent
+  rules block in every project ailoud has been used in.
+- `ailoud self check` reports whether a newer version exists without
+  installing it, and takes `--json`.
+- `ailoud self sync` refreshes the agent rules block in every registered
+  project without updating anything.
+- Other commands mention a newer version at most once a day. Turn it off with
+  `AILOUD_NO_UPDATE_CHECK=1` or `update.check: false`.
+
+### Changed
+
+- `ailoud report ls` exits 0 when there are no reports, matching `ls` on an
+  empty library and its own `--json` form.
+- Command output now stays inside the terminal frame instead of printing
+  around it.
+
+### Fixed
+
+- `ailoud mcp install` and `mcp update` no longer empty a rules file when the
+  write fails part-way, such as on a full disk.
 
 ## Version 1.0.0
 
