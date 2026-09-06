@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { findAgent } from '../mcp/agents.js';
-import { allowShellAgents, reportFile, resolveAllowShell } from './mcpInstall.js';
+import { allowShellAgents, directoryGrants, reportFile, resolveAllowShell } from './mcpInstall.js';
+import type { AgentOutcome, FileOutcome } from '../mcp/install.js';
 import type { CliContext } from '../wiring.js';
 
 const claude = findAgent('claude')!;
@@ -70,5 +71,42 @@ describe('reportFile', () => {
     reportFile(context, { path: '/p/.mcp.json', action: 'unchanged' });
     reportFile(context, { path: '/p/.mcp.json', action: 'created' });
     expect(calls.map(([channel]) => channel)).toEqual(['note', 'success']);
+  });
+});
+
+describe('directoryGrants', () => {
+  const HOME = '/home/ann';
+  const CWD = '/work/repo';
+  const copilot = findAgent('copilot')!;
+  const file = `${HOME}/.copilot/permissions-config.json`;
+
+  const outcome = (files: FileOutcome[]): AgentOutcome => ({
+    agent: copilot,
+    scope: 'global',
+    files,
+    note: '',
+  });
+
+  it('names the directory a Copilot grant is confined to', async () => {
+    // The file is machine-wide but the entry inside it is keyed by cwd, so
+    // the outcome row alone claims far more than was actually approved.
+    const lines = directoryGrants([outcome([{ path: file, action: 'created' }])], HOME, CWD);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(CWD);
+  });
+
+  it('says nothing when the allow-list was never written', async () => {
+    expect(directoryGrants([outcome([{ path: file, action: 'skipped' }])], HOME, CWD)).toEqual([]);
+    expect(directoryGrants([outcome([])], HOME, CWD)).toEqual([]);
+  });
+
+  it('says nothing for an agent whose grant is not keyed by directory', async () => {
+    const claudeOutcome: AgentOutcome = {
+      agent: claude,
+      scope: 'local',
+      files: [{ path: `${CWD}/.claude/settings.json`, action: 'created' }],
+      note: '',
+    };
+    expect(directoryGrants([claudeOutcome], HOME, CWD)).toEqual([]);
   });
 });

@@ -150,6 +150,38 @@ export function reportFile(context: CliContext, file: FileOutcome): void {
   }
 }
 
+/**
+ * One line per agent whose grant covers only the directory it was made in.
+ *
+ * Copilot writes `locations["<cwd>"]` into a machine-wide file, so its outcome
+ * row -- `created ~/.copilot/permissions-config.json` -- reads as approval for
+ * everything the user does. The pre-prompt listing would have said otherwise,
+ * but that listing is skipped whenever `--allow-shell` answered the question
+ * outright, so it is said here instead: on the outcome path, which every way
+ * of answering goes through.
+ *
+ * Only for an agent that actually got the entry. A `skipped` row means the
+ * file was left alone, and announcing a grant that was not made is worse than
+ * saying nothing.
+ */
+export function directoryGrants(
+  outcomes: readonly AgentOutcome[],
+  home: string,
+  cwd: string,
+): readonly string[] {
+  const lines: string[] = [];
+  for (const outcome of outcomes) {
+    const permission = outcome.agent.permission;
+    if (permission?.directoryScoped !== true) continue;
+    const path = permission.path(outcome.scope, home, cwd);
+    const granted = outcome.files.some((file) => file.path === path && file.action !== 'skipped');
+    if (granted) {
+      lines.push(`${outcome.agent.label} approves "ailoud" in ${cwd} only, not machine-wide.`);
+    }
+  }
+  return lines;
+}
+
 /** One line per file touched, so the user can see exactly what changed. */
 function report(context: CliContext, outcomes: readonly AgentOutcome[]): void {
   for (const outcome of outcomes) {
@@ -280,6 +312,7 @@ export function registerMcpInstall(parent: Command, context: CliContext): void {
           await registerAfterInstall(context, cwd());
         }
 
+        for (const line of directoryGrants(outcomes, home(), cwd())) context.ui.note(line);
         report(context, outcomes);
       });
     });

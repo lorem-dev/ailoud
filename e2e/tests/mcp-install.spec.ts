@@ -331,6 +331,30 @@ describe('ailoud mcp install', () => {
     expect(after.hooks).toEqual({ UserPromptSubmit: [] });
   });
 
+  it('says which directory a Copilot grant covers, even when nothing was asked', async () => {
+    // `-y --allow-shell` skips the pre-prompt listing entirely, and the
+    // outcome row names a machine-wide file for an entry keyed by one
+    // directory. Without this line the user is told they approved more than
+    // they did.
+    const result = await sandbox.run([
+      'mcp',
+      'install',
+      '--target',
+      'copilot',
+      '-y',
+      '--allow-shell',
+    ]);
+    expect(result.code).toBe(0);
+    // Nothing else in this run could print the project directory: the install
+    // is global and every file it touches lives under HOME.
+    expect(result.stdout).toContain(sandbox.projectDir);
+    expect(result.stdout).toContain('not machine-wide');
+    const config = JSON.parse(
+      await read(join(sandbox.home, '.copilot', 'permissions-config.json')),
+    );
+    expect(Object.keys(config.locations)).toEqual([sandbox.projectDir]);
+  });
+
   it('grants nothing for -y on its own', async () => {
     const result = await sandbox.run([
       'mcp',

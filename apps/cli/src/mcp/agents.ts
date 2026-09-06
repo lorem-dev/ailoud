@@ -44,6 +44,13 @@ export interface AgentTarget {
   readonly permission?: {
     readonly format: PermissionFormat;
     path(scope: Scope, home: string, cwd: string): string;
+    /**
+     * The grant covers the directory it was made in and nothing else, whatever
+     * the file's own location suggests. True for Copilot alone: its
+     * permissions file is machine-wide, but every entry in it is keyed by an
+     * absolute path, so naming the file overstates what was approved.
+     */
+    readonly directoryScoped?: boolean;
   };
   /** Printed after a successful write. Agents differ in what it takes to pick up a change. */
   readonly afterNote: string;
@@ -172,6 +179,7 @@ export const AGENTS: readonly AgentTarget[] = [
     permission: {
       format: 'json-copilot-locations',
       path: (_scope, home) => join(home, '.copilot', 'permissions-config.json'),
+      directoryScoped: true,
     },
     afterNote: 'Restart any running Copilot CLI session to pick up the server.',
   },
