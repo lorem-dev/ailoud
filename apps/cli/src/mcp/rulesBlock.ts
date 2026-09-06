@@ -1,3 +1,10 @@
+import {
+  blockRange as rangeIn,
+  hasBlock as hasIn,
+  withBlock as withIn,
+  withoutBlock as withoutIn,
+} from '../markerBlock.js';
+
 /**
  * The block AILoud writes into an agent's rules file.
  *
@@ -8,6 +15,9 @@
  */
 export const START = '<!-- AILOUD_START -->';
 export const END = '<!-- AILOUD_END -->';
+
+/** The marker pair a rules file uses. Shell startup files use their own. */
+const MARKERS = { start: START, end: END };
 
 /**
  * What the agent is told.
@@ -42,61 +52,22 @@ export function rulesBlock(): string {
   ].join('\n');
 }
 
-/**
- * Where our block sits, or null.
- *
- * The START taken is the LAST one before the first END, not the first one in
- * the file. Pairing the first START with the first END destroyed user text:
- * a rules file that merely MENTIONS the marker -- "we wrap our rules in
- * <!-- AILOUD_START --> markers" -- made the range run from that sentence to
- * the end of our real block, and everything in between was replaced or
- * deleted.
- */
+/** Where our block sits, or null. The pairing rule that matters lives in markerBlock.ts. */
 export function blockRange(text: string): { readonly from: number; readonly to: number } | null {
-  const end = text.indexOf(END);
-  if (end === -1) return null;
-  const from = text.lastIndexOf(START, end);
-  if (from === -1) return null;
-  return { from, to: end + END.length };
+  return rangeIn(text, MARKERS);
 }
 
 /** Whether a rules file already carries our block. */
 export function hasBlock(text: string): boolean {
-  return blockRange(text) !== null;
+  return hasIn(text, MARKERS);
 }
 
-/**
- * Inserts or replaces the block, returning the whole file.
- *
- * Appended with one blank line before it when absent, which is what makes the
- * result stable: running install twice produces the same bytes as running it
- * once, so `update` is safe to run on a schedule and a diff after it shows
- * only what actually changed.
- */
+/** Inserts or replaces the block, returning the whole file. Why one blank line is what makes this idempotent lives in markerBlock.ts. */
 export function withBlock(text: string, block = rulesBlock()): string {
-  const range = blockRange(text);
-  if (range === null) {
-    const base = text.trimEnd();
-    return base === '' ? `${block}\n` : `${base}\n\n${block}\n`;
-  }
-  return `${text.slice(0, range.from)}${block}${text.slice(range.to)}`;
+  return withIn(text, block, MARKERS);
 }
 
-/**
- * Removes the block, returning the whole file, or null when there was none.
- *
- * Null rather than the unchanged text so a caller can tell "removed" from
- * "there was nothing of ours here" and report the difference -- an uninstall
- * that claims to have cleaned a file it never touched teaches the user to
- * distrust it.
- */
+/** Removes the block, returning the whole file, or null when there was none. Why null and not the unchanged text lives in markerBlock.ts. */
 export function withoutBlock(text: string): string | null {
-  const range = blockRange(text);
-  if (range === null) return null;
-  const before = text.slice(0, range.from).replace(/\n+$/, '');
-  const after = text.slice(range.to).replace(/^\n+/, '');
-  if (before === '' && after === '') return '';
-  if (before === '') return `${after.trimEnd()}\n`;
-  if (after === '') return `${before}\n`;
-  return `${before}\n\n${after.trimEnd()}\n`;
+  return withoutIn(text, MARKERS);
 }
