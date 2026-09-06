@@ -14,6 +14,21 @@ import type { SelfUpdateDeps } from './self.js';
 import { updateLogPath } from '../updateLog.js';
 import { VERSION } from '../version.js';
 
+/**
+ * The build's own version, and one patch above it.
+ *
+ * Derived rather than written down: these tests assert what `ailoud` says
+ * about ITSELF, so a literal `1.0.0` made every one of them fail the moment
+ * the version was bumped for a release -- and a literal `1.0.1` offered as
+ * "newer" became OLDER than the build at 1.1.0, which is how a fixture stops
+ * testing what it claims. `NEWER` strips any pre-release suffix before
+ * bumping, so it stays above `VERSION` on a snapshot build too.
+ */
+const NEWER = (() => {
+  const [major, minor, patch] = VERSION.split('-')[0]!.split('.');
+  return `${major}.${minor}.${Number(patch) + 1}`;
+})();
+
 /** A VersionSource that answers with a fixed list, never touching the network. */
 function source(published: readonly PublishedVersion[]): VersionSource {
   return { published: async () => published };
@@ -21,33 +36,33 @@ function source(published: readonly PublishedVersion[]): VersionSource {
 
 describe('ailoud self check', () => {
   it('reports the target it would move to', async () => {
-    const ctx = { ...context(), versionSource: source([{ version: '1.0.1', deprecated: false }]) };
+    const ctx = { ...context(), versionSource: source([{ version: NEWER, deprecated: false }]) };
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'self', 'check']);
-    expect(ctx.lines).toEqual(['ailoud 1.0.0 can update to 1.0.1.']);
+    expect(ctx.lines).toEqual([`ailoud ${VERSION} can update to ${NEWER}.`]);
   });
 
   it('says so when there is nothing newer', async () => {
-    const ctx = { ...context(), versionSource: source([{ version: '1.0.0', deprecated: false }]) };
+    const ctx = { ...context(), versionSource: source([{ version: VERSION, deprecated: false }]) };
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'self', 'check']);
-    expect(ctx.lines).toEqual(['ailoud 1.0.0 is already the newest published version.']);
+    expect(ctx.lines).toEqual([`ailoud ${VERSION} is already the newest published version.`]);
     // A version check is not a test: it must exit 0 either way.
   });
 
   it('prints JSON with --json', async () => {
-    const ctx = { ...context(), versionSource: source([{ version: '1.0.1', deprecated: false }]) };
+    const ctx = { ...context(), versionSource: source([{ version: NEWER, deprecated: false }]) };
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'self', 'check', '--json']);
     expect(JSON.parse(ctx.lines.join(''))).toEqual({
-      current: '1.0.0',
-      target: '1.0.1',
+      current: VERSION,
+      target: NEWER,
       updatable: true,
     });
   });
 
   it('prints JSON with no target when there is nothing newer', async () => {
-    const ctx = { ...context(), versionSource: source([{ version: '1.0.0', deprecated: false }]) };
+    const ctx = { ...context(), versionSource: source([{ version: VERSION, deprecated: false }]) };
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'self', 'check', '--json']);
     expect(JSON.parse(ctx.lines.join(''))).toEqual({
-      current: '1.0.0',
+      current: VERSION,
       target: null,
       updatable: false,
     });
@@ -82,15 +97,15 @@ describe('ailoud self check', () => {
   });
 
   it('exists as a hidden top-level alias, "ailoud check"', async () => {
-    const ctx = { ...context(), versionSource: source([{ version: '1.0.0', deprecated: false }]) };
+    const ctx = { ...context(), versionSource: source([{ version: VERSION, deprecated: false }]) };
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'check']);
-    expect(ctx.lines).toEqual(['ailoud 1.0.0 is already the newest published version.']);
+    expect(ctx.lines).toEqual([`ailoud ${VERSION} is already the newest published version.`]);
   });
 
   it('answers to its one-letter alias inside the group', async () => {
-    const ctx = { ...context(), versionSource: source([{ version: '1.0.0', deprecated: false }]) };
+    const ctx = { ...context(), versionSource: source([{ version: VERSION, deprecated: false }]) };
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'self', 'c']);
-    expect(ctx.lines).toEqual(['ailoud 1.0.0 is already the newest published version.']);
+    expect(ctx.lines).toEqual([`ailoud ${VERSION} is already the newest published version.`]);
   });
 });
 
@@ -395,7 +410,7 @@ describe('updateSelf', () => {
   }
 
   function withTarget(): ReturnType<typeof context> {
-    return { ...context(), versionSource: source([{ version: '1.0.1', deprecated: false }]) };
+    return { ...context(), versionSource: source([{ version: NEWER, deprecated: false }]) };
   }
 
   it('says so and changes nothing when there is nothing newer', async () => {
@@ -429,9 +444,9 @@ describe('updateSelf', () => {
     await updateSelf(deps, { dryRun: true });
 
     expect(calls).toEqual([]);
-    expect(ctx.lines.some((line) => line.includes('1.0.0'))).toBe(true);
-    expect(ctx.lines.some((line) => line.includes('1.0.1'))).toBe(true);
-    expect(ctx.lines.some((line) => line.includes('npm install -g ailoud@1.0.1'))).toBe(true);
+    expect(ctx.lines.some((line) => line.includes(VERSION))).toBe(true);
+    expect(ctx.lines.some((line) => line.includes(NEWER))).toBe(true);
+    expect(ctx.lines.some((line) => line.includes(`npm install -g ailoud@${NEWER}`))).toBe(true);
     expect(ctx.lines.some((line) => line.toLowerCase().includes('dry run'))).toBe(true);
     expect(await ctx.fs.exists(updateLogPath(ctx.paths.userDataDir))).toBe(false);
   });
@@ -444,7 +459,7 @@ describe('updateSelf', () => {
 
     await expect(updateSelf(deps, {})).resolves.toBeUndefined();
 
-    expect(ctx.lines).toContain('npx ailoud@1.0.1');
+    expect(ctx.lines).toContain(`npx ailoud@${NEWER}`);
   });
 
   it('refuses a project dependency, naming the project', async () => {
@@ -470,7 +485,7 @@ describe('updateSelf', () => {
 
     const said = ctx.lines.join('\n');
     expect(said).not.toContain('<version>');
-    expect(said).toContain('ailoud@1.0.1');
+    expect(said).toContain(`ailoud@${NEWER}`);
   });
 
   it('exits non-zero when --force meets an install method it cannot use', async () => {
@@ -533,7 +548,7 @@ describe('updateSelf', () => {
 
     await updateSelf(deps, { force: true });
 
-    expect(calls[0]).toEqual(['/usr/local/bin/npm', ['install', '-g', 'ailoud@1.0.1']]);
+    expect(calls[0]).toEqual(['/usr/local/bin/npm', ['install', '-g', `ailoud@${NEWER}`]]);
   });
 
   it('anchors the npm-global sweep beside the running node, not to a bare "ailoud"', async () => {
@@ -582,7 +597,7 @@ describe('updateSelf', () => {
 
     await updateSelf(deps, { force: true });
 
-    expect(calls[0]).toEqual(['pnpm', ['add', '-g', 'ailoud@1.0.1']]);
+    expect(calls[0]).toEqual(['pnpm', ['add', '-g', `ailoud@${NEWER}`]]);
   });
 
   it('invokes the pnpm-global sweep at the path "pnpm bin -g" reports', async () => {
@@ -651,7 +666,7 @@ describe('updateSelf', () => {
 
     const log = await ctx.fs.readTextFile(updateLogPath(ctx.paths.userDataDir));
     expect(log).toContain('self update');
-    expect(log).toContain('1.0.1');
+    expect(log).toContain(NEWER);
   });
 
   it('--force with no TTY fails rather than hangs when the manager wants input', async () => {
