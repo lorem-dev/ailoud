@@ -13,12 +13,22 @@ const TTL_MS = 24 * 60 * 60 * 1000;
 const SENTINEL = Symbol('update-check-not-settled');
 
 /**
- * How long any single `Fs` call on this path may take, and how long
- * `finish()` waits for the whole check before giving up on it. A local
- * cache read is sub-millisecond, so this is generous for a healthy disk and
- * decisive on a sick one (a network home directory, a sleeping external
- * drive, a contended or nearly full disk). Any timeout here means "say
- * nothing" -- never an error, and never a claim of being up to date.
+ * How long any single `Fs` call on this path may take. A local cache read is
+ * sub-millisecond, so this is generous for a healthy disk and decisive on a
+ * sick one (a network home directory, a sleeping external drive, a
+ * contended or nearly full disk). Any timeout here means "say nothing" --
+ * never an error, and never a claim of being up to date.
+ *
+ * `finish()` below reuses this same value to bound how much longer it will
+ * wait, past its own call, for the in-flight check to settle -- but that is
+ * NOT the same as bounding the registry round trip itself to 50ms. By the
+ * time `finish()` runs, the disk read has already had the command's own
+ * work (plus this much again) to complete, so a cache hit almost always
+ * wins outright; a cache MISS instead falls through to the live fetch,
+ * which this bound then gives up WAITING for. Giving up still aborts the
+ * fetch (so the process can exit right away instead of lingering on the
+ * network), but see `startUpdateCheck`'s own doc comment for why an abort
+ * must never be confused with a genuine answer worth caching.
  */
 const BOUND_MS = 50;
 
@@ -217,10 +227,32 @@ async function writeCache(deps: NoticeDeps, target: string | null): Promise<void
  * run's cache read is what prints from the attempt this one could not
  * finish.
  *
- * A failed or timed-out check is cached as null, exactly like "no update
- * found": a version check must never read as news, and caching the failure
- * is what limits a broken network to one wasted attempt a day rather than
+ * A GENUINE failure is cached as null too, exactly like "no update found": a
+ * version check must never read as news, and caching the failure is what
+ * limits a broken registry (a bad HTTP status, an unreadable body, a
+ * connection that fails on its own) to one wasted attempt a day rather than
  * one per command.
+ *
+ * An ABORT -- `finish()` giving up on this check and calling
+ * `controller.abort()` -- is deliberately NOT a genuine failure and is never
+ * cached. Caching it would be indistinguishable from a completed check that
+ * found nothing, and for a fast command (`ailoud ls`, `ailoud search`, most
+ * of them) the fetch is *always* aborted before a real registry round trip
+ * can finish: bounding `finish()`'s wait is what keeps this module from ever
+ * making a command slower, but it also means a fast command can basically
+ * never be the one to complete its own fetch. Caching that as "no update"
+ * would have made the notice permanently unreachable -- exactly the defect
+ * this doc comment now exists to prevent. Instead, `finish()` still aborts
+ * the fetch when it gives up (so the process is free to exit right away),
+ * but the abort itself writes NOTHING to the cache: the next run (of
+ * anything) starts fresh and tries again. The consequence to accept is that
+ * the cache only ever gets a genuine answer from a command slow enough to
+ * outlast the round trip -- `transcribe`, `summarize`, `setup`, or any run
+ * against an already-warm connection -- and every fast command in between
+ * prints from whatever one of those left behind. That is the honest shape
+ * of "never delay, but still eventually say something": only the WAIT for
+ * the fetch is bounded, never the fetch's own right to keep running and to
+ * report a genuine answer whenever it actually settles.
  */
 export function startUpdateCheck(deps: NoticeDeps): UpdateCheck {
   if (suppressed(deps)) return { finish: async () => null };
@@ -236,7 +268,18 @@ export function startUpdateCheck(deps: NoticeDeps): UpdateCheck {
       await writeCache(deps, target);
       return target;
     } catch {
-      await writeCache(deps, null); // a failure is cached too: one attempt a day
+      if (controller.signal.aborted) {
+        // WE did this, by giving up in finish() below -- not the registry.
+        // An abort says nothing about whether a newer version exists, so
+        // nothing is written: see this function's own doc comment for why
+        // caching it here is exactly the defect that made the notice
+        // unreachable in the first place.
+        return null;
+      }
+      // A genuine failure: the registry answered, badly, or the connection
+      // failed on its own. Caching it is what limits a broken network to
+      // one wasted attempt a day rather than one per command.
+      await writeCache(deps, null);
       return null;
     }
   })();

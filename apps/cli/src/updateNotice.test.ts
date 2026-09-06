@@ -25,6 +25,24 @@ function hangingPublished(): NoticeDeps['published'] {
   return () => new Promise(() => undefined);
 }
 
+/** A `published` that behaves like the real `registryPublished`: it never
+ * settles on its own within a test's lifetime, but REJECTS the instant its
+ * signal is aborted -- exactly what `https.request`'s own `signal` option
+ * does. `hangingPublished` above does not model this at all (it ignores the
+ * signal entirely), which is exactly why the review found the abort-poisons
+ * -the-cache defect survived every existing test: none of them exercised a
+ * fetch that actually reacts to being aborted. */
+function abortablePublished(): NoticeDeps['published'] {
+  return (signal) =>
+    new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => {
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    });
+}
+
 function baseDeps(overrides: Partial<NoticeDeps> = {}): NoticeDeps {
   return {
     fs: new MemFs(),
@@ -147,6 +165,45 @@ describe('startUpdateCheck', () => {
     const raw = fs.files.get(updateCachePath(DATA_DIR));
     expect(raw).toBeDefined();
     expect(JSON.parse(raw!)).toMatchObject({ target: null });
+  });
+
+  it('never caches a null caused by its own abort, so the next run retries', async () => {
+    // The defect found in review: BOUND_MS covers the whole check, so a
+    // fast command's fetch is always still in flight when finish() gives
+    // up and aborts it. `abortablePublished` rejects on that abort exactly
+    // as the real HTTPS client does -- if the catch block cached that
+    // rejection as a genuine "no update", the notice could never fire.
+    const fs = new MemFs();
+    const deps = baseDeps({ fs, published: abortablePublished() });
+
+    const notice = startUpdateCheck(deps);
+    expect(await notice.finish()).toBeNull();
+    // Give the abort's rejection a chance to reach the catch block; a real
+    // command's own work would take far longer than this in practice.
+    await flush();
+
+    expect(fs.files.has(updateCachePath(DATA_DIR))).toBe(false);
+  }, 2000);
+
+  it('fills the cache with a genuine answer once the fetch actually settles', async () => {
+    // The consequence documented on startUpdateCheck: a command slow enough
+    // to outlast the round trip is the one that fills the cache. Simulated
+    // here by letting the fetch resolve (via flush()) before finish() is
+    // even called, the way a real multi-second command would without a
+    // test needing to wait multiple seconds.
+    const fs = new MemFs();
+    const deps = baseDeps({
+      fs,
+      published: published([{ version: '1.2.3', deprecated: false }]),
+    });
+
+    const notice = startUpdateCheck(deps);
+    await flush();
+
+    expect(await notice.finish()).toBe('1.2.3');
+    const raw = fs.files.get(updateCachePath(DATA_DIR));
+    expect(raw).toBeDefined();
+    expect(JSON.parse(raw!)).toMatchObject({ target: '1.2.3' });
   });
 
   it('is silent when stderr is not a TTY', async () => {
