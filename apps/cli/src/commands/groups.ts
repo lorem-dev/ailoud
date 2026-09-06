@@ -77,8 +77,22 @@ export function inGroupAndTopLevel(
  * The one-letter alias for each second-level verb.
  *
  * One table rather than a letter beside each command definition, because the
- * risk here is collision and a table is where you can see it: every letter
- * below appears exactly once, and the test for that reads this map.
+ * risk here is collision and a table is where you can see it.
+ *
+ * A letter is unique WITHIN A GROUP, not across the table: `summarize` and
+ * `sync` both take `s`, and that is fine because they live under different
+ * nouns (`audio summarize`, `self sync`) and commander resolves an alias
+ * against one parent's children. This comment used to claim every letter
+ * appeared exactly once, which the table below already contradicted -- and
+ * the test only checked two of the four groups, so nothing would have caught
+ * a real collision inside `self` or `template`. It checks all of them now.
+ *
+ * `mcp` gets NO letters, and that is deliberate rather than an oversight:
+ * its verbs are `install`, `uninstall` and `update`, and `uninstall` and
+ * `update` both want `u`. A set that cannot be made unique and complete is
+ * better left off entirely than half-assigned, so `program.ts` does not call
+ * `attachLetters` for that group. Widening the collision test is what made
+ * this asymmetry visible; it had never been written down.
  *
  * The same verb gets the same letter in every group -- `l` lists, `v` views,
  * `r` removes -- so the letters are worth learning once instead of per noun.

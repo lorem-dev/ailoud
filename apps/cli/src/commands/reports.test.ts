@@ -298,7 +298,31 @@ describe('command layout', () => {
   it('gives every second-level verb a one-letter alias, none colliding', async () => {
     // Collision is the risk a single table exists to make visible.
     const ctx = await contextWithTranscript({ skipImport: true });
-    for (const groupName of ['audio', 'report']) {
+    // EVERY group, discovered from the program rather than listed here: the
+    // old version named `audio` and `report` only, so a collision inside
+    // `self` or `template` -- the two groups added since -- would have gone
+    // unnoticed. Discovering them means a group added later is covered the
+    // day it appears.
+    const groups = buildProgram(ctx).commands.filter(
+      (command) => command.commands.length > 0 && command.name() !== 'help',
+    );
+    // A group either assigns letters to ALL its verbs or to none. `mcp` is
+    // the deliberate none -- `uninstall` and `update` both want `u`, so the
+    // set cannot be made unique, and a half-assigned set is worse than no
+    // set. See `attachLetters` in groups.js.
+    const lettered = groups.filter((command) =>
+      command.commands.some((verb) => verb.name() !== 'help' && verb.aliases().length > 0),
+    );
+    const unlettered = groups.filter((command) => !lettered.includes(command));
+    expect(lettered.map((command) => command.name()).sort()).toEqual([
+      'audio',
+      'report',
+      'self',
+      'template',
+    ]);
+    expect(unlettered.map((command) => command.name())).toEqual(['mcp']);
+
+    for (const groupName of lettered.map((command) => command.name())) {
       const found = buildProgram(ctx).commands.find((c) => c.name() === groupName)!;
       const letters = found.commands
         .filter((command) => command.name() !== 'help')
