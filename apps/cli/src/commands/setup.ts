@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { confirm, isCancel, select } from '@clack/prompts';
 import { chooseLlm, remediesForChoice } from '../llmChoice.js';
 import type { Command } from 'commander';
@@ -81,6 +81,17 @@ export interface ModelNameOptions {
   readonly interactive: boolean;
   readonly selectImpl?: typeof select;
   readonly commandName?: CommandName;
+  /**
+   * What to resolve to when `model` is absent, in place of
+   * `DEFAULT_MODEL_NAME` -- the catalogue name of whatever is already
+   * configured, when there is one. Without this, reinstalling a healthy,
+   * non-default model with no `--model` given (`setup --force --yes` is the
+   * documented way to replace a corrupted file) silently downgraded it: the
+   * resolution fell through to `small` regardless of what had been running,
+   * and the interactive picker's `initialValue` did the same, so pressing
+   * Enter did too.
+   */
+  readonly defaultModel?: string;
 }
 
 export async function resolveModelName(options: ModelNameOptions): Promise<string> {
@@ -91,12 +102,13 @@ export async function resolveModelName(options: ModelNameOptions): Promise<strin
     }
     return options.model;
   }
-  if (!options.interactive) return DEFAULT_MODEL_NAME;
+  const fallback = options.defaultModel ?? DEFAULT_MODEL_NAME;
+  if (!options.interactive) return fallback;
 
   const selectImpl = options.selectImpl ?? select;
   const answer = await selectImpl({
     message: 'Which transcription model should ailoud download?',
-    initialValue: DEFAULT_MODEL_NAME,
+    initialValue: fallback,
     options: TRANSCRIPTION_MODELS.map((model) => ({
       value: model.name,
       label: `${model.name} (${formatBytes(model.bytes)})`,
@@ -113,6 +125,8 @@ export interface ChooseModelOptions {
   readonly interactive: boolean;
   readonly selectImpl?: typeof select;
   readonly commandName?: CommandName;
+  /** See `ModelNameOptions.defaultModel`; forwarded to `resolveModelName` unchanged. */
+  readonly defaultModel?: string;
 }
 
 /**
@@ -131,7 +145,25 @@ export async function chooseModel(options: ChooseModelOptions): Promise<string> 
     interactive: options.interactive && needsTranscriptionModel,
     ...(options.selectImpl === undefined ? {} : { selectImpl: options.selectImpl }),
     ...(options.commandName === undefined ? {} : { commandName: options.commandName }),
+    ...(options.defaultModel === undefined ? {} : { defaultModel: options.defaultModel }),
   });
+}
+
+/**
+ * The catalogue name of whatever is already configured, so a reinstall with
+ * no explicit `--model` keeps it rather than falling back to
+ * `DEFAULT_MODEL_NAME`. Filename-based for the same reason `isSwitchingModel`
+ * is: `configuredModel` is a path, the catalogue only knows names.
+ *
+ * Returns `undefined` for a path that matches no catalogue entry (nothing
+ * configured yet, or a hand-edited config pointing at a file ailoud never
+ * downloaded) -- callers fall back to `DEFAULT_MODEL_NAME` themselves, the
+ * same way they always did when nothing was configured.
+ */
+export function configuredModelName(configuredModel: string | null): string | undefined {
+  if (configuredModel === null) return undefined;
+  const base = basename(configuredModel);
+  return TRANSCRIPTION_MODELS.find((model) => model.file === base)?.name;
 }
 
 export interface ConsentOptions {
@@ -400,12 +432,48 @@ export function blocksReadiness(check: Check): boolean {
 }
 
 /**
- * The remedies of the checks that failed -- the single definition of "what
- * provisioning should act on", shared by `setup` and `doctor --fix`.
+ * Widens which passing checks contribute their remedy, on top of every
+ * failing check's (which always contributes -- see `collectRemedies`).
+ *
+ * The two flags are independent because they answer different questions:
+ * `force` is "reinstall everything, I asked for it explicitly"; `switchingModel`
+ * is "one specific thing changed, act on just that". A `--force --model medium`
+ * run sets both -- `force` alone would already cover what `switchingModel`
+ * asks for, but leaving `switchingModel` out of that run would be relying on
+ * `force`'s breadth by accident rather than by the actual reason the model
+ * remedy is present.
+ */
+export interface RemedyScope {
+  /** Take every repairable check's remedy, not only the failing ones. */
+  readonly force?: boolean;
+  /** Take the transcription-model remedy even from a passing check. */
+  readonly switchingModel?: boolean;
+}
+
+/**
+ * The remedies provisioning should act on -- the single definition of "what
+ * to do", shared by `setup` and `doctor --fix`.
  *
  * Both entry points used to keep a verbatim copy of this filter. That is the
  * exact drift the one-engine design exists to prevent, so it lives here and
  * `runProvisioning` is the only caller.
+ *
+ * With no `scope` (or both flags false/absent), only failing checks
+ * contribute -- the original behaviour, unchanged, and what `doctor --fix`
+ * still gets since it never sets `force`.
+ *
+ * `scope.force` takes a passing check's remedy too, for every check that
+ * carries one -- including `install-ffmpeg` and the macOS brew route for
+ * whisper. The user asked for the widest scope by passing `--force`; this is
+ * the one place that scope is decided, so `--force` cannot drift into a
+ * second installation route that skips some remedies `setup`'s normal path
+ * would have used.
+ *
+ * `scope.switchingModel` takes only the transcription `download-model`
+ * remedy from a passing check, and only that one: `--model <name>` on a
+ * machine whose configured model is already healthy must still switch
+ * models, without also reinstalling ffmpeg or whisper just because a
+ * transcription-model check happened to pass alongside them.
  *
  * Deliberately NOT filtered by `blocksReadiness`: an optional check's
  * remedy belongs in the plan just as much as a mandatory one's -- `setup`
@@ -413,9 +481,17 @@ export function blocksReadiness(check: Check): boolean {
  * optional check being fixable is for. Only the ready/not-ready decision
  * itself treats the two differently.
  */
-export function collectRemedies(checks: readonly Check[]): readonly Remedy[] {
+export function collectRemedies(checks: readonly Check[], scope?: RemedyScope): readonly Remedy[] {
   return checks
-    .filter((check) => !check.ok)
+    .filter((check) => {
+      if (!check.ok) return true;
+      if (scope?.force === true) return true;
+      return (
+        scope?.switchingModel === true &&
+        check.remedy?.kind === 'download-model' &&
+        check.remedy.slot === 'transcription'
+      );
+    })
     .flatMap((check) => (check.remedy !== undefined ? [check.remedy] : []));
 }
 
@@ -453,6 +529,43 @@ export interface SetupOptions {
   readonly model?: string;
   readonly llm?: string;
   readonly llmModel?: string;
+  /**
+   * `doctor --fix` inherits this field (`DoctorOptions extends SetupOptions`)
+   * but `registerDoctor` never registers a `--force` flag, so it stays
+   * `undefined` there -- `doctor --fix` keeps acting only on what actually
+   * failed, exactly as before this option existed.
+   */
+  readonly force?: boolean;
+}
+
+/**
+ * Whether `--model <name>` names a different model from the one already
+ * configured, i.e. whether provisioning should switch rather than leave a
+ * healthy transcription model alone.
+ *
+ * `configuredModel` is a filesystem path (`config.stt.whisperCpp.model`);
+ * `model` is a catalogue name (`--model`). They are compared by filename,
+ * via `findModel(model).file` against the basename of `configuredModel` --
+ * the two are not otherwise comparable, and the configured path's directory
+ * is `dataDir`-dependent and not part of the model's identity.
+ *
+ * An unrecognized `model` counts as switching (returns `true`) rather than
+ * `false`: this function only decides whether the transcription remedy is
+ * worth taking from a passing check, it never validates the name itself --
+ * `resolveModelName` (via `chooseModel`) does that and raises the real
+ * `UsageError` naming the valid models. Returning `false` here for a bad name
+ * would risk `collectRemedies` finding nothing to do on an otherwise healthy
+ * machine, short-circuiting to "already in place" before that validation is
+ * ever reached.
+ */
+export function isSwitchingModel(
+  model: string | undefined,
+  configuredModel: string | null,
+): boolean {
+  if (model === undefined || configuredModel === null) return false;
+  const found = findModel(model);
+  if (found === undefined) return true;
+  return basename(configuredModel) !== found.file;
 }
 
 /**
@@ -496,11 +609,38 @@ export async function runProvisioning(
     );
   }
 
+  // Validated here, unconditionally, rather than left to chooseModel further
+  // down: that call is never reached when remedies end up empty, which on an
+  // all-green machine used to mean an unknown --model exited 0 with
+  // "Everything ailoud needs is already in place" instead of ever being
+  // rejected -- a typo must fail the same way regardless of what else is or
+  // is not broken. resolveModelName already owns this validation (round 1's
+  // note not to duplicate it still applies); called here only for the
+  // UsageError it throws on a bad name -- `interactive: false` is inert
+  // because the validating branch returns before touching it.
+  if (options.model !== undefined) {
+    await resolveModelName({ model: options.model, interactive: false });
+  }
+
   const interactive = isInteractive(process.env, process.stdin.isTTY === true);
+  // The path `--model` would replace, read before anything downloads: it is
+  // both what decides `switchingModel` below and, after a successful switch,
+  // the file `writeConfigUpdates` is about to orphan (see the note printed
+  // near the end of this function).
+  const configuredModel = context.config.stt.whisperCpp.model;
+  const scope: RemedyScope = {
+    force: options.force === true,
+    // `setup` only, deliberately: `doctor --fix`'s own description promises
+    // to "provision anything that failed a check", and its `--model` help
+    // text promises the same ("to download if one is needed") -- switching a
+    // healthy model out from under `--fix` would break both promises for a
+    // command nobody asked to change anything with.
+    switchingModel: commandName === 'setup' && isSwitchingModel(options.model, configuredModel),
+  };
   // Asked before the "nothing to fix" test below, not after: choosing a hosted
   // engine REMOVES the local install and download from the list, so the answer
   // can be the difference between a plan and an empty one.
-  const collected = collectRemedies(checks);
+  const collected = collectRemedies(checks, scope);
   const llmChoice = await chooseLlm({
     ...(options.llm === undefined ? {} : { llm: options.llm }),
     ...(options.llmModel === undefined ? {} : { llmModel: options.llmModel }),
@@ -509,7 +649,39 @@ export async function runProvisioning(
     commandName,
     note: (message) => context.ui.note(message),
   });
-  const remedies = remediesForChoice(collected, llmChoice);
+  let remedies = remediesForChoice(collected, llmChoice);
+
+  // `--force` with no --model, on a transcription model that already exists
+  // but matches no catalogue entry -- someone who built whisper.cpp
+  // themselves and pointed `stt.whisperCpp.model` at their own file, exactly
+  // the person likely to reach for `--force` after a corrupt download. There
+  // is no catalogue name to redownload it AS, and guessing the project
+  // default would silently replace a model the user chose on purpose -- the
+  // same silent-switch failure `configuredModelName` was added to prevent
+  // for --model itself. `transcriptionCheck.ok` is the guard that scopes
+  // this to force's widening specifically: a check that is genuinely
+  // failing (missing or corrupted) still needs *something* downloaded, and
+  // "small" for an unrecognized path is the same fallback --model has always
+  // had in that case -- untouched here, unrelated to what --force just
+  // widened in.
+  const transcriptionCheck = checks.find(
+    (check) => check.remedy?.kind === 'download-model' && check.remedy.slot === 'transcription',
+  );
+  const unrecognizedForcedModel =
+    options.model === undefined &&
+    transcriptionCheck?.ok === true &&
+    configuredModel !== null &&
+    configuredModelName(configuredModel) === undefined &&
+    transcriptionCheck.remedy !== undefined &&
+    remedies.includes(transcriptionCheck.remedy);
+  if (unrecognizedForcedModel) {
+    context.ui.note(
+      `Keeping the transcription model already configured at ${configuredModel} -- it does not ` +
+        'match any ailoud catalogue name, so there is nothing to reinstall it as. Pass ' +
+        '--model <name> to switch to a catalogue model instead.',
+    );
+    remedies = remedies.filter((remedy) => remedy !== transcriptionCheck.remedy);
+  }
 
   if (remedies.length === 0) {
     // "Nothing to fix" and "nothing FIXABLE to fix" are different answers,
@@ -530,11 +702,13 @@ export async function runProvisioning(
     throw new EnvironmentError(NOT_READY_MESSAGE);
   }
 
+  const defaultModel = configuredModelName(configuredModel);
   const modelName = await chooseModel({
     ...(options.model === undefined ? {} : { model: options.model }),
     remedies,
     interactive,
     commandName,
+    ...(defaultModel === undefined ? {} : { defaultModel }),
   });
 
   const actions = planProvisioning(remedies, { modelName });
@@ -607,6 +781,27 @@ export async function runProvisioning(
       context.ui.content(`Updated ${context.paths.configFile}: ${updatedKeys.join(', ')}`);
     }
 
+    // A download always targets `<dataDir>/models/<file>` (see
+    // provisionRunner.ts's download-model branch), never the path that was
+    // configured before -- so the previous .bin is still sitting wherever it
+    // was, up to 1.6 GB ailoud has no garbage collection for and will not
+    // delete unasked. Named once, here, rather than silently orphaned.
+    // `configuredModel` is the path from BEFORE this run (captured at the top
+    // of this function); compared as resolved paths, not basenames, because a
+    // `--force` reinstall of the SAME model name still orphans a configured
+    // file that lived outside `<dataDir>/models` -- the filename matches, but
+    // the file writeConfigUpdates now points at is a different one on disk.
+    if (
+      result.updates.model !== undefined &&
+      configuredModel !== null &&
+      resolve(configuredModel) !== resolve(result.updates.model)
+    ) {
+      context.ui.content(
+        `The previous transcription model is still at ${configuredModel} -- ailoud does not ` +
+          'delete it automatically; remove it by hand if you no longer need it.',
+      );
+    }
+
     // Re-read unconditionally, even when result.updates was empty: an action
     // can change what the checks see (e.g. installing a binary onto PATH)
     // without writing anything back to the config file.
@@ -674,12 +869,16 @@ export function registerSetup(
   program
     .command('setup')
     .option('--yes', 'confirm the plan without prompting')
-    .option('--model <name>', 'transcription model to download (default: small)')
+    .option(
+      '--model <name>',
+      'switch to this transcription model (default: the configured one, else small)',
+    )
     .option('--llm <choice>', 'summariser to set up: local, claude-cli, claude-api, openai, skip')
     .option(
       '--llm-model <id>',
       'model id for the chosen summariser (default: ask, or keep the configured one)',
     )
+    .option('--force', 'reinstall even when everything checks out')
     .description('Install ffmpeg and whisper.cpp, and download the models ailoud needs')
     .action(async (options: SetupOptions) => {
       await context.ui.frame('Setting up ailoud', async () => {

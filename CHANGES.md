@@ -44,11 +44,17 @@
 
 - `mcp install` can add `ailoud` to an agent's command allow-list, so the agent
   runs it without asking each time. `--allow-shell` answers without a prompt.
+- `ailoud setup --force` reinstalls everything ailoud needs, even when every
+  check already passes, useful for a corrupted install.
+- Switching the transcription model now prints where the previous model file
+  was left, since ailoud never deletes it.
 
 ### Changed
 
 - New rules blocks now go to `.claude/CLAUDE.md`; blocks already in a
   project's own rules files stay there and are all kept current.
+- `setup --model <name>` now switches the transcription model even on a
+  healthy machine, instead of being ignored.
 
 ## Version 1.1.0
 

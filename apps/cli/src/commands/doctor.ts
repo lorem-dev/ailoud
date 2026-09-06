@@ -44,17 +44,22 @@ export async function checkBinary(
   detailOverride?: string,
   remedy?: Remedy,
 ): Promise<Check> {
+  // `remedy` is attached on every branch below, passing included -- see
+  // `Check.remedy`'s doc comment for why, and for the one caveat: a caller
+  // whose `remedy` is a substitute rather than a repair of the exact thing
+  // this function checked (checkLanguageModel's claude-cli branch is the
+  // example) must strip it back off its own passing result.
   try {
     const result = await run(binary, args, { timeoutMs: 10_000 });
     if (result.code !== 0) {
       return { name, ok: false, detail: `exited with code ${result.code}`, fix, remedy };
     }
     if (detailOverride !== undefined) {
-      return { name, ok: true, detail: detailOverride };
+      return { name, ok: true, detail: detailOverride, remedy };
     }
     const output = result.stdout.length > 0 ? result.stdout : result.stderr;
     const firstLine = output.split('\n')[0]?.trim() ?? '';
-    return { name, ok: true, detail: firstLine };
+    return { name, ok: true, detail: firstLine, remedy };
   } catch (error) {
     return { name, ok: false, detail: summarizeRunFailure(error), fix, remedy };
   }
@@ -72,7 +77,11 @@ export async function checkModel(
   }
   try {
     await access(modelPath, constants.F_OK);
-    return { name, ok: true, detail: modelPath };
+    // Attached on the passing branch too, not only the two failing ones:
+    // `ailoud setup --model <name>` on a machine whose configured model is
+    // already present and healthy still needs this remedy, to switch models
+    // rather than doing nothing (see collectRemedies's `switchingModel`).
+    return { name, ok: true, detail: modelPath, remedy };
   } catch {
     return { name, ok: false, detail: `file not found: ${modelPath}`, fix, remedy };
   }
@@ -104,7 +113,10 @@ export async function checkVadModel(
   }
   try {
     await access(vadModelPath, constants.F_OK);
-    return { name, ok: true, detail: vadModelPath, optional: true };
+    // See checkModel's matching comment: a passing check keeps its remedy so
+    // `--force` can still act on it. (There is no `--vad-model` flag, so only
+    // `force` -- never `switchingModel` -- ever widens this one.)
+    return { name, ok: true, detail: vadModelPath, remedy, optional: true };
   } catch {
     return { name, ok: false, detail: `missing: ${vadModelPath}`, fix, remedy, optional: true };
   }
@@ -248,7 +260,9 @@ export async function checkSegmentationModel(
   }
   try {
     await access(segmentationModelPath, constants.F_OK);
-    return { name, ok: true, detail: segmentationModelPath, optional: true };
+    // See checkModel's matching comment: a passing check keeps its remedy so
+    // `--force` can still act on it.
+    return { name, ok: true, detail: segmentationModelPath, remedy, optional: true };
   } catch {
     return {
       name,
@@ -276,7 +290,9 @@ export async function checkEmbeddingModel(
   }
   try {
     await access(embeddingModelPath, constants.F_OK);
-    return { name, ok: true, detail: embeddingModelPath, optional: true };
+    // See checkModel's matching comment: a passing check keeps its remedy so
+    // `--force` can still act on it.
+    return { name, ok: true, detail: embeddingModelPath, remedy, optional: true };
   } catch {
     return {
       name,
@@ -322,8 +338,18 @@ export async function checkLanguageModel(
     });
     return {
       ...result,
+      // `install-llm` here is a SUBSTITUTE for a missing Claude Code CLI --
+      // "install a local model instead" -- not a repair of the CLI itself,
+      // which is exactly what checkBinary's now-passing remedy would
+      // otherwise carry forward (see Check.remedy's doc comment on that
+      // distinction). Stripped back off on a passing check: `--force` must
+      // never brew-install llama.cpp for someone whose Claude Code is fine
+      // and who never asked for a local summariser.
       ...(result.ok
-        ? { detail: `${llm.claudeCli.binary} (${llm.claudeCli.model}, via subscription)` }
+        ? {
+            detail: `${llm.claudeCli.binary} (${llm.claudeCli.model}, via subscription)`,
+            remedy: undefined,
+          }
         : {}),
       optional: true,
     };
@@ -380,7 +406,16 @@ export async function checkLanguageModel(
       optional: true,
     };
   }
-  return { name, ok: true, detail: settings.model, optional: true };
+  // Remedy kept on the passing branch too, matching every other model/binary
+  // check: `--force` re-downloads this alongside everything else, the same
+  // "widest scope, no carve-outs" rule the ffmpeg/whisper checks follow.
+  return {
+    name,
+    ok: true,
+    detail: settings.model,
+    remedy: { kind: 'download-llm-model' },
+    optional: true,
+  };
 }
 
 /**
@@ -566,7 +601,10 @@ export function registerDoctor(
     .command('doctor')
     .option('--fix', 'provision anything that failed a check, using the same engine as setup')
     .option('--yes', 'confirm the fix plan without prompting')
-    .option('--model <name>', 'transcription model to download if one is needed (default: small)')
+    .option(
+      '--model <name>',
+      'transcription model to download if one is needed (default: the configured one, else small)',
+    )
     .option('--llm <choice>', 'summariser to set up: local, claude-cli, claude-api, openai, skip')
     .option(
       '--llm-model <id>',

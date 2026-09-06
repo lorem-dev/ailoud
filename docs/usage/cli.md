@@ -180,10 +180,27 @@ ailoud doctor [--fix] [--yes] [--model <name>] [--llm <choice>] [--llm-model <id
 ## setup
 
 ```
-ailoud setup [--yes] [--model <name>] [--llm <choice>] [--llm-model <id>]
+ailoud setup [--yes] [--model <name>] [--force] [--llm <choice>] [--llm-model <id>]
 ```
 
 `--llm` is one of `local`, `claude-cli`, `claude-api`, `openai`, `skip`.
+
+`setup --model <name>` switches the transcription model even when the
+configured one is already healthy -- naming a different model is enough,
+`--force` is not required. (`doctor --fix --model <name>` does not: it only
+names what a genuinely missing model downloads as, same as before.) The old
+model file is never deleted; `setup` prints its path so you can remove it by
+hand. With no `--model` at all, `--force` reinstalls whatever is already
+configured -- it never downgrades to the default `small`. If the configured
+file matches no catalogue name (e.g. a whisper.cpp build of your own), it is
+left alone instead, with a note saying so; pass `--model <name>` to move to a
+catalogue model.
+
+`--force` reinstalls everything ailoud needs, even when every check already
+passes: ffmpeg, whisper.cpp, every whisper model. Use it to replace a
+corrupted file `doctor` cannot see is broken. If you use a local summariser
+(`--llm local`), it also reinstalls llama.cpp and re-downloads its 2.1 GB
+model; a hosted summariser (Claude, OpenAI) is untouched either way.
 
 ## Exit codes
 

@@ -222,6 +222,10 @@ describe('checkLanguageModel', () => {
     );
     expect(check.ok).toBe(true);
     expect(check.detail).toContain(process.execPath);
+    // download-llm-model REPAIRS exactly what this check inspects (the local
+    // GGUF file) -- unlike the claude-cli branch below, it belongs on the
+    // passing branch too, so --force can reinstall it.
+    expect(check.remedy).toEqual({ kind: 'download-llm-model' });
   });
 
   it('wants a key for a hosted endpoint, and says keys never live in the config file', async () => {
@@ -291,6 +295,12 @@ describe('checkLanguageModel', () => {
     );
     expect(check.ok).toBe(true);
     expect(check.detail).toContain('via subscription');
+    // install-llm is a SUBSTITUTE here (a fallback local model), not a repair
+    // of the Claude Code CLI this check actually inspects -- it must not
+    // survive onto a passing check, or --force would brew-install llama.cpp
+    // for someone whose Claude Code works fine. See Check.remedy's doc
+    // comment for the general rule this is the example of.
+    expect(check.remedy).toBeUndefined();
   });
 
   it('names the config key to switch away when the Claude CLI is absent', async () => {
@@ -372,15 +382,17 @@ describe('checkBinary', () => {
     expect(check.remedy).toEqual({ kind: 'install-ffmpeg' });
   });
 
-  it('attaches no remedy to a passing check', async () => {
+  it('keeps the remedy on a passing check too, so --force can still reinstall it', async () => {
     // node is guaranteed present in the test environment and exits 0 on
     // --version, unlike ffmpeg or whisper-cli which this suite cannot
-    // assume are installed.
+    // assume are installed. `Check.remedy` means "repairable", not
+    // "currently broken" -- see its doc comment -- and `ailoud setup --force`
+    // reads it off passing checks to reinstall something that already works.
     const check = await checkBinary('node', 'node', ['--version'], 'install it', undefined, {
       kind: 'install-ffmpeg',
     });
     expect(check.ok).toBe(true);
-    expect(check.remedy).toBeUndefined();
+    expect(check.remedy).toEqual({ kind: 'install-ffmpeg' });
   });
 });
 
@@ -394,15 +406,17 @@ describe('checkModel', () => {
     expect(check.remedy).toEqual({ kind: 'download-model', slot: 'transcription' });
   });
 
-  it('attaches no remedy to a passing check', async () => {
+  it('keeps the remedy on a passing check too, for --force and for switching models', async () => {
     // process.execPath is a real file guaranteed to exist on disk, so the
     // access() check this exercises succeeds without needing a fixture.
+    // `ailoud setup --model <other>` on a machine whose configured model is
+    // already present needs this remedy to switch models at all.
     const check = await checkModel('/c', process.execPath, {
       kind: 'download-model',
       slot: 'transcription',
     });
     expect(check.ok).toBe(true);
-    expect(check.remedy).toBeUndefined();
+    expect(check.remedy).toEqual({ kind: 'download-model', slot: 'transcription' });
   });
 });
 
