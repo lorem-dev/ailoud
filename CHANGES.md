@@ -40,6 +40,8 @@
 
 ## Development
 
+## Version 1.1.0
+
 ### Added
 
 - `ailoud self update` installs a newer version, then refreshes the agent
