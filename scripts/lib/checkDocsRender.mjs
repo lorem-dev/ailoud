@@ -50,9 +50,39 @@ function withoutCodeBlocks(articleHtml) {
   return articleHtml.replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/g, '');
 }
 
-/** `html` with every tag removed, leaving only the text a reader would see. */
-function textOnly(html) {
-  return html.replace(/<[^>]+>/g, '');
+/**
+ * `html` with every tag removed, leaving only the text a reader would see.
+ *
+ * Two things a one-pass `<[^>]+>` gets wrong, and both are why this looks
+ * heavier than it should:
+ *
+ * A quoted attribute may CONTAIN `>`. `<div title="a > b">` stops the naive
+ * match early and leaves `">` behind as stray text -- which matters because
+ * the callers hunt for markdown syntax that leaked into the page as literal
+ * text, and a leftover fragment is exactly what they would report. A checker
+ * that invents findings gets ignored, which costs more than it saves. So the
+ * pattern below steps over quoted runs.
+ *
+ * And stripping once is not enough: on `<<script>script>` a single pass over
+ * the quote-aware pattern leaves a literal `<script>`. Repeating until the
+ * string stops changing removes it. Bounded, so no input can spin here.
+ *
+ * CodeQL flags the one-pass form (alert 13, incomplete multi-character
+ * sanitization). Its stated impact -- HTML element injection -- is NOT
+ * reachable in this program: the input is mkdocs' own generated output and
+ * the result is printed to a terminal, never into a page. The incompleteness
+ * was real regardless, so this is fixed rather than dismissed.
+ */
+const TAG = /<\/?[a-zA-Z][^>"']*(?:"[^"]*"[^>"']*|'[^']*'[^>"']*)*>/g;
+
+export function textOnly(html) {
+  let text = html;
+  for (let pass = 0; pass < 5; pass += 1) {
+    const next = text.replace(TAG, '');
+    if (next === text) return text;
+    text = next;
+  }
+  return text;
 }
 
 const ADMONITION_OPEN = /<div class="admonition[^"]*"[^>]*>/g;

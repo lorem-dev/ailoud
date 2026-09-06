@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   checkPage,
+  textOnly,
   checkSite,
   collectSiteFiles,
   extractArticle,
@@ -217,5 +218,27 @@ describe('collectSiteFiles and checkSite', () => {
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0].file.endsWith(join('mcp', 'index.html'))).toBe(true);
     expect(result.failures[0].kind).toBe('admonition');
+  });
+});
+
+describe('textOnly', () => {
+  it('removes a tag whose quoted attribute contains ">"', () => {
+    // A one-pass `<[^>]+>` stops at the first `>` and leaves `">` behind.
+    // These checks hunt for markdown that leaked into the page as literal
+    // text, so a leftover fragment is exactly what they would report.
+    expect(textOnly('<div a=">">t')).toBe('t');
+    expect(textOnly('<span title="a > b">seen</span>')).toBe('seen');
+    expect(textOnly('<a href="x?y>z">link</a>')).toBe('link');
+  });
+
+  it('leaves no tag behind on a doubled opening bracket', () => {
+    // One pass over the quote-aware pattern leaves a literal `<script>`;
+    // repeating until the string stops changing removes it. This is the shape
+    // CodeQL flagged as incomplete sanitization.
+    expect(textOnly('<<script>script>alert')).toBe('alert');
+  });
+
+  it('leaves ordinary comparisons alone', () => {
+    expect(textOnly('a < b and c > d')).toBe('a < b and c > d');
   });
 });
