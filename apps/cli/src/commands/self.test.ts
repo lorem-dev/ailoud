@@ -176,7 +176,11 @@ describe('syncProjects', () => {
     class FlakyFs extends MemFs {
       armed = false;
       override async writeTextFile(path: string, content: string): Promise<void> {
-        if (this.armed && path === '/proj/b/CLAUDE.md') {
+        // `includes`, not `===`: the rules file is written to
+        // `<path>.<uuid>.tmp` and renamed over the target, so matching the
+        // target exactly would stop injecting the fault altogether and leave
+        // this test quietly asserting the happy path.
+        if (this.armed && path.includes('/proj/b/CLAUDE.md')) {
           throw new Error('EACCES: permission denied');
         }
         return super.writeTextFile(path, content);
@@ -297,7 +301,11 @@ describe('ailoud self sync (CLI)', () => {
     class FlakyFs extends MemFs {
       armed = false;
       override async writeTextFile(path: string, content: string): Promise<void> {
-        if (this.armed && path === '/proj/a/CLAUDE.md') {
+        // `includes`, not `===`: the rules file is written to
+        // `<path>.<uuid>.tmp` and renamed over the target, so matching the
+        // target exactly would stop injecting the fault altogether and leave
+        // this test quietly asserting the happy path.
+        if (this.armed && path.includes('/proj/a/CLAUDE.md')) {
           throw new Error('EACCES: permission denied');
         }
         return super.writeTextFile(path, content);
@@ -804,7 +812,9 @@ describe('a partial refresh must not be reported as a plain failure', () => {
   /** Rejects writes to one agent's rules file, leaving the other's to succeed. */
   class OneUnwritableAgent extends MemFs {
     override async writeTextFile(path: string, content: string): Promise<void> {
-      if (path.endsWith('GEMINI.md')) throw new Error('EROFS: read-only file system');
+      // `includes`, not `endsWith`: the write now goes to a temporary file
+      // beside the target, so an `endsWith` match injects nothing.
+      if (path.includes('GEMINI.md')) throw new Error('EROFS: read-only file system');
       return super.writeTextFile(path, content);
     }
   }
