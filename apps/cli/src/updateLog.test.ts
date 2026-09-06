@@ -106,3 +106,40 @@ describe('appendUpdateLog', () => {
     expect(lines).toContain('first process');
   });
 });
+
+describe('the append gives up rather than spinning forever', () => {
+  it('drops the line after a bounded number of lost races', async () => {
+    // The loop retries only on genuine contention, so hanging needs a
+    // continuous stream of rival writers -- implausible for a once-per-update
+    // diagnostic, and cheap to rule out entirely. A rival that ALWAYS commits
+    // between the re-read and the rename is what an unbounded loop could not
+    // survive.
+    //
+    // What this test proves, exactly: that the bound EXISTS, because it
+    // returns. It does NOT turn a regression into a clean failure --
+    // measured: with the bound removed this test HANGS, and vitest's
+    // per-test timeout does not preempt it, because the loop awaits only
+    // already-resolved promises and never yields to a timer. So if this ever
+    // hangs instead of failing, the bound is what went missing. Stated
+    // plainly because the first version of this comment claimed the timeout
+    // would catch it, and that was untrue.
+    class AlwaysLoses extends MemFs {
+      public reads = 0;
+      public override async readTextFile(path: string): Promise<string> {
+        this.reads += 1;
+        // Every second read -- the verification read -- reports different
+        // bytes, so the attempt always looks lost.
+        if (path.endsWith('update.log') && this.reads % 2 === 0) {
+          return `rival line ${this.reads}\n`;
+        }
+        return super.readTextFile(path).catch(() => '');
+      }
+      public override async exists(): Promise<boolean> {
+        return true;
+      }
+    }
+    const fs = new AlwaysLoses({});
+
+    await expect(appendUpdateLog({ fs, userDataDir: DATA_DIR }, 'mine')).resolves.toBeUndefined();
+  }, 5000);
+});

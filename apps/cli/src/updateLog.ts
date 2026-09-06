@@ -5,6 +5,9 @@ import type { Fs } from '@ailoud/core';
 const MAX_BYTES = 1024 * 1024; // 1 MB
 
 /** How many of the most recent lines survive a truncation. */
+/** How many times an append will retry a lost race before dropping the line. */
+const MAX_ATTEMPTS = 5;
+
 const MAX_LINES = 500;
 
 export interface UpdateLogDeps {
@@ -75,7 +78,15 @@ export async function appendUpdateLog(deps: UpdateLogDeps, line: string): Promis
   const path = updateLogPath(deps.userDataDir);
   await deps.fs.ensureDir(deps.userDataDir);
 
-  for (;;) {
+  // Bounded, deliberately. The loop only spins on genuine contention -- a
+  // persistent failure throws instead -- so an unbounded `for (;;)` needs a
+  // continuous stream of rival writers to hang, which a once-per-update
+  // diagnostic append will not see. Two lines is a cheap price for removing
+  // the possibility altogether, and dropping the line is the right answer on
+  // giving up: this file exists to explain what happened, and losing one
+  // entry is incomparably better than hanging the command that was writing
+  // it. The same rule the project registry follows.
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     const before = (await deps.fs.exists(path)) ? await deps.fs.readTextFile(path) : '';
     const appended = `${before}${line}\n`;
     const next =
@@ -104,4 +115,5 @@ export async function appendUpdateLog(deps: UpdateLogDeps, line: string): Promis
     await deps.fs.rename(tempPath, path);
     return;
   }
+  // Every attempt lost the race. Dropping the line is correct -- see above.
 }
