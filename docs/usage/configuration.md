@@ -159,6 +159,10 @@ Three states, not two:
 
 Exit codes: `0` ok, `1` failure, `2` usage, `3` environment.
 
+A corrupted file passes its check -- it still exists -- so `doctor` cannot see
+the problem. `ailoud setup --force` reinstalls everything regardless of what
+the checks say, ffmpeg through every model, for exactly that case.
+
 ## Concurrency
 
 `setup` and `doctor --fix` take a lock on the data directory, so two runs

@@ -180,10 +180,19 @@ ailoud doctor [--fix] [--yes] [--model <name>] [--llm <choice>] [--llm-model <id
 ## setup
 
 ```
-ailoud setup [--yes] [--model <name>] [--llm <choice>] [--llm-model <id>]
+ailoud setup [--yes] [--model <name>] [--force] [--llm <choice>] [--llm-model <id>]
 ```
 
 `--llm` is one of `local`, `claude-cli`, `claude-api`, `openai`, `skip`.
+
+`--model <name>` switches the transcription model even when the configured
+one is already healthy -- naming a different model is enough, `--force` is
+not required. The old model file is never deleted; `setup` prints its path so
+you can remove it by hand.
+
+`--force` reinstalls everything ailoud needs -- ffmpeg, whisper.cpp, every
+model -- even when every check already passes. Use it to replace a corrupted
+file `doctor` cannot see is broken.
 
 ## Exit codes
 

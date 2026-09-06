@@ -40,6 +40,10 @@ For an unattended run:
 ailoud setup --yes --llm local
 ```
 
+Downloads `small` by default. `--model medium` switches later, and `--force`
+reinstalls everything even on a machine that already checks out fine -- see
+the [CLI reference](usage/cli.md#setup) for both.
+
 `setup` asks which language model to use for summaries. Pick one:
 
 | Choice       | Needs                                                                 |
