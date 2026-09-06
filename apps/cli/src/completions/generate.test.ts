@@ -81,4 +81,34 @@ describe('renderCompletions', () => {
     const b = renderCompletions('bash', describeTree(sample()));
     expect(a).toBe(b);
   });
+
+  it('gives fish one condition per ancestor, so two parents nesting the same child name stay distinct', () => {
+    // `self completions` and `other completions` both nest a subcommand
+    // named `completions`. A condition that named only the immediate parent
+    // would read `__fish_seen_subcommand_from completions` for both, so
+    // `ailoud other completions <TAB>` would offer `self completions`'s
+    // children (`install`, `uninstall`) alongside its own (`foo`).
+    const program = new Command().name('ailoud');
+    const self = program.command('self').description('self management');
+    const selfCompletions = self.command('completions').description('shell completions');
+    selfCompletions.command('install').description('install them');
+    selfCompletions.command('uninstall').description('remove them');
+    const other = program.command('other').description('other things');
+    const otherCompletions = other.command('completions').description('other completions');
+    otherCompletions.command('foo').description('do foo');
+
+    const script = renderCompletions('fish', describeTree(program));
+    const lines = script.split('\n');
+    const conditionsFor = (name: string): string => {
+      const line = lines.find((l) => l.includes(`-a '${name}'`));
+      expect(line).toBeDefined();
+      return line!.slice(0, line!.indexOf(" -a '"));
+    };
+
+    const install = conditionsFor('install');
+    const foo = conditionsFor('foo');
+    expect(install).not.toBe(foo);
+    expect(install).toContain('__fish_seen_subcommand_from self');
+    expect(foo).toContain('__fish_seen_subcommand_from other');
+  });
 });

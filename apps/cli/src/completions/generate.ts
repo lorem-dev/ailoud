@@ -132,14 +132,18 @@ function renderFish(tree: CommandNode): string {
   const lines = ['complete -c ailoud -f'];
   for (const { path, node } of paths(tree)) {
     for (const child of node.children) {
-      const condition =
+      // Fish ANDs multiple `-n` flags, so a completion three levels deep
+      // needs one flag per ancestor segment, not just the last. Naming only
+      // the last segment let two unrelated parents that both nest a
+      // same-named child -- `self completions` and `other completions` --
+      // share one condition, so `ailoud other completions <TAB>` offered
+      // `self completions`'s children too.
+      const flags =
         path.length === 0
-          ? '__fish_use_subcommand'
-          : `__fish_seen_subcommand_from ${path[path.length - 1]}`;
+          ? "-n '__fish_use_subcommand'"
+          : path.map((segment) => `-n '__fish_seen_subcommand_from ${segment}'`).join(' ');
       for (const name of [child.name, ...child.aliases]) {
-        lines.push(
-          `complete -c ailoud -n '${condition}' -a '${name}' -d '${quote(child.description)}'`,
-        );
+        lines.push(`complete -c ailoud ${flags} -a '${name}' -d '${quote(child.description)}'`);
       }
     }
   }
