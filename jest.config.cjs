@@ -54,6 +54,7 @@ module.exports = {
       testMatch: [
         '<rootDir>/e2e/tests/mcp-install.spec.ts',
         '<rootDir>/e2e/tests/self-update.spec.ts',
+        '<rootDir>/e2e/tests/setup.spec.ts',
       ],
     },
     {
@@ -63,6 +64,7 @@ module.exports = {
       testPathIgnorePatterns: [
         '<rootDir>/e2e/tests/mcp-install\\.spec\\.ts',
         '<rootDir>/e2e/tests/self-update\\.spec\\.ts',
+        '<rootDir>/e2e/tests/setup\\.spec\\.ts',
       ],
     },
   ],
