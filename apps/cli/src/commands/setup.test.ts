@@ -1598,6 +1598,41 @@ describe('runProvisioning', () => {
       expect(downloadedUrls.some((url) => url.includes('ggml-medium.bin'))).toBe(true);
       expect(downloadedUrls.some((url) => url.includes('ggml-small.bin'))).toBe(false);
     });
+
+    it('keeps an unrecognized configured model alone, and says why, instead of silently switching to the default', async () => {
+      // The regression this guards: someone who built whisper.cpp themselves
+      // and pointed stt.whisperCpp.model at their own file -- exactly the
+      // person likely to reach for --force after a corrupt download. There is
+      // no catalogue name for that path, and falling back to "small" would
+      // replace it without being asked, the same silent-switch failure the
+      // test above exists for.
+      const customModelPath = join(tmp, 'my-own-whisper-build.bin');
+      await writeFile(customModelPath, 'a hand-built model', 'utf8');
+      const ctx = provisioningContext({
+        ...badConfig,
+        stt: {
+          ...badConfig.stt,
+          whisperCpp: { ...badConfig.stt.whisperCpp, model: customModelPath },
+        },
+      });
+      const checks: readonly Check[] = [
+        {
+          name: 'whisper model',
+          ok: true,
+          detail: customModelPath,
+          remedy: { kind: 'download-model', slot: 'transcription' },
+        },
+      ];
+
+      await expect(
+        runProvisioning(ctx, { yes: true, force: true }, checks, 'linux'),
+      ).resolves.toBeUndefined();
+
+      expect(providers.downloadFile).not.toHaveBeenCalled();
+      const output = ctx.lines.join('\n');
+      expect(output).toContain(customModelPath);
+      expect(output).toMatch(/does not match any ailoud catalogue name/);
+    });
   });
 
   describe('switching models', () => {
@@ -1734,6 +1769,46 @@ describe('runProvisioning', () => {
 
       expect(providers.downloadFile).not.toHaveBeenCalled();
       expect(ctx.lines.at(-1)).toBe('Everything ailoud needs is already in place.');
+    });
+  });
+
+  describe('an unknown --model is rejected before "nothing to fix" can hide it', () => {
+    // The regression this guards: chooseModel/resolveModelName -- where
+    // --model is actually validated -- is only ever reached once remedies is
+    // non-empty. On an all-green machine remedies was empty regardless of
+    // --model, so an unknown name exited 0 with "Everything ailoud needs is
+    // already in place" instead of ever being rejected.
+    const allGreenChecks: readonly Check[] = [{ name: 'database', ok: true, detail: 'fine' }];
+
+    it('doctor --fix --model <invalid> raises UsageError even when nothing else needs fixing', async () => {
+      const ctx = provisioningContext(context().config);
+
+      await expect(
+        runProvisioning(
+          ctx,
+          { yes: true, model: 'ailoud-test-no-such-model' },
+          allGreenChecks,
+          'linux',
+          'doctor',
+        ),
+      ).rejects.toThrow(UsageError);
+
+      expect(ctx.lines).not.toContain('Everything ailoud needs is already in place.');
+    });
+
+    it('setup --model <invalid> raises UsageError even when nothing else needs fixing', async () => {
+      const ctx = provisioningContext(context().config);
+
+      await expect(
+        runProvisioning(
+          ctx,
+          { yes: true, model: 'ailoud-test-no-such-model' },
+          allGreenChecks,
+          'linux',
+        ),
+      ).rejects.toThrow(UsageError);
+
+      expect(ctx.lines).not.toContain('Everything ailoud needs is already in place.');
     });
   });
 

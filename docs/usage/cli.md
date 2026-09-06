@@ -191,7 +191,10 @@ configured one is already healthy -- naming a different model is enough,
 names what a genuinely missing model downloads as, same as before.) The old
 model file is never deleted; `setup` prints its path so you can remove it by
 hand. With no `--model` at all, `--force` reinstalls whatever is already
-configured -- it never downgrades to the default `small`.
+configured -- it never downgrades to the default `small`. If the configured
+file matches no catalogue name (e.g. a whisper.cpp build of your own), it is
+left alone instead, with a note saying so; pass `--model <name>` to move to a
+catalogue model.
 
 `--force` reinstalls everything ailoud needs, even when every check already
 passes: ffmpeg, whisper.cpp, every whisper model. Use it to replace a

@@ -609,6 +609,19 @@ export async function runProvisioning(
     );
   }
 
+  // Validated here, unconditionally, rather than left to chooseModel further
+  // down: that call is never reached when remedies end up empty, which on an
+  // all-green machine used to mean an unknown --model exited 0 with
+  // "Everything ailoud needs is already in place" instead of ever being
+  // rejected -- a typo must fail the same way regardless of what else is or
+  // is not broken. resolveModelName already owns this validation (round 1's
+  // note not to duplicate it still applies); called here only for the
+  // UsageError it throws on a bad name -- `interactive: false` is inert
+  // because the validating branch returns before touching it.
+  if (options.model !== undefined) {
+    await resolveModelName({ model: options.model, interactive: false });
+  }
+
   const interactive = isInteractive(process.env, process.stdin.isTTY === true);
   // The path `--model` would replace, read before anything downloads: it is
   // both what decides `switchingModel` below and, after a successful switch,
@@ -636,7 +649,39 @@ export async function runProvisioning(
     commandName,
     note: (message) => context.ui.note(message),
   });
-  const remedies = remediesForChoice(collected, llmChoice);
+  let remedies = remediesForChoice(collected, llmChoice);
+
+  // `--force` with no --model, on a transcription model that already exists
+  // but matches no catalogue entry -- someone who built whisper.cpp
+  // themselves and pointed `stt.whisperCpp.model` at their own file, exactly
+  // the person likely to reach for `--force` after a corrupt download. There
+  // is no catalogue name to redownload it AS, and guessing the project
+  // default would silently replace a model the user chose on purpose -- the
+  // same silent-switch failure `configuredModelName` was added to prevent
+  // for --model itself. `transcriptionCheck.ok` is the guard that scopes
+  // this to force's widening specifically: a check that is genuinely
+  // failing (missing or corrupted) still needs *something* downloaded, and
+  // "small" for an unrecognized path is the same fallback --model has always
+  // had in that case -- untouched here, unrelated to what --force just
+  // widened in.
+  const transcriptionCheck = checks.find(
+    (check) => check.remedy?.kind === 'download-model' && check.remedy.slot === 'transcription',
+  );
+  const unrecognizedForcedModel =
+    options.model === undefined &&
+    transcriptionCheck?.ok === true &&
+    configuredModel !== null &&
+    configuredModelName(configuredModel) === undefined &&
+    transcriptionCheck.remedy !== undefined &&
+    remedies.includes(transcriptionCheck.remedy);
+  if (unrecognizedForcedModel) {
+    context.ui.note(
+      `Keeping the transcription model already configured at ${configuredModel} -- it does not ` +
+        'match any ailoud catalogue name, so there is nothing to reinstall it as. Pass ' +
+        '--model <name> to switch to a catalogue model instead.',
+    );
+    remedies = remedies.filter((remedy) => remedy !== transcriptionCheck.remedy);
+  }
 
   if (remedies.length === 0) {
     // "Nothing to fix" and "nothing FIXABLE to fix" are different answers,
