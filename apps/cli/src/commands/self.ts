@@ -83,7 +83,7 @@ export function registerSelfCheck(parent: Command, context: CliContext): void {
           context.write(JSON.stringify(result));
           return;
         }
-        context.write(
+        context.ui.content(
           result.target === null
             ? `ailoud ${result.current} is already the newest published version.`
             : `ailoud ${result.current} can update to ${result.target}.`,
@@ -258,11 +258,11 @@ export function registerSelfSync(parent: Command, context: CliContext): void {
         });
 
         if (report.rows.length === 0) {
-          context.write('No projects registered yet.');
+          context.ui.content('No projects registered yet.');
           return;
         }
         for (const row of report.rows) {
-          context.write(`${row.status}: ${row.path}`);
+          context.ui.content(`${row.status}: ${row.path}`);
         }
         if (report.failed) {
           throw new FailureError(
@@ -425,7 +425,7 @@ export async function updateSelf(deps: SelfUpdateDeps, options: SelfUpdateOption
 
   const result = await checkForUpdate(context);
   if (result.target === null) {
-    context.write(`ailoud ${result.current} is already the newest version you can update to`);
+    context.ui.content(`ailoud ${result.current} is already the newest version you can update to`);
     return;
   }
   const target = result.target;
@@ -442,7 +442,7 @@ export async function updateSelf(deps: SelfUpdateDeps, options: SelfUpdateOption
   // `method.kind` rather than by `installCommandFor(...) === null`, so
   // TypeScript knows `method.hint` exists on every branch that reads it.
   if (method.kind === 'npx' || method.kind === 'project' || method.kind === 'unknown') {
-    context.write(method.hint);
+    context.ui.content(method.hint);
     if (options.force === true) {
       // A refusal is information; a forced update that cannot happen is an
       // error, because --force asked for a guarantee this install method
@@ -472,17 +472,17 @@ export async function updateSelf(deps: SelfUpdateDeps, options: SelfUpdateOption
     userDataDir: context.paths.userDataDir,
   });
 
-  context.write(`Current version: ${result.current}`);
-  context.write(`Target version: ${target}`);
-  context.write(`Install command: ${command.join(' ')}`);
-  context.write(
+  context.ui.content(`Current version: ${result.current}`);
+  context.ui.content(`Target version: ${target}`);
+  context.ui.content(`Install command: ${command.join(' ')}`);
+  context.ui.content(
     projects.length === 0
       ? 'No registered projects to refresh.'
       : `${projects.length} registered project${projects.length === 1 ? '' : 's'} will have their rules refreshed.`,
   );
 
   if (options.dryRun === true) {
-    context.write('Dry run: nothing was changed.');
+    context.ui.content('Dry run: nothing was changed.');
     return;
   }
 
@@ -496,7 +496,7 @@ export async function updateSelf(deps: SelfUpdateDeps, options: SelfUpdateOption
     const confirmImpl = deps.confirmImpl ?? defaultConfirm;
     const consented = await confirmImpl(`Install ailoud ${target}?`);
     if (!consented) {
-      context.write('Nothing was changed.');
+      context.ui.content('Nothing was changed.');
       return;
     }
   }
@@ -517,8 +517,8 @@ export async function updateSelf(deps: SelfUpdateDeps, options: SelfUpdateOption
       // runInteractive does, so it has to be printed after the fact -- this
       // is the only way whoever (or whatever) is watching a --force,
       // no-terminal run sees what the manager actually did.
-      if (bounded.stdout.length > 0) context.write(bounded.stdout);
-      if (bounded.stderr.length > 0) context.write(bounded.stderr);
+      if (bounded.stdout.length > 0) context.ui.content(bounded.stdout);
+      if (bounded.stderr.length > 0) context.ui.content(bounded.stderr);
       code = bounded.code;
     }
   } catch (error) {
@@ -534,7 +534,7 @@ export async function updateSelf(deps: SelfUpdateDeps, options: SelfUpdateOption
     throw new FailureError(`ailoud self update: "${command.join(' ')}" exited with code ${code}`);
   }
   await logUpdateAction(context, `installed ${target}`);
-  context.write(`ailoud updated to ${target}.`);
+  context.ui.content(`ailoud updated to ${target}.`);
 
   // The NEW binary, as a fresh subprocess -- never this one. See this
   // function's own doc comment for why that is not optional, and for why the
@@ -542,8 +542,8 @@ export async function updateSelf(deps: SelfUpdateDeps, options: SelfUpdateOption
   const sweep = await sweepCommandFor(method, deps.execPath, deps.run);
   const sweepCommand = sweep?.[0];
   if (sweep === null || sweepCommand === undefined) {
-    context.write('Could not determine the command to refresh rules automatically.');
-    context.write('Run it by hand: ailoud self sync');
+    context.ui.content('Could not determine the command to refresh rules automatically.');
+    context.ui.content('Run it by hand: ailoud self sync');
     return;
   }
   const sweepArgs = sweep.slice(1);
@@ -551,8 +551,8 @@ export async function updateSelf(deps: SelfUpdateDeps, options: SelfUpdateOption
     await deps.spawn(sweepCommand, sweepArgs);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    context.write(`Could not run "ailoud self sync" automatically (${reason}).`);
-    context.write('Run it by hand: ailoud self sync');
+    context.ui.content(`Could not run "ailoud self sync" automatically (${reason}).`);
+    context.ui.content('Run it by hand: ailoud self sync');
   }
 }
 
