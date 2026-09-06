@@ -113,8 +113,6 @@ ailoud audio ls --tag release
 ailoud audio ls --tag release --tag backend   # both, not either
 ```
 
-Several tags narrow. A recording must carry all of them.
-
 ## Titles and notes
 
 ```

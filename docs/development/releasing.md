@@ -89,12 +89,10 @@ mints a short-lived OIDC token for the run, npm exchanges it for a credential
 good for minutes, and provenance is attached automatically. Nothing long-lived
 is stored, so there is no 90-day expiry to renew.
 
-Except once, per package. A trusted publisher is attached to a package on
-npmjs.com, and there is no page to attach it to until the package exists, so
-the first version of each has to go out on a token in the `NPM_TOKEN` secret --
-npm answers `ENEEDAUTH` without one however complete the OIDC setup is. The
-workflow uses the secret when it is present and OIDC when it is not, so
-deleting the secret is the whole of the switch.
+Except once, per package: a trusted publisher cannot be attached to a package
+that does not exist yet, so the first version of each goes out on a token in
+the `NPM_TOKEN` secret. The workflow uses the secret when present and OIDC when
+not, so deleting the secret is the whole of the switch.
 
 It will not let that drift: a **pre-release** published on the token logs a
 warning, and a **final release** with the secret still set fails before
@@ -145,11 +143,8 @@ and deletes the tags -- but only those whose commit is reachable from `main`,
 because the published provenance attests that commit. The rest are reported and
 left in place.
 
-This is a manual step, run under `npm login`. Automating it was tried and does
-not work: trusted publishing authenticates `npm publish` and nothing else. The
-OIDC exchange succeeds, but the token it returns is refused by `npm deprecate`
--- `E404 ... or you do not have permission`, then `E401 ... token is invalid`
-on every call after. Measured on the 1.0.0 release.
+This is a manual step, run under `npm login`: trusted publishing authenticates
+`npm publish` and nothing else, so the token it returns cannot deprecate.
 
 If the npm side does not complete, the script leaves the tags alone and exits
 non-zero. The tags are what name which pre-releases to retire, so deleting them
@@ -164,9 +159,6 @@ runs on its completion and publishes the documentation for that version to the
 `latest` alias that the site root redirects to. `publish.yml` also creates the
 GitHub release, with the body taken from the `## Version <version>` section of
 CHANGES.md by `scripts/release-notes.mjs`.
-
-The order matters: the two used to start together on the tag push, so a publish
-that then refused left the site advertising a version npm did not have.
 
 Nothing else publishes documentation. A push to a branch publishes nothing, so
 what is online always describes a version someone can install.
