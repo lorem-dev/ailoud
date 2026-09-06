@@ -64,9 +64,10 @@ node scripts/eval-summary-prompt.mjs --runs 3
 node scripts/eval-summary-prompt.mjs --models haiku --cases one-on-one
 ```
 
-The prompt is measured, not guessed. Each variant runs three times over seven
+The prompt is measured, not guessed. Each variant runs three times over eight
 transcripts -- English, Russian, code-switched, long, multi-recording,
-undiarized, and a language override -- across haiku, sonnet and opus. Every run
+one-on-one, undiarized, and a language override -- across haiku, sonnet and
+opus. Every run
 is scored for stated facts, invented facts, language and length.
 
 Change the prompt or a template's headings, then re-run it. The previous

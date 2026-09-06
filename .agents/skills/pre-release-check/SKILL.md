@@ -126,6 +126,6 @@ pnpm retire <version>                             # prints the plan
 NPM_TOKEN=npm_... pnpm retire <version> --yes      # carries it out
 ```
 
-It deprecates the `<version>-dev.*` snapshots on npm, moves the `dev` dist-tag
+It deprecates the `<version>-dev.*` and `<version>-rc.*` snapshots on npm, moves the `dev` dist-tag
 onto the release, and deletes the superseded tags. Until it runs, someone
 installing `ailoud@dev` gets an older build than `ailoud`.

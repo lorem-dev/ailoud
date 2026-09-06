@@ -75,7 +75,8 @@ v1.2.3` writes them to `RELEASE_NOTES.md`. The release itself does not need
    NPM_TOKEN=npm_... pnpm retire 1.2.3 --yes     # carries it out
    ```
 
-   Deprecates every `1.2.3-dev.*`, moves the `dev` dist-tag onto the release,
+   Deprecates every pre-release of that version -- `1.2.3-dev.*` and
+   `1.2.3-rc.*` alike -- moves the `dev` dist-tag onto the release,
    and deletes the tags. See "Retiring pre-releases" below.
 
 ## Publishing to npm
