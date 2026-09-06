@@ -1,4 +1,4 @@
-import { isCancel, multiselect, select } from '@clack/prompts';
+import { confirm, isCancel, multiselect, select } from '@clack/prompts';
 import type { Command } from 'commander';
 import { UsageError } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
@@ -11,10 +11,12 @@ import { isInteractive } from './setup.js';
 import { rememberProject } from '../projects.js';
 import { VERSION } from '../version.js';
 
-interface Options {
+export interface Options {
   readonly target?: string;
   readonly location?: string;
   readonly yes?: boolean;
+  /** Set by --allow-shell, cleared by --no-allow-shell, absent when neither was given. */
+  readonly allowShell?: boolean;
 }
 
 function parseScope(raw: string): Scope {
@@ -97,16 +99,50 @@ async function askScope(agents: readonly AgentTarget[]): Promise<Scope> {
   return parseScope(String(answer));
 }
 
+/** The chosen agents that have a command allow-list at all. */
+export function allowShellAgents(agents: readonly AgentTarget[]): readonly AgentTarget[] {
+  return agents.filter((agent) => agent.permission !== undefined);
+}
+
+/**
+ * Whether to add `ailoud` to the chosen agents' allow-lists.
+ *
+ * `--yes` alone answers no. It means "do not prompt", and resolving a
+ * permission question nobody was asked as yes would widen an agent's
+ * privileges in CI on the strength of a flag that says nothing about
+ * permissions. `-y --allow-shell` is how to ask for it without a prompt.
+ */
+export async function resolveAllowShell(
+  options: Options,
+  interactive: boolean,
+  agents: readonly AgentTarget[],
+): Promise<boolean> {
+  if (options.allowShell !== undefined) return options.allowShell;
+  if (!interactive) return false;
+  if (allowShellAgents(agents).length === 0) return false;
+  const answer = await confirm({
+    message: `Let these agents run "ailoud" without asking each time?`,
+    initialValue: true,
+  });
+  if (isCancel(answer)) throw new UsageError('mcp install cancelled');
+  return answer;
+}
+
 /**
  * One line for a file a `mcp install`/`uninstall`/`update` action touched (or
  * left alone). `created` and `updated` actually changed something on disk, so
- * they are marked as successes; the rest -- `unchanged`, `removed`, `cleaned`,
- * `absent` -- are informational: true, but not an achievement.
+ * they are marked as successes; `skipped` is a warning -- the user asked for
+ * the allow-list entry and did not get it; the rest -- `unchanged`, `removed`,
+ * `cleaned`, `absent` -- are informational: true, but not an achievement.
  */
 function reportFile(context: CliContext, file: FileOutcome): void {
   const line = `${file.action.padEnd(9)} ${file.path}`;
   if (file.action === 'created' || file.action === 'updated') {
     context.ui.success(line);
+  } else if (file.action === 'skipped') {
+    // The user asked for something and did not get it, which is not the same
+    // as nothing needing doing.
+    context.ui.warn(`${line} (not valid JSON; left alone -- add the entry by hand)`);
   } else {
     context.ui.note(line);
   }
@@ -172,6 +208,8 @@ export function registerMcpInstall(parent: Command, context: CliContext): void {
     .option('-t, --target <ids>', `comma-separated agent ids, or "auto" or "all": ${agentIds()}`)
     .option('-l, --location <where>', '"global" or "local"')
     .option('-y, --yes', 'no prompts: --location=global --target=auto')
+    .option('--allow-shell', 'pre-approve running "ailoud" in the agents\' allow-lists')
+    .option('--no-allow-shell', "do not touch the agents' allow-lists")
     .action(async (options: Options) => {
       await context.ui.frame('Installing MCP', async () => {
         const interactive =
@@ -207,13 +245,30 @@ export function registerMcpInstall(parent: Command, context: CliContext): void {
           reportFile(context, library);
         }
 
-        // TODO: wire up the resolved --allow-shell value in place of this placeholder.
+        // Both the listing below and the question resolveAllowShell asks
+        // must agree on which agents are involved, so both read from this
+        // one call rather than filtering the chosen agents twice.
+        const chosenAgents = [...inScope, ...forcedGlobal];
+        const permissioned = allowShellAgents(chosenAgents);
+
+        // The exact files and entries, before the question rather than after
+        // it: "allow ailoud" is not something a user can weigh without
+        // knowing which of their configuration files it edits.
+        if (options.allowShell === undefined && interactive && permissioned.length > 0) {
+          context.ui.note('The allow-list entry would be added to:');
+          for (const agent of permissioned) {
+            const at = agent.scopes.includes(scope) ? scope : 'global';
+            context.ui.note(`  ${agent.label}: ${agent.permission!.path(at, home(), cwd())}`);
+          }
+        }
+        const allowShell = await resolveAllowShell(options, interactive, chosenAgents);
+
         for (const agent of inScope) {
-          outcomes.push(await install(context.fs, agent, scope, home(), cwd(), false));
+          outcomes.push(await install(context.fs, agent, scope, home(), cwd(), allowShell));
         }
         for (const agent of forcedGlobal) {
           context.ui.note(`${agent.label} reads no per-project config; configuring it globally.`);
-          outcomes.push(await install(context.fs, agent, 'global', home(), cwd(), false));
+          outcomes.push(await install(context.fs, agent, 'global', home(), cwd(), allowShell));
         }
 
         // Only once rules were actually written locally: a run that only
