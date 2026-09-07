@@ -89,10 +89,31 @@ export const SHELL_TARGETS: readonly ShellTarget[] = [
     scriptPath: (_home, _configHome, userDataDir) => join(userDataDir, 'completions', '_ailoud'),
     rcPath: (home) => join(home, '.zshrc'),
     // zsh completions are functions named `_ailoud`, found via `fpath` rather
-    // than sourced directly; compinit is what makes zsh look them up at all.
+    // than sourced directly; the completion system is what makes zsh look them
+    // up at all.
+    //
+    // Two branches, because adding to `fpath` after compinit has already run
+    // registers nothing -- compinit scans `fpath` once and builds `_comps` from
+    // what it finds. `_comps` set is therefore the reliable "someone already
+    // ran compinit" signal (oh-my-zsh and prezto both do, before the end of
+    // .zshrc where this block lands), and in that case `compdef` registers the
+    // one function directly instead of re-running compinit and rebuilding a
+    // table of ~1700 entries for a single addition.
+    //
+    // `compinit -i`, never `-u`. `-u` means "use every insecure directory in
+    // fpath without asking", which silently re-enables completion files zsh was
+    // deliberately refusing -- a Homebrew user with a group-writable
+    // /opt/homebrew/share/zsh/site-functions would start sourcing every `_*`
+    // file there at each shell start because ailoud edited their .zshrc. `-i`
+    // reaches the same goal (never prompt during startup) by skipping the
+    // insecure directories instead of trusting them.
     rcBlockBody: (scriptPath) => [
       `fpath=("${dirname(scriptPath)}" $fpath)`,
-      'autoload -Uz compinit && compinit -u',
+      'if (( ${+_comps} )); then',
+      '  autoload -Uz _ailoud && compdef _ailoud ailoud',
+      'else',
+      '  autoload -Uz compinit && compinit -i',
+      'fi',
     ],
     detectPaths: (home) => [join(home, '.zshrc')],
   },

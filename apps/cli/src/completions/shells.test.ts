@@ -34,6 +34,29 @@ describe('shell targets', () => {
     expect(body).toContain('compinit');
   });
 
+  it('never writes compinit -u, which would trust every insecure fpath directory', () => {
+    // `-u` tells compinit to load completion functions from every
+    // group-writable directory in fpath instead of refusing them. A Homebrew
+    // user with a group-writable /opt/homebrew/share/zsh/site-functions would
+    // start sourcing every `_*` file there at each shell start, because ailoud
+    // edited their .zshrc. `-i` skips those directories and still never
+    // prompts, which is all the block needed.
+    const body = findShell('zsh')!.rcBlockBody(`${DATA}/completions/_ailoud`).join('\n');
+    expect(body).toContain('compinit -i');
+    expect(body).not.toContain('compinit -u');
+  });
+
+  it('re-runs compinit only when nothing else already did', () => {
+    // oh-my-zsh and prezto run compinit before the end of .zshrc, where this
+    // block lands. Re-running it there rebuilds a table of ~1700 entries to
+    // add one; `compdef` registers the single function instead. The branch is
+    // needed at all because adding to fpath after compinit has run registers
+    // nothing -- compinit reads fpath once.
+    const body = findShell('zsh')!.rcBlockBody(`${DATA}/completions/_ailoud`).join('\n');
+    expect(body).toContain('${+_comps}');
+    expect(body).toContain('compdef _ailoud ailoud');
+  });
+
   it('sources the bash script from .bashrc', () => {
     const bash = findShell('bash')!;
     expect(bash.rcPath(HOME)).toBe(`${HOME}/.bashrc`);
