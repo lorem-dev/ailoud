@@ -714,4 +714,26 @@ describe('transcribeRecording progress', () => {
     // The throw did not skip a slice's finally-cleanup either.
     expect(d.fs.files.size).toBeLessThanOrEqual(filesBefore);
   });
+
+  it('still produces a transcript when the sink returns a rejected promise', async () => {
+    // TranscribeDeps.onProgress is typed `() => void`, but TypeScript assigns
+    // an async function to a void-returning type without complaint (see the
+    // report() doc comment), so this is reachable despite the type. report()'s
+    // synchronous try/catch cannot see a rejection that arrives after the
+    // call already returned -- only report()'s explicit thenable guard does.
+    // Without that guard this rejection would be unhandled: vitest fails a
+    // run on an unhandled rejection, which is what makes the guard's absence
+    // observable here rather than merely theoretical.
+    const transcript = await transcribeRecording(
+      {
+        ...deps(),
+        onProgress: async () => {
+          throw new Error('sink rejected asynchronously');
+        },
+      },
+      recording,
+      {},
+    );
+    expect(transcript.id).toBeDefined();
+  });
 });

@@ -95,10 +95,30 @@ export interface TranscribeOptions {
  * The try is the whole point of the function existing. Every emitter in this
  * file goes through it, so "a progress sink cannot break a transcription" is
  * true by structure rather than by everyone remembering to wrap their call.
+ * It absorbs both a synchronous throw and, via the guard below, a rejected
+ * promise from a sink that ignored `OnProgress`'s "should be synchronous".
  */
 function report(deps: TranscribeDeps, stage: string, fraction?: number): void {
   try {
-    deps.onProgress?.({ stage, ...(fraction === undefined ? {} : { fraction }) });
+    const returned: unknown = deps.onProgress?.({
+      stage,
+      ...(fraction === undefined ? {} : { fraction }),
+    });
+    // `OnProgress` returns void, but TypeScript assigns `() => Promise<void>`
+    // to `() => void` without complaint, and this project does not enable
+    // no-misused-promises. So an async sink is reachable, and its rejection
+    // would surface as an unhandled rejection -- which on Node can end the
+    // process in the middle of an hour of transcription. The synchronous
+    // catch below cannot see that, so the thenable is swallowed here.
+    if (
+      typeof returned === 'object' &&
+      returned !== null &&
+      typeof (returned as { readonly then?: unknown }).then === 'function'
+    ) {
+      void (returned as Promise<unknown>).catch(() => {
+        // Same reason as the catch below. Deliberately empty.
+      });
+    }
   } catch {
     // See the doc comment. Deliberately empty.
   }

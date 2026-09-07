@@ -17,8 +17,13 @@ export interface ProgressEvent {
  * decides whether it becomes a spinner, a file, or nothing at all -- the
  * same arrangement `TranscribeDeps.onWarning` already uses.
  *
- * An implementation must not throw. Callers guard it anyway, because the
- * rule that a progress failure never costs a transcription has to hold by
- * structure rather than by trust.
+ * An implementation must not throw, and should be synchronous. Callers guard
+ * it anyway, because the rule that a progress failure never costs a
+ * transcription has to hold by structure rather than by trust: TypeScript
+ * assigns an `async` function to this `void`-returning type without
+ * complaint, so nothing here stops a sink from returning a promise. If one
+ * does, its rejection is swallowed rather than left to surface as an
+ * unhandled rejection -- a deliberate belt-and-braces measure against a
+ * hazard the type alone does not rule out.
  */
 export type OnProgress = (event: ProgressEvent) => void;
