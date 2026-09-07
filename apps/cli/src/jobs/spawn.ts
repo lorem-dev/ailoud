@@ -22,19 +22,28 @@ export function buildDetachedArgs(commandArgs: readonly string[], jobId: string)
 }
 
 /**
- * Best-effort: overwrites only `pid` and `error` on whatever the job's state
- * file actually holds at the moment this runs, not on the `job` snapshot
+ * Best-effort: overwrites only `pid` on whatever the job's state file
+ * actually holds at the moment this runs, not on the `job` snapshot
  * `createJob` handed back.
  *
  * That snapshot is stale by construction -- it is a picture of `percent: 0,
  * stage: 'starting'` from before the child had done anything. The child
  * claims its own pid on load too (see loadJob.ts) and starts reporting real
  * progress immediately; if that lands before this correction does, spreading
- * the stale `job` over the current file (`{ ...job, pid, error: null }`)
- * would silently walk `percent` and `stage` back to zero under real progress
- * already written. Reading the current state first and touching only the
- * two fields this correction is actually about avoids that regression
- * entirely, whichever of the two writers landed last.
+ * the stale `job` over the current file (`{ ...job, pid }`) would silently
+ * walk `percent` and `stage` back to zero under real progress already
+ * written. Reading the current state first and touching only the field this
+ * correction is actually about avoids that regression entirely, whichever of
+ * the two writers landed last.
+ *
+ * Does NOT touch `error`. An earlier version also wrote `error: null` here,
+ * on the theory that a stale pid could make `withLiveness` misreport a live
+ * job as failed. That is true, but clearing `error` unconditionally would
+ * just as readily erase a genuine failure the child had already written
+ * before this correction lands -- `finish()` and `fail()` already clear
+ * `error` on their own way to a terminal state (see JobReporter), which is
+ * the right place for that, not a pid correction that runs at most once,
+ * best-effort, right after spawn.
  */
 async function correctPid(
   deps: { readonly fs: Fs; readonly jobsDir: string },
@@ -43,15 +52,14 @@ async function correctPid(
 ): Promise<void> {
   try {
     const current = (await readJobState(deps.fs, deps.jobsDir, job.id)) ?? job;
-    await writeJobState(deps.fs, deps.jobsDir, { ...current, pid, error: null });
+    await writeJobState(deps.fs, deps.jobsDir, { ...current, pid });
   } catch {
     // Best-effort, like every other write JobReporter makes: the child is
     // already running, detached, whether or not this correction lands.
-    // Losing it costs a poller a stale pid and a phantom "failed" until
-    // the job reaches finish() or fail() -- which now always clear
-    // `error` on the way to a terminal state, see JobReporter's own
-    // comment -- but it does not cost the transcription, and it must
-    // never be confused with the spawn itself having failed.
+    // Losing it costs a poller a stale pid and, transiently, a possible
+    // "failed" from withLiveness reading it -- but it does not cost the
+    // transcription, and it must never be confused with the spawn itself
+    // having failed.
   }
 }
 
