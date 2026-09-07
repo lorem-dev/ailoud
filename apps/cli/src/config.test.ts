@@ -76,7 +76,7 @@ describe('parseConfig', () => {
           segmentationModel: null,
           embeddingModel: null,
           threshold: 0.6,
-          threads: 4,
+          threads: null,
         },
       },
       llm: {
@@ -88,7 +88,7 @@ describe('parseConfig', () => {
           model: null,
           contextTokens: 8192,
           maxOutputTokens: 1024,
-          threads: 4,
+          threads: null,
         },
         openaiCompatible: {
           baseUrl: 'https://api.openai.com/v1',
@@ -107,6 +107,13 @@ describe('parseConfig', () => {
           model: 'sonnet',
           contextTokens: 200_000,
         },
+      },
+      resources: {
+        maxCpuPercent: 90,
+        gpu: true,
+      },
+      audio: {
+        denoise: 'auto',
       },
       update: {
         check: true,
@@ -175,7 +182,7 @@ describe('parseConfig', () => {
       segmentationModel: '/m/seg.onnx',
       embeddingModel: null,
       threshold: 0.6,
-      threads: 4,
+      threads: null,
     });
   });
 
@@ -188,7 +195,7 @@ describe('parseConfig', () => {
       segmentationModel: null,
       embeddingModel: null,
       threshold: 0.8,
-      threads: 4,
+      threads: null,
     });
   });
 
@@ -219,5 +226,46 @@ describe('parseConfig', () => {
 
   it('reports a YAML syntax error as a usage error', () => {
     expect(() => parseConfig('stt: [unclosed')).toThrow(/config/i);
+  });
+});
+
+describe('resource and audio configuration', () => {
+  it('defaults to 90 percent, the gpu on, and denoising on auto', () => {
+    const config = parseConfig('');
+    expect(config.resources).toEqual({ maxCpuPercent: 90, gpu: true });
+    expect(config.audio).toEqual({ denoise: 'auto' });
+  });
+
+  it('fills in the rest of a partially written resources block', () => {
+    // Zod 4's .default() short-circuits on a nested object and would drop
+    // `gpu` here; .prefault({}) re-parses and keeps the inner defaults. See
+    // the note at the top of config.ts.
+    const config = parseConfig('resources:\n  maxCpuPercent: 50\n');
+    expect(config.resources).toEqual({ maxCpuPercent: 50, gpu: true });
+  });
+
+  it.each([0, 101, -1, 3.5])('refuses a percent of %s', (percent) => {
+    expect(() => parseConfig(`resources:\n  maxCpuPercent: ${percent}\n`)).toThrow();
+  });
+
+  it('refuses an unknown denoise mode', () => {
+    expect(() => parseConfig('audio:\n  denoise: sometimes\n')).toThrow();
+  });
+
+  it.each(['auto', 'on', 'off'])('accepts the %s denoise mode', (mode) => {
+    expect(parseConfig(`audio:\n  denoise: ${mode}\n`).audio.denoise).toBe(mode);
+  });
+
+  it('leaves both thread overrides null by default, meaning follow the budget', () => {
+    const config = parseConfig('');
+    expect(config.stt.diarization.threads).toBeNull();
+    expect(config.llm.llamaCpp.threads).toBeNull();
+  });
+
+  it('keeps a thread count someone wrote down', () => {
+    // The reason the key stays nullable rather than being deleted: a user who
+    // measured their own machine outranks a constant measured on one laptop.
+    const config = parseConfig('stt:\n  diarization:\n    threads: 4\n');
+    expect(config.stt.diarization.threads).toBe(4);
   });
 });

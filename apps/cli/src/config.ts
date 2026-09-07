@@ -1,6 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import { EnvironmentError, LLM_PROVIDERS, UsageError } from '@ailoud/core';
+import { DENOISE_MODES, EnvironmentError, LLM_PROVIDERS, UsageError } from '@ailoud/core';
 
 // Zod 4's `.default()` short-circuits: when the key is missing it substitutes
 // the default value as-is, without re-running it through the inner schema.
@@ -27,16 +27,14 @@ export const ConfigSchema = z.object({
           segmentationModel: z.string().nullable().default(null),
           embeddingModel: z.string().nullable().default(null),
           threshold: z.number().default(0.6),
-          // Threads for both diarizer passes (segmentation and embedding).
-          // The binary itself defaults to 1, which halves the throughput the
-          // design measured and the README quotes: 16 s of audio in 2.58 s on
-          // one thread against 57 s in 5.19 s on four. Four is the default
-          // here because it is the configuration those numbers were taken on,
-          // and because any machine that can run a 465 MB whisper model has
-          // four cores. Configurable rather than baked into the adapter: a
-          // 2-core VM wants fewer, and a workstation transcribing a long
-          // meeting wants more.
-          threads: z.number().int().min(1).default(4),
+          /**
+           * Null means: follow the resource budget, which gives this engine a
+           * share capped below the ceiling because it has an optimum rather
+           * than a maximum (the curve is in sherpaDiarizer.ts). A number is a
+           * hard override, exempt from the cap -- someone who measured their
+           * own machine outranks a constant measured on one laptop.
+           */
+          threads: z.number().int().min(1).nullable().default(null),
         })
         .prefault({}),
     })
@@ -53,7 +51,8 @@ export const ConfigSchema = z.object({
           model: z.string().nullable().default(null),
           contextTokens: z.number().int().min(512).default(8192),
           maxOutputTokens: z.number().int().min(64).default(1024),
-          threads: z.number().int().min(1).default(4),
+          /** Null means: follow the resource budget. A number overrides it. */
+          threads: z.number().int().min(1).nullable().default(null),
         })
         .prefault({}),
       openaiCompatible: z
@@ -82,6 +81,32 @@ export const ConfigSchema = z.object({
           contextTokens: z.number().int().min(512).default(200_000),
         })
         .prefault({}),
+    })
+    .prefault({}),
+  resources: z
+    .object({
+      /**
+       * A ceiling, not a target. Every engine gets at most this share of the
+       * machine's performance cores; engines measured to slow down past a
+       * lower count get a capped share of it (see core/resources/budget.ts).
+       */
+      maxCpuPercent: z.number().int().min(1).max(100).default(90),
+      /**
+       * True adds no flag at all -- a homebrew whisper-cli already loads
+       * Metal on its own. False adds `-ng` where a binary has one.
+       */
+      gpu: z.boolean().default(true),
+    })
+    .prefault({}),
+  audio: z
+    .object({
+      /**
+       * `auto` measures the converted wav and denoises only when its
+       * signal-to-noise ratio is below the measured threshold. Five of this
+       * project's eight fixtures have no measurable noise floor at all and
+       * are never touched.
+       */
+      denoise: z.enum(DENOISE_MODES).default('auto'),
     })
     .prefault({}),
   update: z
