@@ -69,8 +69,9 @@ Six rules, in the order they matter:
 
    Both return a JOB ID instead of a result. Poll \`job_status\` with it -- a
    few minutes between calls is plenty, and polling faster does not make the
-   work finish sooner. The finished job carries the transcript ids, or the
-   report id to read with \`get_report\`.
+   work finish sooner. A finished transcribe job lists the recordings it
+   transcribed; a finished summarize job carries the report id to read with
+   \`get_report\`.
 
    \`transcribe\` will REFUSE until you say how many people speak and which
    languages to expect. That is not bureaucracy: whisper's detector answers

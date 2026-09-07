@@ -303,7 +303,7 @@ A finished `summarize` job's `result` carries a `reportId`; read it with
 
 ## How it behaves
 
-The server tells the agent four rules before its first call.
+The server tells the agent six rules before its first call.
 
 **Tag everything.** Tags are the only way to ask for "the recordings about this
 project". `list_recordings` flags untagged ones and counts them, and
@@ -320,6 +320,10 @@ needs with its own tools. The directory is removed when the server stops.
 **Context lives in the agent's memory.** `summarize` takes a short `context`;
 AILoud does not remember it between calls. The agent keeps it and passes it
 again.
+
+**Transcribing refuses without speakers and languages.** `transcribe` will
+not start until the agent declares both; see [Background
+jobs](#background-jobs) for the refusal itself and what it returns instead.
 
 ## Deleting takes two calls
 
