@@ -121,3 +121,13 @@ export {
 } from './summarize/templates.js';
 export type { SummaryTemplate } from './summarize/templates.js';
 export type { SummaryRequest, SummarySource } from './summarize/prompt.js';
+
+export type { ProgressEvent, OnProgress } from './progress/events.js';
+export type { StageWeight } from './progress/scale.js';
+export {
+  clampMonotonic,
+  multilingualStages,
+  singlePassStages,
+  stageScale,
+  weightedOverall,
+} from './progress/scale.js';
