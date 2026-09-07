@@ -175,22 +175,36 @@ function renderZsh(tree: CommandNode): string {
 }
 
 function renderFish(tree: CommandNode): string {
-  const lines = ['complete -c ailoud -f'];
+  const lines: string[] = ['complete -c ailoud -f'];
   for (const { path, node } of paths(tree)) {
+    // Fish ANDs multiple `-n` flags, so a completion three levels deep
+    // needs one flag per ancestor segment, not just the last. Naming only
+    // the last segment let two unrelated parents that both nest a
+    // same-named child -- `self completions` and `other completions` --
+    // share one condition, so `ailoud other completions <TAB>` offered
+    // `self completions`'s children too.
+    //
+    // The same condition covers this node's own options: reaching them means
+    // having typed the same segments that reaching its children does.
+    const flags =
+      path.length === 0
+        ? "-n '__fish_use_subcommand'"
+        : path.map((segment) => `-n '__fish_seen_subcommand_from ${segment}'`).join(' ');
     for (const child of node.children) {
-      // Fish ANDs multiple `-n` flags, so a completion three levels deep
-      // needs one flag per ancestor segment, not just the last. Naming only
-      // the last segment let two unrelated parents that both nest a
-      // same-named child -- `self completions` and `other completions` --
-      // share one condition, so `ailoud other completions <TAB>` offered
-      // `self completions`'s children too.
-      const flags =
-        path.length === 0
-          ? "-n '__fish_use_subcommand'"
-          : path.map((segment) => `-n '__fish_seen_subcommand_from ${segment}'`).join(' ');
       for (const name of [child.name, ...child.aliases]) {
         lines.push(`complete -c ailoud ${flags} -a '${name}' -d '${quote(child.description)}'`);
       }
+    }
+    // Options too, which fish alone was missing: bash and zsh both put
+    // `node.options` in their candidate list, so `ailoud audio ls --<TAB>`
+    // offered `--json --tag` there and nothing at all in fish. The design
+    // draws no distinction between the shells here.
+    //
+    // `-l <name>` rather than `-a '--name'`: it is how fish is told a word is
+    // a long option, which is what makes it complete after a bare `--` and
+    // keeps it out of the argument list.
+    for (const option of node.options) {
+      lines.push(`complete -c ailoud ${flags} -l ${option.replace(/^--/, '')}`);
     }
   }
   lines.push('');

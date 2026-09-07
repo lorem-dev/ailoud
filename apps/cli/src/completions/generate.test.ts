@@ -115,6 +115,21 @@ describe('renderCompletions', () => {
     }
   });
 
+  it('emits options for fish too, not subcommands only', () => {
+    // fish was the only shell that emitted no options at all: `ailoud audio
+    // ls --<TAB>` offered nothing there while bash offered `--json --tag`.
+    // The design draws no distinction between the shells.
+    const script = renderCompletions('fish', describeTree(sample()));
+    const lsOptions = script
+      .split('\n')
+      .filter((line) => line.includes('__fish_seen_subcommand_from ls') && line.includes(' -l '));
+    expect(lsOptions.some((line) => line.endsWith('-l json'))).toBe(true);
+    expect(lsOptions.some((line) => line.endsWith('-l help'))).toBe(true);
+    // `-l name`, never `-a '--name'`: only `-l` tells fish the word is a long
+    // option, which is what makes it complete after a bare `--`.
+    expect(script).not.toContain("-a '--json'");
+  });
+
   it('routes through an alias, not only past it', () => {
     // `recordings` was offered as a candidate and then completed nothing:
     // verified in real bash, where `ailoud recordings <TAB>` produced two
