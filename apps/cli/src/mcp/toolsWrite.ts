@@ -347,7 +347,13 @@ export function registerWriteTools(server: McpServer, context: CliContext, _deps
         {
           kind: 'transcribe',
           recordings: recordings.length,
-          declared: { speakers, languages: declared },
+          // The caller's literal declaration, not `declared` (validateLanguages's
+          // normalised set, which is what reaches the pipeline via
+          // transcribeChildArgs below). ["auto"] means "the user does not
+          // know"; an absent `languages` is refused before this point and
+          // never reaches here at all -- so unlike the CLI's --lang, there is
+          // no "nothing declared" case to preserve, only this one.
+          declared: { speakers, languages },
         },
       );
 

@@ -87,6 +87,20 @@ function parseSpeakerCount(raw: string): number {
 interface ResolvedTranscribeRun {
   readonly multilingual: boolean;
   readonly languages: readonly string[];
+  /**
+   * What the caller literally declared with `--lang`, for the job's
+   * `declared` field -- distinct from `languages` above, which is what the
+   * pipeline actually acts on.
+   *
+   * `--lang` absent and `--lang auto` both parse to the same empty
+   * `languages` set ("decide for yourself"), but they are not the same
+   * declaration: one caller said nothing, the other said "I don't know".
+   * Collapsing them would erase the one distinction `declared` exists to
+   * keep -- see JobState.declared's own comment ("a later question about
+   * why diarization went badly has an answer"). `["auto"]` here is that
+   * answer; `[]` means the flag was never given at all.
+   */
+  readonly declaredLanguages: readonly string[];
   readonly speakers: number | undefined;
   readonly tags: readonly string[];
   readonly recordings: readonly Recording[];
@@ -113,6 +127,13 @@ async function resolveTranscribeRun(
     );
   }
   const languages = parseLanguages(options.lang);
+  // See ResolvedTranscribeRun.declaredLanguages: parseLanguages collapses
+  // an absent --lang and an explicit "--lang auto" to the same empty array,
+  // which is right for the pipeline (both mean "decide for yourself") and
+  // wrong for the job record (only one of them is a caller saying "unknown"
+  // rather than "nothing declared").
+  const declaredLanguages =
+    options.lang === undefined ? [] : languages.length === 0 ? ['auto'] : languages;
   // Two or more languages IS the statement that the recording switches
   // between them, so requiring --multilingual as well would be asking the
   // user to say the same thing twice.
@@ -133,7 +154,7 @@ async function resolveTranscribeRun(
     ids.length > 0
       ? await resolveRecordings(context.store, ids)
       : await context.store.listRecordings({ withoutTranscript: true });
-  return { multilingual, languages, speakers, tags, recordings };
+  return { multilingual, languages, declaredLanguages, speakers, tags, recordings };
 }
 
 /**
@@ -236,7 +257,10 @@ export function registerTranscribe(program: Command, context: CliContext): void 
           {
             kind: 'transcribe',
             recordings: resolved.recordings.length,
-            declared: { speakers: resolved.speakers ?? 'unknown', languages: resolved.languages },
+            declared: {
+              speakers: resolved.speakers ?? 'unknown',
+              languages: resolved.declaredLanguages,
+            },
           },
         );
         try {
