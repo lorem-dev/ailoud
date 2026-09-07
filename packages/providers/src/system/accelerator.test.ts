@@ -15,7 +15,8 @@ describe('parseBackends', () => {
   });
 
   it('de-duplicates a backend named twice', () => {
-    const output = 'load_backend: loaded CPU backend from a\nload_backend: loaded CPU backend from b';
+    const output =
+      'load_backend: loaded CPU backend from a\nload_backend: loaded CPU backend from b';
     expect(parseBackends(output)).toEqual(['CPU']);
   });
 

@@ -49,9 +49,9 @@ describe('resourceBudget', () => {
     'falls back to the default percent rather than throwing on %s',
     (maxCpuPercent) => {
       const fallback = resourceBudget({ logical: 8, performance: null });
-      expect(
-        resourceBudget({ logical: 8, performance: null }, { maxCpuPercent }),
-      ).toEqual(fallback);
+      expect(resourceBudget({ logical: 8, performance: null }, { maxCpuPercent })).toEqual(
+        fallback,
+      );
       expect(DEFAULT_MAX_CPU_PERCENT).toBe(90);
     },
   );

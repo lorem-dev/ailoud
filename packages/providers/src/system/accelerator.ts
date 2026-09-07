@@ -25,10 +25,7 @@ export function parseBackends(output: string): readonly string[] {
 
 const memo = new Map<string, Promise<readonly string[]>>();
 
-async function read(
-  binary: string,
-  run: typeof defaultRunner,
-): Promise<readonly string[]> {
+async function read(binary: string, run: typeof defaultRunner): Promise<readonly string[]> {
   try {
     // An argument array, never a shell string.
     const result = await run(binary, ['--help'], { timeoutMs: PROBE_TIMEOUT_MS });

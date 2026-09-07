@@ -43,9 +43,7 @@ describe('cpuTopology', () => {
 
   it('answers a null split when sysctl exits non-zero', async () => {
     // Intel macOS has no perflevel keys, so this is the normal path there.
-    const run = vi
-      .fn()
-      .mockResolvedValue({ code: 1, stdout: '', stderr: 'unknown oid' });
+    const run = vi.fn().mockResolvedValue({ code: 1, stdout: '', stderr: 'unknown oid' });
     const topology = await cpuTopology({ platform: 'darwin', logical: () => 8, run });
     expect(topology).toEqual({ logical: 8, performance: null });
   });
@@ -53,9 +51,10 @@ describe('cpuTopology', () => {
   it('answers a null split when sysctl throws, without throwing itself', async () => {
     // A resource hint may never be the thing that fails a transcription.
     const run = vi.fn().mockRejectedValue(new Error('spawn ENOENT'));
-    await expect(
-      cpuTopology({ platform: 'darwin', logical: () => 8, run }),
-    ).resolves.toEqual({ logical: 8, performance: null });
+    await expect(cpuTopology({ platform: 'darwin', logical: () => 8, run })).resolves.toEqual({
+      logical: 8,
+      performance: null,
+    });
   });
 
   it('floors the logical count at one', async () => {
