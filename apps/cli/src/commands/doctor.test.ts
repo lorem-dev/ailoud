@@ -20,6 +20,7 @@ import {
   checkVadModel,
   registerDoctor,
   runChecks,
+  setupNote,
 } from './doctor.js';
 import { collectRemedies } from './setup.js';
 
@@ -507,6 +508,108 @@ describe('runChecks', () => {
       expect(vadModel?.remedy).toEqual({ kind: 'download-model', slot: 'vad' });
     } finally {
       vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe('acceleration checks', () => {
+  // context()'s default whisper binary ('w', looked up on PATH) points at a
+  // real path that does not exist on disk, so probeBackends and checkBinary
+  // see the same ENOENT a machine with no whisper.cpp installed at all would.
+  // Not '/no/such/whisper-cli' but a MemFs-unrelated real path, because both
+  // probeBackends and checkBinary spawn a real child process (they never
+  // touch context.fs), so only a genuinely absent path on the real
+  // filesystem reproduces "the binary is missing".
+  function contextWithMissingBinaries(): CliContext {
+    const ctx = context();
+    return {
+      ...ctx,
+      config: {
+        ...ctx.config,
+        stt: {
+          ...ctx.config.stt,
+          whisperCpp: { ...ctx.config.stt.whisperCpp, binary: '/no/such/whisper-cli' },
+        },
+      },
+    };
+  }
+
+  it('reports the cores and the thread counts derived from them', async () => {
+    const checks = await runChecks(context());
+    const cpu = checks.find((c) => c.name === 'cpu');
+    expect(cpu?.ok).toBe(true);
+    // Both numbers, because they differ and the difference is the point.
+    expect(cpu?.detail).toMatch(/threads/);
+    expect(cpu?.detail).toMatch(/diarizer/);
+  });
+
+  it('names the backends the whisper binary loaded', async () => {
+    const checks = await runChecks(context());
+    expect(checks.find((c) => c.name === 'whisper backends')).toBeDefined();
+  });
+
+  it('marks the neural engine unavailable without failing readiness', async () => {
+    // CoreML in whisper.cpp is a compile-time option plus a converted model.
+    // There is no runtime flag, and homebrew does not build it. Reporting
+    // that must not make doctor say the machine is broken.
+    const checks = await runChecks(context());
+    const ane = checks.find((c) => c.name === 'neural engine');
+    expect(ane?.optional).toBe(true);
+    expect(checks.filter(blocksReadiness)).not.toContain(ane);
+  });
+
+  it('carries no remedy on any of them, so --fix ignores them', async () => {
+    const checks = await runChecks(context());
+    for (const name of ['cpu', 'whisper backends', 'neural engine']) {
+      expect(checks.find((c) => c.name === name)?.remedy).toBeUndefined();
+    }
+  });
+
+  it('does not fail when the whisper binary is missing entirely', async () => {
+    const checks = await runChecks(contextWithMissingBinaries());
+    const backends = checks.find((c) => c.name === 'whisper backends');
+    expect(backends?.optional).toBe(true);
+    expect(backends?.ok).toBe(false);
+  });
+});
+
+describe('setupNote', () => {
+  it('tells a GPU machine that threads are for diarization', () => {
+    const note = setupNote(['MTL', 'BLAS', 'CPU'], 90);
+    expect(note).toContain('GPU build');
+    expect(note).toMatch(/diarization/);
+    // Must NOT tell a GPU machine to raise threads for transcription: on a
+    // GPU build that is worth 0.7 s on 40 s of audio.
+    expect(note).not.toMatch(/ten times slower/);
+  });
+
+  it('tells a CPU-only machine that threads are worth multiples', () => {
+    const note = setupNote(['BLAS', 'CPU'], 90);
+    expect(note).toContain('CPU-only');
+    expect(note).toMatch(/four times/);
+    // Not a substring check against "GPU build": the CPU-only sentence
+    // legitimately contains that phrase ("...slower than on a GPU build...").
+    // What must not happen is the note being LABELLED as the GPU case.
+    expect(note?.startsWith('GPU build')).toBe(false);
+  });
+
+  it('treats every ggml gpu backend name as a gpu', () => {
+    for (const name of ['MTL', 'CUDA', 'ROCM', 'VULKAN', 'SYCL']) {
+      expect(setupNote([name, 'CPU'], 90)).toContain('GPU build');
+    }
+  });
+
+  it('says nothing at all when the binary could not be asked', () => {
+    // Better silent than inventing advice about a build nobody inspected.
+    expect(setupNote([], 90)).toBeNull();
+  });
+
+  it('never mentions the flag an agent should not ask about', () => {
+    // The rule: an agent must understand what makes ailoud fast without being
+    // invited to interrogate the user about --max-cpu. The note names the
+    // config key, which a user edits once, not the per-run flag.
+    for (const backends of [['MTL', 'CPU'], ['CPU']]) {
+      expect(setupNote(backends, 90)).not.toContain('--max-cpu');
     }
   });
 });

@@ -2,7 +2,7 @@ import { access, constants, stat } from 'node:fs/promises';
 import type { Command } from 'commander';
 import { EnvironmentError, installHint, isHostedLlm } from '@ailoud/core';
 import type { Remedy } from '@ailoud/core';
-import { run } from '@ailoud/providers';
+import { cpuTopology, probeBackends, run } from '@ailoud/providers';
 import type { CliContext } from '../wiring.js';
 import type { Check } from '../ui/index.js';
 import type { AiloudConfig } from '../config.js';
@@ -580,8 +580,84 @@ export async function runChecks(
     await checkConfigFile(paths.configFile),
     checkDatabase(context),
     await checkMediaRoot(paths.mediaRoot, { kind: 'create-directory', path: paths.mediaRoot }),
+    ...(await accelerationChecks(context)),
   ];
 }
+
+/**
+ * Informational, not a gate: every one of these is `optional`, carries no
+ * remedy, and reports what the machine offers rather than whether it is
+ * ready. `blocksReadiness` ignores an optional failure, so a machine with no
+ * GPU at all still passes `doctor`.
+ */
+export async function accelerationChecks(context: CliContext): Promise<Check[]> {
+  const topology = await cpuTopology();
+  const budget = await context.resources();
+  const split =
+    topology.performance === null
+      ? `${topology.logical} logical`
+      : `${topology.logical} logical, ${topology.performance} performance`;
+
+  const binary = context.config.stt.whisperCpp.binary;
+  const backends = await probeBackends(binary);
+
+  return [
+    {
+      name: 'cpu',
+      ok: true,
+      // Both numbers: they differ, and the diarizer's being lower is a
+      // measured decision rather than an accident (see budget.ts).
+      detail:
+        `${split} -> ${budget.threads} threads, ` +
+        `${budget.diarizerThreads} for the diarizer, at ` +
+        `${context.config.resources.maxCpuPercent}%`,
+    },
+    backends.length > 0
+      ? { name: 'whisper backends', ok: true, detail: backends.join(', ') }
+      : {
+          name: 'whisper backends',
+          ok: false,
+          optional: true,
+          detail: `could not ask ${binary} which backends it loads`,
+        },
+    {
+      name: 'neural engine',
+      ok: false,
+      optional: true,
+      detail:
+        'not available: whisper.cpp reaches the Neural Engine only when built with ' +
+        'CoreML support and given a converted model, which the packaged build is not',
+    },
+  ];
+}
+
+/**
+ * One line an outside agent can act on, chosen by what this machine actually
+ * loaded rather than printed as boilerplate.
+ *
+ * MEASURED on 40 s of audio with ggml-small.bin: 1.93 s on a Metal build at 8
+ * threads, 19.61 s with the GPU disabled at 8 threads, 76.96 s with it
+ * disabled at 1. So the build having a GPU backend is worth about ten times
+ * the thread count, and on a GPU build the thread count is worth almost
+ * nothing (2.62 s at one thread). The advice differs completely between the
+ * two cases, which is why only one of them is ever printed.
+ *
+ * Null when the whisper binary could not be asked at all: `doctor` already
+ * reports that as a failing check, and a performance hint about a build
+ * nobody could inspect would be invention.
+ */
+export function setupNote(backends: readonly string[], maxCpuPercent: number): string | null {
+  if (backends.length === 0) return null;
+  const gpu = backends.some((name) => GPU_BACKENDS.has(name));
+  return gpu
+    ? `GPU build (${backends.join(', ')}): transcription is already fast, and threads mainly ` +
+        `affect speaker diarization. Raise resources.maxCpuPercent only if diarization is slow.`
+    : `CPU-only build: transcription is about ten times slower than on a GPU build, and thread ` +
+        `count is worth about four times. resources.maxCpuPercent is ${maxCpuPercent}.`;
+}
+
+/** ggml's names for a backend that is not the CPU. `MTL` is Metal. */
+const GPU_BACKENDS = new Set(['MTL', 'CUDA', 'ROCM', 'VULKAN', 'SYCL']);
 
 export interface DoctorOptions extends SetupOptions {
   readonly fix?: boolean;
@@ -614,6 +690,13 @@ export function registerDoctor(
     .action(async (options: DoctorOptions) => {
       await context.ui.frame('Environment check', async () => {
         const checks = await runChecks(context, platform);
+        // probeBackends is memoised per binary, so this does not double the
+        // probe accelerationChecks (inside runChecks) already made.
+        const note = setupNote(
+          await probeBackends(context.config.stt.whisperCpp.binary),
+          context.config.resources.maxCpuPercent,
+        );
+        if (note !== null) context.ui.note(note);
         context.ui.checks(checks);
         if (options.fix !== true) {
           if (checks.some(blocksReadiness)) {
