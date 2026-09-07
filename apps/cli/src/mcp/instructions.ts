@@ -62,9 +62,23 @@ Six rules, in the order they matter:
    told you and pass it again on the next summary of the same material; it is
    the one thing you know that the transcript does not say.
 
-6. TRANSCRIBING AND SUMMARISING COST SOMETHING. Transcription is minutes of
-   CPU per recording. Summarising spends tokens on a hosted model or minutes
-   on a local one. Neither has a default selection: name the recordings.
+6. TRANSCRIBING AND SUMMARISING COST SOMETHING, AND RUN IN THE BACKGROUND.
+   Transcription is minutes of CPU per recording. Summarising spends tokens on
+   a hosted model or minutes on a local one. Neither has a default selection:
+   name the recordings.
+
+   Both return a JOB ID instead of a result. Poll \`job_status\` with it -- a
+   few minutes between calls is plenty, and polling faster does not make the
+   work finish sooner. The finished job carries the transcript ids, or the
+   report id to read with \`get_report\`.
+
+   \`transcribe\` will REFUSE until you say how many people speak and which
+   languages to expect. That is not bureaucracy: whisper's detector answers
+   with any language in the world, so on a Russian and English recording it
+   will sometimes report Polish for a Russian stretch, and that stretch comes
+   back as phonetic nonsense. Ask the user. Offer your own guess from the
+   recording's name -- you can see the conversation, and ailoud can only see
+   a filename. Ask per recording when the recordings differ.
 
 Deleting is deliberately awkward. \`delete_recording\` and \`delete_report\`
 never delete on the first call: they describe what would go and return a

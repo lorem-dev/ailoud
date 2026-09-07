@@ -92,6 +92,43 @@ ailoud audio annotate ID001 --speaker speaker_00=Ann --speaker speaker_01=Ben
 
 Names survive `--force`, so re-transcribing does not lose them.
 
+### Run in the background
+
+`--detach` starts the work and prints a job id instead of waiting:
+
+```
+ailoud audio transcribe 01M1Y5HXT9KTGKE1AV04EZTNPN --lang ru,en --detach
+```
+
+```
+ok  started job 01M1Y5J22JMX4PK4988HVAFHK1 -- progress in /private/tmp/ailoud-docs-demo/.ailoud/jobs/01M1Y5J22JMX4PK4988HVAFHK1.json
+```
+
+```
+ailoud job ls
+```
+
+```
+01M1Y5J22JMX4PK4988HVAFHK1  transcribe  running   28%  detecting
+```
+
+```
+ailoud job show 01M1Y5J22JMX4PK4988HVAFHK1
+```
+
+```
+Job 01M1Y5J22JMX4PK4988HVAFHK1 -- transcribe, done
+Progress: 100% (transcribing)
+Recordings: 1/1
+Started: 2026-09-07T14:50:04.755Z
+Finished: 2026-09-07T14:50:25.648Z
+Log: /private/tmp/ailoud-docs-demo/.ailoud/jobs/01M1Y5J22JMX4PK4988HVAFHK1.log
+```
+
+`audio summarize --detach` works the same way. `job rm <id>` forgets a
+finished job; it refuses one still running. Letters: `job l`, `job v`,
+`job r`; `jobs` is the plural.
+
 ## Read
 
 ```

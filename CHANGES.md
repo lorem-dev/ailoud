@@ -54,6 +54,10 @@
   project's rules block.
 - `setup` offers to install shell completions at the end of a successful
   run; skip with `--no-completions`.
+- `transcribe` and `summarize` take `--detach`, running in the background and
+  printing a job id; `job ls|show|rm` follow them.
+- Transcription reports an approximate percentage while it runs, on the spinner
+  and in a job's state file.
 
 ### Changed
 
@@ -61,6 +65,10 @@
   project's own rules files stay there and are all kept current.
 - `setup --model <name>` now switches the transcription model even on a
   healthy machine, instead of being ignored.
+- The MCP `transcribe` and `summarize` tools return a job id and a `job_status`
+  tool to poll, instead of blocking until the work is done.
+- The MCP `transcribe` tool refuses until the speaker count and expected
+  languages are declared, and suggests languages from the recording's name.
 
 ### Fixed
 

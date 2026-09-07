@@ -78,6 +78,7 @@ list_speakers
 list_reports
 get_report
 list_templates
+job_status
 annotate
 import_recording
 transcribe

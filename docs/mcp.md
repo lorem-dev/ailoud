@@ -212,16 +212,17 @@ Tag the untagged recordings for me.
 | `list_reports`       | saved summaries                                        |
 | `get_report`         | a **file path**                                        |
 | `list_templates`     | the summary shapes available                           |
+| `job_status`         | a `transcribe` or `summarize` job's state              |
 
 **Writing**
 
-| Tool               | Does                               |
-| ------------------ | ---------------------------------- |
-| `annotate`         | titles, notes, tags, speaker names |
-| `import_recording` | adds files to the library          |
-| `transcribe`       | runs speech-to-text                |
-| `summarize`        | writes and saves a report          |
-| `create_template`  | adds a summary shape               |
+| Tool               | Does                                     |
+| ------------------ | ---------------------------------------- |
+| `annotate`         | titles, notes, tags, speaker names       |
+| `import_recording` | adds files to the library                |
+| `transcribe`       | starts speech-to-text, in the background |
+| `summarize`        | starts a report, in the background       |
+| `create_template`  | adds a summary shape                     |
 
 **Deleting**
 
@@ -229,6 +230,76 @@ Tag the untagged recordings for me.
 | ------------------ | ------------------------------------------------- |
 | `delete_recording` | two calls; see [below](#deleting-takes-two-calls) |
 | `delete_report`    | two calls                                         |
+
+## Background jobs
+
+### `transcribe` refuses without speakers and languages
+
+The first call without them gets this instead of a job id:
+
+```json
+{
+  "error": "transcribe needs the speaker count and the expected languages",
+  "why": "declared languages stop whisper reporting Polish for a Russian stretch, which then comes back as phonetic nonsense; a known speaker count is more reliable than letting the diarizer infer one",
+  "guess": { "languages": ["ru", "en"], "from": "filename \"standup-ru-en.wav\"" },
+  "ask": "Ask the user how many people speak on this recording and in which languages. Offer the guess above, plus your own reading of the name, and let them correct it. Ask per recording when the recordings differ.",
+  "then": "call transcribe again with speakers and languages"
+}
+```
+
+`guess` is `null` when the recording's name, title and tags give no hint.
+`speakers` accepts a positive integer or `"unknown"`; `languages` accepts
+codes such as `["ru", "en"]` or `["auto"]`.
+
+### The job cycle
+
+`transcribe` and `summarize` return at once, with a job id to poll:
+
+```
+transcribe(recordingIds: [...], speakers: 2, languages: ["ru", "en"])
+-> { "jobId": "01M1Y5F04PS6VQ0FCP8HAS2JZ9", "kind": "transcribe",
+     "poll": "call job_status with this id; a few minutes apart is often enough" }
+
+job_status(jobId: "01M1Y5F04PS6VQ0FCP8HAS2JZ9")
+-> { "state": "running", "percent": 46, "stage": "detecting", ... }
+```
+
+Poll every minute or two; polling faster does not make the work finish sooner.
+With no `jobId`, `job_status` lists what is running plus the five most recent
+finished jobs.
+
+An id `job_status` does not recognise is reported as UNKNOWN, not as a
+failure -- a pruned or mistyped id is a different fact from a job that ran and
+failed:
+
+```json
+{ "error": "no such job: nosuchjob", "hint": "call job_status with no id to list" }
+```
+
+The state document:
+
+| Field        | Meaning                                                      |
+| ------------ | ------------------------------------------------------------ |
+| `id`         | the job id                                                   |
+| `kind`       | `transcribe` or `summarize`                                  |
+| `state`      | `running`, `done` or `failed`                                |
+| `percent`    | 0-100, approximate, never goes backwards                     |
+| `stage`      | what it is doing right now, e.g. `detecting`, `transcribing` |
+| `etaSeconds` | present once there is enough of the run to estimate from     |
+| `recordings` | `{ total, done }`                                            |
+| `declared`   | the speakers and languages given to `transcribe`, or null    |
+| `startedAt`  | when the job began, ISO 8601                                 |
+| `finishedAt` | when it ended, ISO 8601, or null while running               |
+| `log`        | a **file path**, not the log text                            |
+| `result`     | set on success; a finished `summarize` carries `reportId`    |
+| `error`      | one message, set on failure                                  |
+
+`log` is a path for the same reason `get_transcript` returns one: the engine
+writes far more than an agent needs, and it is only worth reading after
+something fails.
+
+A finished `summarize` job's `result` carries a `reportId`; read it with
+`get_report`.
 
 ## How it behaves
 

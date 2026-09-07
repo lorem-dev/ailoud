@@ -20,7 +20,21 @@ describe('rulesBlock', () => {
     expect(rulesBlock()).toMatch(/ailoud audio search/);
   });
 
+  it('tells the agent to ask about speakers and languages', () => {
+    expect(rulesBlock()).toContain('how many people speak');
+  });
+
+  it('tells the agent to poll rather than wait', () => {
+    expect(rulesBlock()).toContain('job_status');
+  });
+
+  it('tells the agent to prefer MCP tools, since only they enforce the check', () => {
+    expect(rulesBlock()).toMatch(/MCP tools\*\* \(prefer/);
+  });
+
   it('stays short, since it shares a file with the project instructions', () => {
+    // A ceiling, not a measurement. If a change needs more room than this,
+    // the room belongs in SERVER_INSTRUCTIONS or in docs/, not here.
     expect(rulesBlock().split('\n').length).toBeLessThan(30);
   });
 });

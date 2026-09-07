@@ -15,6 +15,7 @@ ailoud audio summarize --help
 ```
 ailoud audio|recordings   import transcribe summarize search ls show annotate rm
 ailoud report|reports     ls show rm
+ailoud job|jobs           ls show rm
 ailoud template|templates ls show new
 ailoud mcp
 ailoud doctor
@@ -73,6 +74,7 @@ ailoud audio transcribe [ids...] [options]
 | `--diarize`      | attribute segments to speakers                          |
 | `--speakers <n>` | known number of speakers                                |
 | `--tag <tag>`    | tag these recordings; repeatable                        |
+| `--detach`       | start the work in the background and print a job id     |
 
 With no ids, transcribes everything that has no transcript yet.
 
@@ -97,14 +99,15 @@ ailoud audio search <query...> [options]
 ailoud audio summarize [ids...] [options]
 ```
 
-| Option              | Does                                               |
-| ------------------- | -------------------------------------------------- |
-| `--tag <tag>`       | summarise everything carrying this tag; repeatable |
-| `--template <name>` | which shape; see `ailoud template ls`              |
-| `--context <text>`  | a sentence the transcript does not say             |
-| `--lang <code>`     | write the summary in this language                 |
-| `--fresh`           | re-read transcripts instead of stored reports      |
-| `--no-save`         | do not store the summary                           |
+| Option              | Does                                                |
+| ------------------- | --------------------------------------------------- |
+| `--tag <tag>`       | summarise everything carrying this tag; repeatable  |
+| `--template <name>` | which shape; see `ailoud template ls`               |
+| `--context <text>`  | a sentence the transcript does not say              |
+| `--lang <code>`     | write the summary in this language                  |
+| `--fresh`           | re-read transcripts instead of stored reports       |
+| `--no-save`         | do not store the summary                            |
+| `--detach`          | start the work in the background and print a job id |
 
 ## audio ls
 
@@ -153,6 +156,27 @@ ailoud report ls [--recording <id>] [--json]
 ailoud report show <id> [--json]
 ailoud report rm <ids...> [--force]
 ```
+
+## job
+
+```
+ailoud job ls [--json]
+ailoud job show <id> [--json]
+ailoud job rm <id>
+```
+
+| Verb   | Letter | Does                                          |
+| ------ | ------ | --------------------------------------------- |
+| `ls`   | `l`    | list background jobs, newest first            |
+| `show` | `v`    | print one job in full, including its log path |
+| `rm`   | `r`    | forget a finished job; refuses a running one  |
+
+`jobs` is the plural alias, as in `job|jobs` elsewhere. A job comes from
+`audio transcribe --detach`, `audio summarize --detach`, or the MCP server.
+
+`--job <id>` is an internal, hidden flag: it tells a detached child process,
+or an MCP-spawned one, which job to report progress into. It is not something
+to pass by hand.
 
 ## template
 
