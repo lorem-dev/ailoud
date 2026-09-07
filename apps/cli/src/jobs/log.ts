@@ -18,8 +18,28 @@ import { dirname } from 'node:path';
  */
 export class JobLog {
   private queue: Promise<void> = Promise.resolve();
+  private dirReady: Promise<void> | undefined;
 
   public constructor(private readonly path: string) {}
+
+  /**
+   * Creates the log's directory, once per instance.
+   *
+   * mkdir is idempotent but not free, and whisper alone writes on the order
+   * of 104 stderr lines per run -- re-issuing a recursive mkdir before every
+   * one of them is that many redundant syscalls for a directory that only
+   * ever needs creating once. The promise is memoised, including a
+   * rejection: if the directory genuinely cannot be created, later appends
+   * find that out from the cached rejection rather than retrying the same
+   * doomed mkdir. That rejection is always awaited from inside `append`'s
+   * own try, in the same call that creates it, so it can never surface as
+   * an unhandled rejection -- the same reasoning that governs `append`
+   * itself.
+   */
+  private ensureDir(): Promise<void> {
+    this.dirReady ??= mkdir(dirname(this.path), { recursive: true }).then(() => undefined);
+    return this.dirReady;
+  }
 
   /**
    * Queues one line. Never throws, never returns anything to await.
@@ -31,7 +51,7 @@ export class JobLog {
   public append(line: string): void {
     this.queue = this.queue
       .then(async () => {
-        await mkdir(dirname(this.path), { recursive: true });
+        await this.ensureDir();
         await appendFile(this.path, `${line}\n`, 'utf8');
       })
       .catch(() => {

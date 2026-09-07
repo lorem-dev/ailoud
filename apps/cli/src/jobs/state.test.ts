@@ -82,6 +82,30 @@ describe('job state', () => {
     }
   });
 
+  it('two concurrent writes for the same id never produce a torn document', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ailoud-state-'));
+    try {
+      const fs = new NodeFs();
+      const id = state().id;
+      const a = state({ percent: 10, stage: 'a' });
+      const b = state({ percent: 90, stage: 'b' });
+      // Started together and only THEN awaited: a fixed scratch name would
+      // have both writers target the identical "<id>.json.writing" file, so
+      // their writeTextFile calls could interleave and whichever rename
+      // lands second would promote a half-merged document. The randomised
+      // scratch name gives each writer its own file, so this can only ever
+      // resolve to one writer's whole document, never a mixture.
+      const first = writeJobState(fs, dir, a);
+      const second = writeJobState(fs, dir, b);
+      await Promise.all([first, second]);
+      const read = await readJobState(fs, dir, id);
+      expect(read).not.toBeNull();
+      expect([a, b]).toContainEqual(read);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('puts the log beside the state, under the same id', () => {
     expect(jobLogPath('/jobs', 'abc')).toBe('/jobs/abc.log');
     expect(jobStatePath('/jobs', 'abc')).toBe('/jobs/abc.json');

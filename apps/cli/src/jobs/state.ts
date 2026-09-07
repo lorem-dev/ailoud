@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Fs } from '@ailoud/core';
 
@@ -58,7 +59,10 @@ export function jobLogPath(jobsDir: string, id: string): string {
 export async function writeJobState(fs: Fs, jobsDir: string, state: JobState): Promise<void> {
   await fs.ensureDir(jobsDir);
   const target = jobStatePath(jobsDir, state.id);
-  const scratch = `${target}.writing`;
+  // Randomised per call, same pattern as writeRegistry in projects.ts, so
+  // two writers for the same job id never share -- and corrupt -- one
+  // temporary file.
+  const scratch = `${target}.${randomUUID()}.writing`;
   await fs.writeTextFile(scratch, `${JSON.stringify(state, null, 2)}\n`);
   await fs.rename(scratch, target);
 }
