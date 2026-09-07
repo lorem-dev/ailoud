@@ -82,8 +82,21 @@ describe('ailoud background jobs', () => {
 
   /**
    * Whether a process with the given pid is still alive. Uses the same
-   * signal-0 check as exclusiveLock.ts: ESRCH means no such process
-   * (dead), EPERM means process exists under another user (alive).
+   * signal-0 check as `isRunning` in apps/cli/src/exclusiveLock.ts: ESRCH
+   * means no such process (dead), EPERM means process exists under another
+   * user (alive).
+   *
+   * A deliberate copy rather than an import of that exported function: this
+   * suite runs under e2e/tsconfig.json (CommonJS, its own "include": ["src",
+   * "tests"]), and apps/cli is an ESM package under NodeNext with relative
+   * imports that end in `.js`. Reaching across that boundary into another
+   * workspace package's `src` would need either a build-output import (this
+   * suite drives the CLI as a subprocess precisely to test the built
+   * artifact, not its internals) or a second tsconfig project reference for
+   * five lines of logic. `exclusiveLock.ts`'s own header already explains why
+   * a second copy of this check is a real risk -- it was wrong twice before
+   * being extracted -- so this copy is kept intentionally small and pinned to
+   * that file by name in this comment, not reinvented.
    */
   function isProcessAlive(pid: number): boolean {
     try {
@@ -113,7 +126,16 @@ describe('ailoud background jobs', () => {
         // is 'done', which means the child exited cleanly.
         if (isProcessAlive(state.pid)) {
           try {
-            process.kill(state.pid, 'SIGTERM');
+            // Negative pid: signals the whole process GROUP, not just the
+            // recorded pid. `spawnDetachedJob` starts the child with
+            // `detached: true`, which calls setsid() and makes it the leader
+            // of a new group containing whisper. A plain
+            // `process.kill(state.pid, ...)` would reach only the ailoud
+            // child -- whisper is a grandchild in the same group and would
+            // survive, along with the six-hour timeout that was supposed to
+            // bound it (that timer lives in the ailoud child that just died,
+            // not in whisper itself).
+            process.kill(-state.pid, 'SIGTERM');
           } catch {
             // Process already gone; this is fine
           }
