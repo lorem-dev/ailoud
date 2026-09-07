@@ -131,6 +131,13 @@ export class JobReporter {
   }
 
   public async fail(message: string): Promise<void> {
+    // A no-op once the job already reached a terminal state. The try/catch
+    // that calls fail() now wraps withJobLock's own release path (see I2 in
+    // the review that added this guard): a lock's cleanup can throw AFTER
+    // body() has already run to completion and finish() has already written
+    // 'done'. Without this guard, that throw would still reach here and turn
+    // a job that genuinely finished into one reported as failed.
+    if (this.current.state !== 'running') return;
     // See finish(): a failed job has no remaining time either.
     const { etaSeconds: _previousEta, ...withoutEta } = this.current;
     this.current = {

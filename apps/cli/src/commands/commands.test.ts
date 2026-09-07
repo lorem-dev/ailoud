@@ -328,7 +328,38 @@ describe('ailoud transcribe --job', () => {
       const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
       expect(state?.state).toBe('done');
       expect(state?.percent).toBe(100);
-      expect(state?.result).toEqual({ transcribed: ['ID001'] });
+      // The full four-field shape the spec asks for (recordingId,
+      // transcriptId, language, segments) -- not just the recording id the
+      // caller already had. transcriptId is 'ID003': 'ID001' is the
+      // recording (import, above), 'ID002' is the job itself (createJob,
+      // above), and the pipeline's own ids.next() calls start after that.
+      expect(state?.result).toEqual({
+        transcribed: [{ recordingId: 'ID001', transcriptId: 'ID003', language: 'ru', segments: 1 }],
+      });
+    });
+  });
+
+  it('records a failure when the job lock is already held on the way in', async () => {
+    // I2: withJobLock itself can throw, before body() -- and therefore
+    // transcribeRecording -- ever runs, which is exactly what losing the
+    // advisory race against another process looks like. The try/catch used
+    // to sit inside withJobLock's own callback and never saw this throw, so
+    // the state file stayed 'running' forever with nothing to explain why.
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'transcribe', recordings: 1, declared: null },
+      );
+      await withJobLock(ctx.paths.dataDir, async () => {
+        await expect(
+          buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--job', job.id]),
+        ).rejects.toThrow(FailureError);
+      });
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
+      expect(state?.state).toBe('failed');
+      expect(state?.error).toMatch(/already running/);
     });
   });
 

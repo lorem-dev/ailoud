@@ -305,7 +305,19 @@ export function registerTranscribe(program: Command, context: CliContext): void 
           const stt = context.createStt();
           const segmenter = multilingual ? context.createSegmenter() : undefined;
           const diarizer = options.diarize === true ? context.createDiarizer() : undefined;
-          const transcribedIds: string[] = [];
+          const transcribed: Array<{
+            recordingId: string;
+            transcriptId: string;
+            language: string;
+            segments: number;
+          }> = [];
+          // Collected here, not just handed to context.ui.warn: there is no
+          // terminal to read under a detached job (stdio is 'ignore'), and a
+          // diarizer that failed silently would leave a poller of job_status
+          // believing the transcript has speakers when it does not. Folded
+          // into the returned result below so it reaches reporter.finish(),
+          // and from there whoever polls the job.
+          const warnings: string[] = [];
           // Reused whenever a stage's fraction cannot be measured (the
           // diarizer pass), so that stage only changes the text shown to the
           // user and never walks the number backwards. The same rule
@@ -332,6 +344,7 @@ export function registerTranscribe(program: Command, context: CliContext): void 
                   onWarning: (message) => {
                     context.ui.warn(message);
                     job?.log.append(`warning: ${message}`);
+                    warnings.push(message);
                   },
                   onProgress: (event) => {
                     // Weighted by duration across the batch, so finishing four
@@ -376,23 +389,37 @@ export function registerTranscribe(program: Command, context: CliContext): void 
               segments.length,
               summarizeLanguages(segments),
             );
-            transcribedIds.push(recording.id);
+            transcribed.push({
+              recordingId: recording.id,
+              transcriptId: transcript.id,
+              language: transcript.language,
+              segments: segments.length,
+            });
           }
-          return { transcribed: transcribedIds };
+          return { transcribed, ...(warnings.length === 0 ? {} : { warnings }) };
         });
 
       if (job === undefined) {
         await body();
         return;
       }
-      await withJobLock(context.paths.dataDir, async () => {
-        try {
+      // The try/catch wraps withJobLock itself, not just its body. Taking
+      // the lock can throw before body() ever runs -- losing the advisory
+      // race against another process, or any other failure on the way in --
+      // and a catch placed inside withJobLock's callback never sees that:
+      // the state file would stay 'running' forever with nothing to explain
+      // why, while withLiveness eventually reports it failed pointing at a
+      // log that was never created. See the spec, section 2: "the child then
+      // fails cleanly against the real lock with the same message the parent
+      // would have given" -- which only happens if something records it.
+      try {
+        await withJobLock(context.paths.dataDir, async () => {
           const result = await body();
           await job.reporter.finish(result);
-        } catch (error) {
-          await job.reporter.fail(error instanceof Error ? error.message : String(error));
-          throw error;
-        }
-      });
+        });
+      } catch (error) {
+        await job.reporter.fail(error instanceof Error ? error.message : String(error));
+        throw error;
+      }
     });
 }
