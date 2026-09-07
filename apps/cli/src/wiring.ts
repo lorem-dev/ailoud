@@ -335,7 +335,9 @@ export async function createContext(
       return new WhisperVadSegmenter({
         binary: config.stt.whisperCpp.vadBinary,
         vadModelPath: vadModel,
-        threads: budget?.threads ?? 4,
+        // The capped share, not the full ceiling: measured to the same
+        // optimum as the diarizer (see budget.ts's ResourceBudget.cappedThreads).
+        threads: budget?.cappedThreads ?? 4,
       });
     },
     createDiarizer(budget?: ResourceBudget): Diarizer {
@@ -363,7 +365,7 @@ export async function createContext(
         // Config wins where it is set: an explicit number is a measurement
         // someone made on their own machine, and it is exempt from the cap.
         // Null means follow the budget's capped share.
-        threads: config.stt.diarization.threads ?? budget?.diarizerThreads ?? 4,
+        threads: config.stt.diarization.threads ?? budget?.cappedThreads ?? 4,
       });
     },
     versionSource: new NpmRegistry({

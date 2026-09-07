@@ -95,10 +95,11 @@ describe('resource flags', () => {
     expect(runner.mock.calls[0]![1]).toEqual(expect.arrayContaining(['-t', '7']));
   });
 
-  it('never passes a GPU flag, because this binary has none', async () => {
-    // CONFIRMED by reading `whisper-vad-speech-segments --help`: it lists -t
-    // but no -ng and no --no-gpu. Passing one by symmetry with whisper-cli
-    // would make every segmentation exit non-zero.
+  it('never passes a GPU flag, because the one this binary has aborts', async () => {
+    // The binary does have one: `-ug, --use-gpu [false]`, opt-in rather than
+    // whisper-cli's opt-out `-ng`/`--no-gpu`. MEASURED that passing it aborts
+    // the process (exit 134, SIGABRT, zero segments on stdout), so it is
+    // never passed and `resources.gpu` has no effect on segmentation.
     const runner = vi.fn().mockResolvedValue({
       code: 0,
       stdout: 'Speech segment 0: start = 0.00, end = 100.00',

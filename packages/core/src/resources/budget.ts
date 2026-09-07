@@ -15,9 +15,14 @@ export interface ResourceBudget {
   /** The ceiling: what an engine that scales with threads may use. */
   readonly threads: number;
   /**
-   * The diarizer's share, capped below the ceiling.
+   * The share handed to engines with a measured optimum below the ceiling,
+   * capped below it: the speaker diarizer and the VAD speech segmenter. Not
+   * named after either one, on purpose -- both were measured to the same
+   * optimum, by different mechanisms, and a field named after only one of
+   * them would invite the next reader to hand the other engine the full
+   * ceiling.
    *
-   * MEASURED on 607 s of speech, sherpa-onnx, 8 performance cores:
+   * MEASURED on 607 s of speech, sherpa-onnx diarizer, 8 performance cores:
    *
    *   1 thread  120.0 s      6 threads  45.2 s   <- fastest
    *   2 threads  72.6 s      7 threads  56.5 s
@@ -28,8 +33,20 @@ export interface ResourceBudget {
    * threads per pass oversubscribes a machine with N performance cores. Handing
    * this engine the full ceiling would have made diarization slower than it was
    * before this feature existed.
+   *
+   * MEASURED on 607 s of speech, whisper-vad-speech-segments, same machine:
+   *
+   *   1 thread  5.62 s      6 threads  2.17 s   <- fastest
+   *   2 threads  3.38 s      7 threads  3.01 s
+   *   4 threads  2.38 s      8 threads  3.88 s
+   *
+   * A different mechanism reaches the same optimum: this binary runs one
+   * small model, where thread coordination overhead dominates past a handful
+   * of threads rather than two ONNX sessions competing for cores. Same
+   * number, different reason -- which is exactly why this field is not named
+   * after either engine.
    */
-  readonly diarizerThreads: number;
+  readonly cappedThreads: number;
   /** False means: pass the engine's disable-GPU flag, where one exists. */
   readonly gpu: boolean;
 }
@@ -37,11 +54,12 @@ export interface ResourceBudget {
 export const DEFAULT_MAX_CPU_PERCENT = 90;
 
 /**
- * How many threads the diarizer must stay clear of, counted down from the
- * base. At `base - 1` the measured curve is already worse than at `base - 2`,
- * and at `base` it collapses.
+ * How many threads the capped engines must stay clear of, counted down from
+ * the base. At `base - 1` the measured curve is already worse than at
+ * `base - 2`, and at `base` it collapses. Measured against the diarizer and
+ * the VAD segmenter both; see `ResourceBudget.cappedThreads`.
  */
-const DIARIZER_HEADROOM = 2;
+const CAPPED_HEADROOM = 2;
 
 function clamp(value: number, low: number, high: number): number {
   if (value < low) return low;
@@ -72,7 +90,7 @@ export function resourceBudget(
   // zero-thread flag would make every engine refuse to start.
   const base = Math.max(1, Math.round(topology.performance ?? topology.logical));
   const threads = clamp(Math.round((base * percent) / 100), 1, base);
-  const diarizerThreads = Math.min(threads, Math.max(1, base - DIARIZER_HEADROOM));
+  const cappedThreads = Math.min(threads, Math.max(1, base - CAPPED_HEADROOM));
 
-  return { threads, diarizerThreads, gpu: options.gpu ?? true };
+  return { threads, cappedThreads, gpu: options.gpu ?? true };
 }

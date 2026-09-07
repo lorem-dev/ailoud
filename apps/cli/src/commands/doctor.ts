@@ -605,11 +605,12 @@ export async function accelerationChecks(context: CliContext): Promise<Check[]> 
     {
       name: 'cpu',
       ok: true,
-      // Both numbers: they differ, and the diarizer's being lower is a
-      // measured decision rather than an accident (see budget.ts).
+      // Both numbers: they differ, and the lower one's being shared by
+      // segmentation and diarization is a measured decision rather than an
+      // accident (see budget.ts).
       detail:
         `${split} -> ${budget.threads} threads, ` +
-        `${budget.diarizerThreads} for the diarizer, at ` +
+        `${budget.cappedThreads} for segmentation and diarization, at ` +
         `${context.config.resources.maxCpuPercent}%`,
     },
     backends.length > 0

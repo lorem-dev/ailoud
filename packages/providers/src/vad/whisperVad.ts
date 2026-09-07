@@ -55,9 +55,14 @@ export class WhisperVadSegmenter implements SpeechSegmenter {
   }
 
   public async segments(audioPath: string): Promise<SpeechSpan[]> {
-    // No GPU flag, and not an oversight: `whisper-vad-speech-segments --help`
-    // lists -t but has no -ng and no --no-gpu. Adding one by symmetry with
-    // whisperCpp.ts would make every segmentation exit non-zero.
+    // No GPU flag passed, and not because this binary lacks one: it has
+    // `-ug, --use-gpu [false]`, spelled opt-in rather than whisper-cli's
+    // opt-out `-ng`/`--no-gpu` -- which is why grepping its --help for the
+    // opt-out spelling finds nothing and looks like proof of absence. MEASURED
+    // that `-ug` aborts: `exit=134` (SIGABRT), `ggml_abort`, zero segments on
+    // stdout. So `resources.gpu` has no effect on segmentation in either
+    // direction, on purpose: the flag exists, but passing it would hard-crash
+    // every multilingual transcription on this machine.
     const result = await this.runner(
       this.options.binary,
       [

@@ -540,7 +540,8 @@ describe('acceleration checks', () => {
     expect(cpu?.ok).toBe(true);
     // Both numbers, because they differ and the difference is the point.
     expect(cpu?.detail).toMatch(/threads/);
-    expect(cpu?.detail).toMatch(/diarizer/);
+    expect(cpu?.detail).toMatch(/segmentation/);
+    expect(cpu?.detail).toMatch(/diarization/);
   });
 
   it('names the backends the whisper binary loaded', async () => {

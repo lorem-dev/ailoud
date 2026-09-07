@@ -347,6 +347,9 @@ describe('resource budget', () => {
     '    segmentationModel: /models/segmentation.onnx\n' +
     '    embeddingModel: /models/embedding.onnx\n';
 
+  /** A config that leaves the VAD model set, so `createSegmenter` gets past its own missing-model check. */
+  const VAD_MODEL = 'stt:\n  whisperCpp:\n    vadModel: /models/vad.onnx\n';
+
   async function makeContext(config: string): Promise<CliContext> {
     const home = await mkdtemp(join(tmpdir(), 'ailoud-wiring-budget-'));
     dirs.push(home);
@@ -366,13 +369,27 @@ describe('resource budget', () => {
     return (engine as { readonly options: { readonly threads: number } }).options.threads;
   }
 
-  it('gives the diarizer a smaller share than the ceiling on a hybrid cpu', () => {
+  it('gives the diarizer and the VAD a smaller share than the ceiling on a hybrid cpu', () => {
     // The regression this whole feature turns on: 90 percent of 8
-    // performance cores is 7 threads, and the diarizer is measurably slower
+    // performance cores is 7 threads, and both engines are measurably slower
     // at 7 than at 6.
     const budget = resourceBudget({ logical: 10, performance: 8 }, { maxCpuPercent: 90 });
     expect(budget.threads).toBe(7);
-    expect(budget.diarizerThreads).toBe(6);
+    expect(budget.cappedThreads).toBe(6);
+  });
+
+  it('gives the segmenter the same capped share as the diarizer, not the full ceiling', async () => {
+    // The VAD has the same measured optimum as the diarizer (see budget.ts),
+    // so createSegmenter must be wired to cappedThreads too, not to threads.
+    const context = await makeContext(VAD_MODEL);
+    try {
+      const segmenter = context.createSegmenter(
+        resourceBudget({ logical: 10, performance: 8 }, { maxCpuPercent: 100 }),
+      );
+      expect(threadsOf(segmenter)).toBe(6);
+    } finally {
+      context.store.close();
+    }
   });
 
   it('lets an explicit config thread count override the budget', async () => {
