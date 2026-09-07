@@ -1,9 +1,11 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DEFAULT_MAX_CPU_PERCENT, resourceBudget } from '@ailoud/core';
 import type {
   Diarizer,
   PublishedVersion,
+  ResourceBudget,
   SpeechSegmenter,
   Summarizer,
   TranscriptionProvider,
@@ -94,6 +96,17 @@ export function context(): CliContext & {
     // output through `lines` and asserts on exact strings, the same
     // property the end-to-end suite leans on when it runs through a pipe.
     ui: new PlainUi(write),
+    // A fixed hybrid-cpu topology, not the real machine's: command tests in
+    // this package never assert on thread counts, and a value that changed
+    // with whatever ran the suite would be a fake worth distrusting.
+    resources: async (overrides = {}): Promise<ResourceBudget> =>
+      resourceBudget(
+        { logical: 10, performance: 8 },
+        {
+          maxCpuPercent: overrides.maxCpuPercent ?? DEFAULT_MAX_CPU_PERCENT,
+          gpu: overrides.gpu ?? true,
+        },
+      ),
     createStt: (): TranscriptionProvider => {
       const stt = new FakeStt({
         language: 'ru',

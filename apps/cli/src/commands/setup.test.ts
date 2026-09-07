@@ -1289,6 +1289,8 @@ describe('runProvisioning', () => {
       },
     },
     llm: parseConfig(null).llm,
+    resources: parseConfig(null).resources,
+    audio: parseConfig(null).audio,
     update: parseConfig(null).update,
   };
 

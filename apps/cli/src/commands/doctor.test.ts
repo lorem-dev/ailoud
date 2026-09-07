@@ -597,6 +597,8 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
             model: join(scopedDir, 'llm-model.gguf'),
           },
         },
+        resources: parseConfig(null).resources,
+        audio: parseConfig(null).audio,
         update: parseConfig(null).update,
       },
     };
@@ -731,6 +733,8 @@ describe('doctor: an unconfigured optional feature does not mean "not ready"', (
           },
         },
         llm: parseConfig(null).llm,
+        resources: parseConfig(null).resources,
+        audio: parseConfig(null).audio,
         update: parseConfig(null).update,
       },
     };
@@ -889,6 +893,8 @@ describe('a corrupt database: every entry point must refuse', () => {
             model: join(corruptDir, 'llm-model.gguf'),
           },
         },
+        resources: parseConfig(null).resources,
+        audio: parseConfig(null).audio,
         update: parseConfig(null).update,
       },
     };

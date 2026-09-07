@@ -3,9 +3,10 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EnvironmentError } from '@ailoud/core';
+import { EnvironmentError, resourceBudget } from '@ailoud/core';
 import { NodeFs } from '@ailoud/providers';
 import { createContext } from './wiring.js';
+import type { CliContext } from './wiring.js';
 import { buildProgram } from './program.js';
 import { registryPath } from './projects.js';
 import { VERSION } from './version.js';
@@ -323,6 +324,78 @@ describe('project registration (task 10)', () => {
     } finally {
       cwdSpy.mockRestore();
       writeSpy.mockRestore();
+    }
+  });
+});
+
+describe('resource budget', () => {
+  const dirs: string[] = [];
+
+  afterEach(async () => {
+    for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true });
+  });
+
+  /**
+   * A config that leaves both diarization models set, so `createDiarizer`
+   * gets past its own missing-model checks and reaches the threads
+   * resolution this suite cares about. Only the `diarization:` block a test
+   * passes in is appended below it.
+   */
+  const DIARIZATION_MODELS =
+    'stt:\n' +
+    '  diarization:\n' +
+    '    segmentationModel: /models/segmentation.onnx\n' +
+    '    embeddingModel: /models/embedding.onnx\n';
+
+  async function makeContext(config: string): Promise<CliContext> {
+    const home = await mkdtemp(join(tmpdir(), 'ailoud-wiring-budget-'));
+    dirs.push(home);
+    await mkdir(join(home, '.config', 'ailoud'), { recursive: true });
+    await writeFile(join(home, '.config', 'ailoud', 'config.yaml'), config);
+    return createContext({ HOME: home }, () => {});
+  }
+
+  /**
+   * Reads the thread count an adapter was constructed with. The four engine
+   * option types keep `options` as a private class field, which TypeScript
+   * enforces only at the type level -- the object is a plain property at
+   * runtime, so a cast to a narrow, unrelated shape reads it back without
+   * reaching for `any`.
+   */
+  function threadsOf(engine: unknown): number {
+    return (engine as { readonly options: { readonly threads: number } }).options.threads;
+  }
+
+  it('gives the diarizer a smaller share than the ceiling on a hybrid cpu', () => {
+    // The regression this whole feature turns on: 90 percent of 8
+    // performance cores is 7 threads, and the diarizer is measurably slower
+    // at 7 than at 6.
+    const budget = resourceBudget({ logical: 10, performance: 8 }, { maxCpuPercent: 90 });
+    expect(budget.threads).toBe(7);
+    expect(budget.diarizerThreads).toBe(6);
+  });
+
+  it('lets an explicit config thread count override the budget', async () => {
+    const context = await makeContext(`${DIARIZATION_MODELS}    threads: 3\n`);
+    try {
+      const diarizer = context.createDiarizer(
+        resourceBudget({ logical: 10, performance: 8 }, { maxCpuPercent: 100 }),
+      );
+      expect(threadsOf(diarizer)).toBe(3);
+    } finally {
+      context.store.close();
+    }
+  });
+
+  it('follows the budget when the config leaves threads null', async () => {
+    const context = await makeContext(DIARIZATION_MODELS);
+    try {
+      const diarizer = context.createDiarizer(
+        resourceBudget({ logical: 10, performance: 8 }, { maxCpuPercent: 100 }),
+      );
+      expect(threadsOf(diarizer)).toBe(6);
+    } finally {
+      context.store.close();
     }
   });
 });

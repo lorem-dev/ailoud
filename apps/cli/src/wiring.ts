@@ -12,10 +12,12 @@ import type {
   VersionSource,
 } from '@ailoud/core';
 import { existsSync, statSync } from 'node:fs';
-import { EnvironmentError, isHostedLlm } from '@ailoud/core';
+import { EnvironmentError, isHostedLlm, resourceBudget } from '@ailoud/core';
+import type { ResourceBudget } from '@ailoud/core';
 import {
   AnthropicSummarizer,
   ClaudeCliSummarizer,
+  cpuTopology,
   DEFAULT_REGISTRY,
   DEFAULT_TIMEOUT_MS,
   FfmpegAudioTool,
@@ -100,6 +102,15 @@ export interface CliContext {
   readonly write: (line: string) => void;
   readonly ui: Ui;
   /**
+   * How much of this machine each engine may take, from config plus any
+   * per-run overrides. Reads the topology once per process (cpuTopology
+   * memoises), so calling this per command is free after the first.
+   */
+  resources(overrides?: {
+    readonly maxCpuPercent?: number;
+    readonly gpu?: boolean;
+  }): Promise<ResourceBudget>;
+  /**
    * Builds the transcription provider on demand instead of at context
    * construction. `createContext` runs before every command, including
    * `doctor`, whose entire purpose is to report that the model is not
@@ -109,7 +120,7 @@ export interface CliContext {
    * provider, so it is the one that pays for this call failing when the
    * model is missing.
    */
-  createStt(): TranscriptionProvider;
+  createStt(budget?: ResourceBudget): TranscriptionProvider;
   /**
    * Builds the VAD speech segmenter on demand, for the same reason
    * `createStt` does: `createContext` runs before every command, including
@@ -119,13 +130,13 @@ export interface CliContext {
    * segmenter, so it is the one that pays for this call failing when the
    * model is missing.
    */
-  createSegmenter(): SpeechSegmenter;
+  createSegmenter(budget?: ResourceBudget): SpeechSegmenter;
   /**
    * The configured large language model. Throws an EnvironmentError naming
    * what is missing rather than returning null, so a command need not decide
    * how to explain a half-configured engine.
    */
-  createSummarizer(): Summarizer;
+  createSummarizer(budget?: ResourceBudget): Summarizer;
   /**
    * Builds the speaker diarizer on demand, for the same reason `createStt`
    * and `createSegmenter` do: `createContext` runs before every command,
@@ -135,7 +146,7 @@ export interface CliContext {
    * so it is the one that pays for this call failing when a model is
    * missing.
    */
-  createDiarizer(): Diarizer;
+  createDiarizer(budget?: ResourceBudget): Diarizer;
   /**
    * What versions of ailoud are published, for `ailoud self check`. A port,
    * not `NpmRegistry` directly, the same way every other engine on this
@@ -219,7 +230,17 @@ export async function createContext(
     ids: new UlidIds(),
     write,
     ui: createUi(write),
-    createStt(): TranscriptionProvider {
+    async resources(overrides = {}): Promise<ResourceBudget> {
+      return resourceBudget(await cpuTopology(), {
+        maxCpuPercent: overrides.maxCpuPercent ?? config.resources.maxCpuPercent,
+        gpu: overrides.gpu ?? config.resources.gpu,
+      });
+    },
+    // The literal `4` in each factory's fallback below is whisper's, the
+    // VAD's and llama's own default, and the diarizer's previous config
+    // default -- so a caller that passes no budget behaves exactly as the
+    // code did before this feature.
+    createStt(budget?: ResourceBudget): TranscriptionProvider {
       const model = config.stt.whisperCpp.model;
       if (model === null) {
         throw new EnvironmentError(
@@ -227,9 +248,14 @@ export async function createContext(
             `${paths.configFile} to the path of a model file; run "ailoud doctor" for details.`,
         );
       }
-      return new WhisperCppProvider({ binary: config.stt.whisperCpp.binary, modelPath: model });
+      return new WhisperCppProvider({
+        binary: config.stt.whisperCpp.binary,
+        modelPath: model,
+        threads: budget?.threads ?? 4,
+        gpu: budget?.gpu ?? config.resources.gpu,
+      });
     },
-    createSummarizer(): Summarizer {
+    createSummarizer(budget?: ResourceBudget): Summarizer {
       const llm = config.llm;
 
       if (llm.provider === 'claude-cli') {
@@ -294,11 +320,11 @@ export async function createContext(
         modelPath: settings.model,
         contextTokens: settings.contextTokens,
         maxOutputTokens: settings.maxOutputTokens,
-        threads: settings.threads,
+        threads: settings.threads ?? budget?.threads ?? 4,
       });
     },
 
-    createSegmenter(): SpeechSegmenter {
+    createSegmenter(budget?: ResourceBudget): SpeechSegmenter {
       const vadModel = config.stt.whisperCpp.vadModel;
       if (vadModel === null) {
         throw new EnvironmentError(
@@ -309,9 +335,10 @@ export async function createContext(
       return new WhisperVadSegmenter({
         binary: config.stt.whisperCpp.vadBinary,
         vadModelPath: vadModel,
+        threads: budget?.threads ?? 4,
       });
     },
-    createDiarizer(): Diarizer {
+    createDiarizer(budget?: ResourceBudget): Diarizer {
       const segmentationModel = config.stt.diarization.segmentationModel;
       if (segmentationModel === null) {
         throw new EnvironmentError(
@@ -333,7 +360,10 @@ export async function createContext(
         segmentationModel,
         embeddingModel,
         threshold: config.stt.diarization.threshold,
-        threads: config.stt.diarization.threads,
+        // Config wins where it is set: an explicit number is a measurement
+        // someone made on their own machine, and it is exempt from the cap.
+        // Null means follow the budget's capped share.
+        threads: config.stt.diarization.threads ?? budget?.diarizerThreads ?? 4,
       });
     },
     versionSource: new NpmRegistry({

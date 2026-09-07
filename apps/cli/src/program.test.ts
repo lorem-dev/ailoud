@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseConfig } from './config.js';
-import { EnvironmentError, FailureError, UsageError } from '@ailoud/core';
+import { EnvironmentError, FailureError, resourceBudget, UsageError } from '@ailoud/core';
 import {
   FakeAudioTool,
   FakeClock,
@@ -134,6 +134,8 @@ describe('buildProgram', () => {
           },
         },
         llm: parseConfig(null).llm,
+        resources: parseConfig(null).resources,
+        audio: parseConfig(null).audio,
         update: parseConfig(null).update,
       },
       store,
@@ -143,6 +145,7 @@ describe('buildProgram', () => {
       ids: new FakeIds(),
       write,
       ui: new PlainUi(write),
+      resources: async () => resourceBudget({ logical: 10, performance: 8 }, { maxCpuPercent: 90 }),
       createStt: () => new FakeStt({ language: 'en', model: 'fake', segments: [] }),
       createSegmenter: () => new FakeSegmenter([{ startMs: 0, endMs: 1000 }]),
       createDiarizer: () => new FakeDiarizer([]),
