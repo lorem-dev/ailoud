@@ -56,6 +56,12 @@ export function astatsArgs(wavPath: string): string[] {
     'astats=metadata=1:measure_overall=Noise_floor+RMS_level:measure_perchannel=none',
     '-f',
     'null',
+    // The output target, and it is load-bearing. Without it ffmpeg answers
+    // "At least one output file must be specified", exits non-zero and prints
+    // no astats figures at all -- so every measurement comes back as two
+    // nulls and `auto` silently never denoises anything. `-` is stdout, which
+    // discards the samples because the format is null; nothing is written.
+    '-',
   ];
 }
 

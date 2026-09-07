@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -215,5 +215,57 @@ describe.each(['mp4', 'mov', 'mkv', 'webm'])('a %s recording', (container) => {
     const stream = await audioStreamOf(output);
     expect(stream.sample_rate).toBe('16000');
     expect(stream.channels).toBe(1);
+  });
+});
+
+/**
+ * Denoising against a real ffmpeg, not a mocked runner.
+ *
+ * The mocked suite above proves the decision logic -- which calls happen, in
+ * which order. It cannot prove that the arguments those calls carry actually
+ * work, and that gap shipped a real defect: `astatsArgs` was missing its
+ * trailing `-` output target, so ffmpeg refused to run, every measurement came
+ * back as two nulls, and `auto` silently never denoised anything. Every unit
+ * test stayed green. These four cases are what would have caught it.
+ *
+ * The two fixtures are the anchors the threshold was measured against:
+ * noisy-short.wav at 16.35 dB SNR must be denoised, en-short.wav at 27.14 dB
+ * must not.
+ */
+describe('denoising real audio', () => {
+  const noisy = fileURLToPath(new URL('../../../../fixtures/noisy-short.wav', import.meta.url));
+  const clean = fileURLToPath(new URL('../../../../fixtures/en-short.wav', import.meta.url));
+
+  it('measures a real file rather than answering nulls', async () => {
+    // The direct regression test for the missing output target. A profile of
+    // two nulls here means ffmpeg never produced figures, whatever the reason.
+    const output = join(dir, 'measured.wav');
+    const prepared = await new FfmpegAudioTool().toWav16kMono(clean, output, { denoise: 'auto' });
+    expect(prepared.profile.rmsDb).not.toBeNull();
+    expect(prepared.profile.noiseFloorDb).not.toBeNull();
+  });
+
+  it('denoises the noisy fixture on auto', async () => {
+    const output = join(dir, 'auto-noisy.wav');
+    const prepared = await new FfmpegAudioTool().toWav16kMono(noisy, output, { denoise: 'auto' });
+    expect(prepared.denoised).toBe(true);
+    // Still the shape whisper is fed, after the filter pass and the rename.
+    const stream = await audioStreamOf(output);
+    expect(stream.sample_rate).toBe('16000');
+    expect(stream.channels).toBe(1);
+  });
+
+  it('leaves the clean fixture alone on auto', async () => {
+    const output = join(dir, 'auto-clean.wav');
+    const prepared = await new FfmpegAudioTool().toWav16kMono(clean, output, { denoise: 'auto' });
+    expect(prepared.denoised).toBe(false);
+  });
+
+  it('leaves no scratch file behind', async () => {
+    // applyDenoise writes `<output>.dn.wav` and renames it over the target.
+    // A leftover scratch file means the rename did not happen.
+    const output = join(dir, 'scratch.wav');
+    await new FfmpegAudioTool().toWav16kMono(noisy, output, { denoise: 'on' });
+    await expect(stat(`${output}.dn.wav`)).rejects.toThrow();
   });
 });

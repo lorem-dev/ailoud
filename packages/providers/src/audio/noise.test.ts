@@ -57,9 +57,13 @@ describe('astatsArgs', () => {
   it('scans without writing a file', () => {
     const args = astatsArgs('/tmp/a.wav');
     expect(args).toContain('/tmp/a.wav');
-    // -f null: this is a measurement, not a conversion. Writing an output
-    // would double the cost of the cheapest step in the pipeline.
-    expect(args.slice(-2)).toEqual(['-f', 'null']);
+    // `-f null -`, all three tokens. This is a measurement, not a
+    // conversion, so the null muxer discards the samples -- but the trailing
+    // `-` is still required: ffmpeg refuses to run without an output target,
+    // and an earlier version of this list omitted it. Every measurement then
+    // returned two nulls and `auto` never denoised anything, with every unit
+    // test still green.
+    expect(args.slice(-3)).toEqual(['-f', 'null', '-']);
     expect(args.join(' ')).toContain('astats');
   });
 
