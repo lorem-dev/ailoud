@@ -862,4 +862,69 @@ describe('denoising', () => {
       ),
     ).resolves.toBeDefined();
   });
+
+  // The multilingual path hand-duplicates the same notice/warning block
+  // (transcribe.ts's transcribeMultilingual) rather than sharing a helper
+  // with the single-pass path above -- see that function's own comment.
+  // Duplicated code with assertions on only one copy is exactly where the
+  // copies drift, so this mirrors every case above against
+  // { multilingual: true } instead of {}.
+  it('passes the mode it was given to the converter on the multilingual path', async () => {
+    const d = multilingualDeps({});
+    await transcribeRecording(d, recording, { multilingual: true, denoise: 'auto' });
+    expect(d.audio.denoiseModes).toEqual(['auto']);
+  });
+
+  it('notices that it left the audio alone on the multilingual path, without warning about it', async () => {
+    const notices: string[] = [];
+    const warnings: string[] = [];
+    const d = multilingualDeps({});
+    await transcribeRecording(
+      {
+        ...d,
+        onNotice: (message) => notices.push(message),
+        onWarning: (message) => warnings.push(message),
+      },
+      recording,
+      { multilingual: true, denoise: 'auto' },
+    );
+    expect(notices.join('\n')).toMatch(/not denoised/i);
+    expect(warnings).toEqual([]);
+  });
+
+  it('warns as well as notices when the audio was altered on the multilingual path', async () => {
+    const notices: string[] = [];
+    const warnings: string[] = [];
+    const d = multilingualDeps({});
+    // The fake reports no denoising by default; override for this one case.
+    d.audio.prepared = { denoised: true, profile: { rmsDb: -22.18, noiseFloorDb: -38.53 } };
+    await transcribeRecording(
+      {
+        ...d,
+        onNotice: (message) => notices.push(message),
+        onWarning: (message) => warnings.push(message),
+      },
+      recording,
+      { multilingual: true, denoise: 'auto' },
+    );
+    expect(warnings.join('\n')).toMatch(/denoised/i);
+    // The numbers travel with the decision, so a reader can judge it.
+    expect(notices.join('\n')).toContain('16.4');
+  });
+
+  it('does not fail a multilingual transcription when the notice sink throws', async () => {
+    const d = multilingualDeps({});
+    await expect(
+      transcribeRecording(
+        {
+          ...d,
+          onNotice: () => {
+            throw new Error('sink exploded');
+          },
+        },
+        recording,
+        { multilingual: true, denoise: 'auto' },
+      ),
+    ).resolves.toBeDefined();
+  });
 });
