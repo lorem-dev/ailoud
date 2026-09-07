@@ -56,7 +56,17 @@ module.exports = {
         '<rootDir>/e2e/tests/self-update.spec.ts',
         '<rootDir>/e2e/tests/setup.spec.ts',
         '<rootDir>/e2e/tests/completions.spec.ts',
+        // resources.spec.ts holds two describe blocks: one built entirely on
+        // stub binaries (belongs here) and one that drives real ffmpeg/
+        // whisper-cli/a model (belongs only to `tools`, below). A single
+        // spec file cannot be split across projects by testMatch alone --
+        // that is file granularity, not describe-block granularity -- so
+        // setupNoTools.cjs/setupTools.cjs (below) set an env flag the spec
+        // itself reads to skip the real-audio block whenever this project is
+        // the one running it.
+        '<rootDir>/e2e/tests/resources.spec.ts',
       ],
+      setupFiles: ['<rootDir>/e2e/src/setupNoTools.cjs'],
     },
     {
       ...shared,
@@ -68,6 +78,7 @@ module.exports = {
         '<rootDir>/e2e/tests/setup\\.spec\\.ts',
         '<rootDir>/e2e/tests/completions\\.spec\\.ts',
       ],
+      setupFiles: ['<rootDir>/e2e/src/setupTools.cjs'],
     },
   ],
 };
