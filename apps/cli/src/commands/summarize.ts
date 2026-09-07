@@ -8,10 +8,8 @@ import { resolveRecordings } from '../resolveId.js';
 import { collectTag, parseTags } from '../tags.js';
 import { loadTemplate, loadTemplates, templatesDir } from '../templateStore.js';
 import { runSummary } from '../summarizeRun.js';
-import { JobLog } from '../jobs/log.js';
-import { JobReporter } from '../jobs/reporter.js';
-import { getJob } from '../jobs/store.js';
 import { withJobLock } from '../jobs/lock.js';
+import { loadJob } from '../jobs/loadJob.js';
 
 export { transcriptBudget } from '../summarizeRun.js';
 
@@ -23,33 +21,6 @@ interface SummarizeOptions {
   readonly template?: string;
   readonly context?: string;
   readonly job?: string;
-}
-
-/**
- * Loads the job named by `--job`, or undefined when the flag was not given.
- *
- * A missing id is a UsageError naming it rather than a silent no-op: the id
- * came from whatever process started this one (a detached `--detach` child,
- * or the MCP server), and a wrong or stale one means something upstream is
- * confused, not that this run should quietly report nowhere.
- */
-async function loadJob(
-  context: CliContext,
-  id: string | undefined,
-): Promise<{ readonly reporter: JobReporter; readonly log: JobLog } | undefined> {
-  if (id === undefined) return undefined;
-  const state = await getJob(context.fs, context.paths.jobsDir, id);
-  if (state === null) {
-    throw new UsageError(`no such job "${id}".`);
-  }
-  const log = new JobLog(state.log);
-  const reporter = new JobReporter({
-    fs: context.fs,
-    jobsDir: context.paths.jobsDir,
-    initial: state,
-    log,
-  });
-  return { reporter, log };
 }
 
 export function registerSummarize(program: Command, context: CliContext): void {
