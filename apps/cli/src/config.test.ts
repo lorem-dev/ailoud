@@ -10,6 +10,7 @@ describe('resolvePaths', () => {
       dataDir: '/d/ailoud',
       dbFile: '/d/ailoud/ailoud.db',
       mediaRoot: '/d/ailoud/media',
+      jobsDir: '/d/ailoud/jobs',
       isProjectLibrary: false,
       userDataDir: '/d/ailoud',
     });
@@ -22,6 +23,7 @@ describe('resolvePaths', () => {
       dataDir: '/h/.local/share/ailoud',
       dbFile: '/h/.local/share/ailoud/ailoud.db',
       mediaRoot: '/h/.local/share/ailoud/media',
+      jobsDir: '/h/.local/share/ailoud/jobs',
       isProjectLibrary: false,
       userDataDir: '/h/.local/share/ailoud',
     });

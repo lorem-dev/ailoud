@@ -106,6 +106,8 @@ export interface AiloudPaths {
   readonly dataDir: string;
   readonly dbFile: string;
   readonly mediaRoot: string;
+  /** Where background jobs keep their state and log files. */
+  readonly jobsDir: string;
   /** True when the library came from a project's `.ailoud/`, not the user's home. */
   readonly isProjectLibrary: boolean;
   /**
@@ -203,6 +205,7 @@ export function resolvePaths(
     dataDir,
     dbFile: `${dataDir}/ailoud.db`,
     mediaRoot: `${dataDir}/media`,
+    jobsDir: `${dataDir}/jobs`,
     isProjectLibrary: project !== null,
     userDataDir: `${dataHome}/ailoud`,
   };

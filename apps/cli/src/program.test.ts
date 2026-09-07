@@ -112,6 +112,7 @@ describe('buildProgram', () => {
         dataDir: '/fake/data',
         dbFile: ':memory:',
         mediaRoot: '/fake/data/media',
+        jobsDir: '/fake/data/jobs',
         isProjectLibrary: false,
         userDataDir: '/fake/data',
       },

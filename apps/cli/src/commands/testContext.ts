@@ -57,6 +57,7 @@ export function context(): CliContext & {
       dataDir: '/d',
       dbFile: '/d/ailoud.db',
       mediaRoot: '/d/media',
+      jobsDir: '/d/jobs',
       isProjectLibrary: false,
       userDataDir: '/d',
     },

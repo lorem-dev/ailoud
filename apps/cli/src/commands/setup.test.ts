@@ -1332,6 +1332,7 @@ describe('runProvisioning', () => {
       dataDir: join(tmp, 'data'),
       dbFile: join(tmp, 'data', 'ailoud.db'),
       mediaRoot: join(tmp, 'data', 'media'),
+      jobsDir: join(tmp, 'data', 'jobs'),
       isProjectLibrary: false,
       userDataDir: join(tmp, 'data'),
     };
