@@ -11,6 +11,7 @@ import type { Recording } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecordings } from '../resolveId.js';
 import { collectTag, parseTags } from '../tags.js';
+import { parseDenoise, parseMaxCpu } from './resourceOptions.js';
 import { JobLog } from '../jobs/log.js';
 import { JobReporter } from '../jobs/reporter.js';
 import { createJob } from '../jobs/store.js';
@@ -27,6 +28,9 @@ interface TranscribeOptions {
   readonly diarize?: boolean;
   readonly speakers?: string;
   readonly tag?: string[];
+  readonly maxCpu?: string;
+  readonly gpu?: boolean;
+  readonly denoise?: string;
   readonly job?: string;
   readonly detach?: boolean;
 }
@@ -181,6 +185,9 @@ function transcribeChildArgs(ids: readonly string[], options: TranscribeOptions)
   if (options.diarize === true) args.push('--diarize');
   if (options.speakers !== undefined) args.push('--speakers', options.speakers);
   for (const tag of options.tag ?? []) args.push('--tag', tag);
+  if (options.maxCpu !== undefined) args.push('--max-cpu', options.maxCpu);
+  if (options.gpu === false) args.push('--no-gpu');
+  if (options.denoise !== undefined) args.push('--denoise', options.denoise);
   return args;
 }
 
@@ -204,6 +211,12 @@ export function registerTranscribe(program: Command, context: CliContext): void 
     )
     .option('--diarize', 'attribute segments to speakers by running speaker diarization')
     .option('--speakers <n>', 'known number of speakers, to help the diarizer')
+    .option(
+      '--max-cpu <percent>',
+      'share of this machine to use, 1 to 100 (default: the configured 90)',
+    )
+    .option('--no-gpu', 'do not use the GPU, even where a binary supports it')
+    .option('--denoise <mode>', 'auto, on or off (default: the configured auto)')
     .option('--tag <tag>', 'group these recordings under a tag; repeatable', collectTag)
     // Hidden, and not a feature: this is how the detached child started by
     // `--detach` and by the MCP server is told which job it is. A user has
@@ -224,6 +237,21 @@ export function registerTranscribe(program: Command, context: CliContext): void 
       if (options.detach === true && options.job !== undefined) {
         throw new UsageError('--detach cannot be combined with --job.');
       }
+
+      // Parsed above the --detach branch, before a job file exists or
+      // anything is spawned, so a bad --max-cpu or --denoise costs nothing --
+      // the detached path validates here too, even though the budget and
+      // denoise mode computed below are only used by the run that happens in
+      // this process, never by the detached child (which parses its own argv
+      // and computes its own).
+      const budget = await context.resources({
+        ...(options.maxCpu === undefined ? {} : { maxCpuPercent: parseMaxCpu(options.maxCpu) }),
+        ...(options.gpu === false ? { gpu: false } : {}),
+      });
+      const denoise =
+        options.denoise === undefined
+          ? context.config.audio.denoise
+          : parseDenoise(options.denoise);
 
       if (options.detach === true) {
         // Every validation the normal run would do, run here, before the job
@@ -302,9 +330,9 @@ export function registerTranscribe(program: Command, context: CliContext): void 
             return { transcribed: [] };
           }
 
-          const stt = context.createStt();
-          const segmenter = multilingual ? context.createSegmenter() : undefined;
-          const diarizer = options.diarize === true ? context.createDiarizer() : undefined;
+          const stt = context.createStt(budget);
+          const segmenter = multilingual ? context.createSegmenter(budget) : undefined;
+          const diarizer = options.diarize === true ? context.createDiarizer(budget) : undefined;
           const transcribed: Array<{
             recordingId: string;
             transcriptId: string;
@@ -346,6 +374,12 @@ export function registerTranscribe(program: Command, context: CliContext): void 
                     job?.log.append(`warning: ${message}`);
                     warnings.push(message);
                   },
+                  // The job log only, never ui.warn -- which onWarning above
+                  // already reaches. A foreground run has no job log and so
+                  // correctly prints nothing here.
+                  onNotice: (message) => {
+                    job?.log.append(message);
+                  },
                   onProgress: (event) => {
                     // Weighted by duration across the batch, so finishing four
                     // short recordings out of five does not claim 80%.
@@ -377,6 +411,7 @@ export function registerTranscribe(program: Command, context: CliContext): void 
                   ...(multilingual ? { multilingual: true, declaredLanguages: languages } : {}),
                   ...(options.diarize === true ? { diarize: true } : {}),
                   ...(speakers === undefined ? {} : { speakers }),
+                  denoise,
                 },
               ),
             );

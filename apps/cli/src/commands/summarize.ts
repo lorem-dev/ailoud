@@ -7,6 +7,7 @@ import { page, shouldPage } from '@ailoud/providers';
 import type { CliContext } from '../wiring.js';
 import { resolveRecordings } from '../resolveId.js';
 import { collectTag, parseTags } from '../tags.js';
+import { parseMaxCpu } from './resourceOptions.js';
 import { loadTemplate, loadTemplates, templatesDir } from '../templateStore.js';
 import { runSummary } from '../summarizeRun.js';
 import { JobLog } from '../jobs/log.js';
@@ -26,6 +27,8 @@ interface SummarizeOptions {
   readonly save?: boolean;
   readonly template?: string;
   readonly context?: string;
+  readonly maxCpu?: string;
+  readonly gpu?: boolean;
   readonly job?: string;
   readonly detach?: boolean;
 }
@@ -96,6 +99,8 @@ function summarizeChildArgs(ids: readonly string[], options: SummarizeOptions): 
   if (options.save === false) args.push('--no-save');
   if (options.template !== undefined) args.push('--template', options.template);
   if (options.context !== undefined) args.push('--context', options.context);
+  if (options.maxCpu !== undefined) args.push('--max-cpu', options.maxCpu);
+  if (options.gpu === false) args.push('--no-gpu');
   return args;
 }
 
@@ -117,6 +122,11 @@ export function registerSummarize(program: Command, context: CliContext): void {
       'a sentence or two the transcript does not say: who these people are to each other, ' +
         'what the project is, what happened last week',
     )
+    .option(
+      '--max-cpu <percent>',
+      'share of this machine to use, 1 to 100 (default: the configured 90)',
+    )
+    .option('--no-gpu', 'do not use the GPU, even where a binary supports it')
     // Hidden, and not a feature: this is how the detached child started by
     // `--detach` and by the MCP server is told which job it is. A user has
     // no reason to pass it, and `--help` listing it would invite exactly the
@@ -136,6 +146,16 @@ export function registerSummarize(program: Command, context: CliContext): void {
       if (options.detach === true && options.job !== undefined) {
         throw new UsageError('--detach cannot be combined with --job.');
       }
+
+      // Parsed above the --detach branch, before a job file exists or
+      // anything is spawned -- see the identical comment in transcribe.ts.
+      // The budget computed here is only used by the run that happens in
+      // this process; the detached child parses its own argv and computes
+      // its own.
+      const budget = await context.resources({
+        ...(options.maxCpu === undefined ? {} : { maxCpuPercent: parseMaxCpu(options.maxCpu) }),
+        ...(options.gpu === false ? { gpu: false } : {}),
+      });
 
       if (options.detach === true) {
         // Every validation the normal run would do, run here, before the job
@@ -193,7 +213,7 @@ export function registerSummarize(program: Command, context: CliContext): void {
           // outlives the command.
           // Named before the run so the portion note can use it; createSummarizer
           // is cheap and runSummary makes its own.
-          const summarizerName = context.createSummarizer().name;
+          const summarizerName = context.createSummarizer(budget).name;
           const runDir = await context.fs.tempDir();
           try {
             const result = await context.ui.summarising((report) =>
@@ -202,6 +222,7 @@ export function registerSummarize(program: Command, context: CliContext): void {
                 {
                   recordings,
                   template,
+                  budget,
                   ...(options.lang === undefined ? {} : { language: options.lang }),
                   ...(options.context === undefined ? {} : { context: options.context }),
                   ...(options.fresh === true ? { fresh: true } : {}),

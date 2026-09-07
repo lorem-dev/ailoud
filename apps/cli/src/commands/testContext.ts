@@ -41,12 +41,20 @@ export function context(): CliContext & {
   segmenterInstances: FakeSegmenter[];
   diarizerInstances: FakeDiarizer[];
   summarizerPrompts: string[];
+  /**
+   * Every budget `createStt`, `createSegmenter`, `createDiarizer` and
+   * `createSummarizer` were called with, in call order -- `undefined` where a
+   * caller passed none. This is how a test proves a budget actually reached
+   * the factory, since the fakes themselves have no thread count to inspect.
+   */
+  budgets: Array<ResourceBudget | undefined>;
 } {
   const lines: string[] = [];
   const sttInstances: FakeStt[] = [];
   const segmenterInstances: FakeSegmenter[] = [];
   const diarizerInstances: FakeDiarizer[] = [];
   const summarizerPrompts: string[] = [];
+  const budgets: Array<ResourceBudget | undefined> = [];
   const write = (line: string): void => {
     lines.push(line);
   };
@@ -56,6 +64,7 @@ export function context(): CliContext & {
     segmenterInstances,
     diarizerInstances,
     summarizerPrompts,
+    budgets,
     paths: {
       configFile: '/c/ailoud/config.yaml',
       configHome: '/c',
@@ -107,7 +116,8 @@ export function context(): CliContext & {
           gpu: overrides.gpu ?? true,
         },
       ),
-    createStt: (): TranscriptionProvider => {
+    createStt: (budget?: ResourceBudget): TranscriptionProvider => {
+      budgets.push(budget);
       const stt = new FakeStt({
         language: 'ru',
         model: 'base.bin',
@@ -116,17 +126,20 @@ export function context(): CliContext & {
       sttInstances.push(stt);
       return stt;
     },
-    createSegmenter: (): SpeechSegmenter => {
+    createSegmenter: (budget?: ResourceBudget): SpeechSegmenter => {
+      budgets.push(budget);
       const segmenter = new FakeSegmenter([{ startMs: 0, endMs: 1500 }]);
       segmenterInstances.push(segmenter);
       return segmenter;
     },
-    createDiarizer: (): Diarizer => {
+    createDiarizer: (budget?: ResourceBudget): Diarizer => {
+      budgets.push(budget);
       const diarizer = new FakeDiarizer([{ startMs: 0, endMs: 1500, speaker: 'speaker_00' }]);
       diarizerInstances.push(diarizer);
       return diarizer;
     },
-    createSummarizer: (): Summarizer => {
+    createSummarizer: (budget?: ResourceBudget): Summarizer => {
+      budgets.push(budget);
       // Echoes back what it was asked, so a test can assert on the prompt the
       // pipeline built without needing a model. Specs that care about the
       // summary itself override this.
@@ -179,14 +192,20 @@ export interface ContextWithTranscriptOptions {
  * actually do. `skipImport` yields an empty library; `skipTranscribe`
  * yields a recording with no transcript.
  */
-export async function contextWithTranscript(
-  opts: ContextWithTranscriptOptions = {},
-): Promise<CliContext & { lines: string[]; sttInstances: FakeStt[]; summarizerPrompts: string[] }> {
+export async function contextWithTranscript(opts: ContextWithTranscriptOptions = {}): Promise<
+  CliContext & {
+    lines: string[];
+    sttInstances: FakeStt[];
+    summarizerPrompts: string[];
+    budgets: Array<ResourceBudget | undefined>;
+  }
+> {
   const ctx = context();
   const done = (): CliContext & {
     lines: string[];
     sttInstances: FakeStt[];
     summarizerPrompts: string[];
+    budgets: Array<ResourceBudget | undefined>;
   } => {
     if (opts.clearLines === true) ctx.lines.length = 0;
     return ctx;

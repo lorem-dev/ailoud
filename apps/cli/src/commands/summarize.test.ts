@@ -503,6 +503,91 @@ describe('ailoud summarize --detach', () => {
   });
 });
 
+describe('ailoud summarize --max-cpu, --no-gpu', () => {
+  afterEach(() => {
+    vi.mocked(spawnDetachedJob).mockReset();
+  });
+
+  it.each(['0', '101', 'abc', '-5', '2.5'])(
+    'refuses --max-cpu %s, naming the accepted range',
+    async (value) => {
+      const ctx = await contextWithTranscript({ clearLines: true });
+      await expect(
+        buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--max-cpu', value]),
+      ).rejects.toThrow(/1.*100/);
+    },
+  );
+
+  it('accepts a --max-cpu inside the range and forwards the resulting budget to the summarizer', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--max-cpu', '50']);
+    // testContext's fixed topology is { logical: 10, performance: 8 }: 50% of the
+    // 8 performance cores, rounded, is 4.
+    expect(ctx.budgets).toContainEqual(expect.objectContaining({ threads: 4, gpu: true }));
+  });
+
+  it('--no-gpu forwards gpu: false to the summarizer', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--no-gpu']);
+    expect(ctx.budgets).toContainEqual(expect.objectContaining({ gpu: false }));
+  });
+
+  it('does not register --denoise: summarizing reads stored transcripts, not audio', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    const program = buildProgram(ctx);
+    const summarizeCmd = program.commands.find((c) => c.name() === 'summarize')!;
+    expect(summarizeCmd.options.find((o) => o.long === '--denoise')).toBeUndefined();
+  });
+
+  it('validates --max-cpu before creating a job or spawning anything, under --detach', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      await expect(
+        buildProgram(ctx).parseAsync([
+          'node',
+          'ailoud',
+          'summarize',
+          'ID001',
+          '--max-cpu',
+          '0',
+          '--detach',
+        ]),
+      ).rejects.toThrow(/1.*100/);
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+    });
+  });
+
+  it('forwards --max-cpu and --no-gpu to the detached child, unmodified', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync([
+        'node',
+        'ailoud',
+        'summarize',
+        'ID001',
+        '--max-cpu',
+        '50',
+        '--no-gpu',
+        '--detach',
+      ]);
+      expect(spawnDetachedJob).toHaveBeenCalledTimes(1);
+      const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).toEqual(['summarize', 'ID001', '--max-cpu', '50', '--no-gpu']);
+    });
+  });
+
+  it('forwards neither to the detached child when nothing was asked for', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--detach']);
+      const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).not.toContain('--max-cpu');
+      expect(commandArgs).not.toContain('--no-gpu');
+    });
+  });
+});
+
 describe('ailoud summarize --template / --context', () => {
   it('shapes the headings by template', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });

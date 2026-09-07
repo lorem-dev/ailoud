@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { FailureError, UsageError } from '@ailoud/core';
 import type { Recording } from '@ailoud/core';
 import { FakeStt } from '@ailoud/core/testing';
+import type { FakeAudioTool } from '@ailoud/core/testing';
 import { buildProgram } from '../program.js';
 import { context, withRealDataDir } from './testContext.js';
 import { parseLanguages } from './transcribe.js';
@@ -241,6 +242,137 @@ describe('ailoud transcribe --diarize', () => {
       ).rejects.toThrow(/--speakers must be a positive integer/);
     },
   );
+});
+
+describe('ailoud transcribe --max-cpu, --no-gpu, --denoise', () => {
+  afterEach(() => {
+    vi.mocked(spawnDetachedJob).mockReset();
+  });
+
+  it.each(['0', '101', 'abc', '-5', '2.5'])(
+    'refuses --max-cpu %s, naming the accepted range',
+    async (value) => {
+      const ctx = context();
+      await expect(
+        buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--max-cpu', value]),
+      ).rejects.toThrow(/1.*100/);
+    },
+  );
+
+  it('accepts a --max-cpu inside the range and forwards the resulting budget to the factories', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--max-cpu', '50']);
+    // testContext's fixed topology is { logical: 10, performance: 8 }: 50% of the
+    // 8 performance cores, rounded, is 4 -- the proof the budget actually reached
+    // createStt rather than that factory's own "no budget" fallback of 4.
+    expect(ctx.budgets).toContainEqual(expect.objectContaining({ threads: 4, gpu: true }));
+  });
+
+  it('uses the configured default share when --max-cpu is not given', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe']);
+    // 90% (the schema default) of 8 performance cores, rounded, is 7 -- distinct
+    // from both 4 above and the factory's own unrelated fallback of 4, so this
+    // could not pass by accident.
+    expect(ctx.budgets).toContainEqual(expect.objectContaining({ threads: 7, gpu: true }));
+  });
+
+  it('--no-gpu forwards gpu: false, never true', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--no-gpu']);
+    expect(ctx.budgets).toContainEqual(expect.objectContaining({ gpu: false }));
+  });
+
+  it('refuses an unknown --denoise mode, naming the three accepted ones', async () => {
+    const ctx = context();
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--denoise', 'sometimes']),
+    ).rejects.toThrow(UsageError);
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--denoise', 'sometimes']),
+    ).rejects.toThrow(/auto.*on.*off/);
+  });
+
+  it.each(['auto', 'on', 'off'])(
+    'accepts --denoise %s and forwards it to the audio tool',
+    async (mode) => {
+      const ctx = context();
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--denoise', mode]);
+      expect((ctx.audio as FakeAudioTool).denoiseModes).toContain(mode);
+    },
+  );
+
+  it('defaults to "auto" (the schema default) when --denoise is not given', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe']);
+    expect((ctx.audio as FakeAudioTool).denoiseModes).toContain('auto');
+  });
+
+  it('validates --max-cpu and --denoise before creating a job or spawning anything, under --detach', async () => {
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      await expect(
+        buildProgram(ctx).parseAsync([
+          'node',
+          'ailoud',
+          'transcribe',
+          '--max-cpu',
+          '0',
+          '--detach',
+        ]),
+      ).rejects.toThrow(/1.*100/);
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+    });
+  });
+
+  it('forwards --max-cpu, --no-gpu and --denoise to the detached child, unmodified', async () => {
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      await buildProgram(ctx).parseAsync([
+        'node',
+        'ailoud',
+        'transcribe',
+        'ID001',
+        '--max-cpu',
+        '50',
+        '--no-gpu',
+        '--denoise',
+        'on',
+        '--detach',
+      ]);
+      expect(spawnDetachedJob).toHaveBeenCalledTimes(1);
+      const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).toEqual([
+        'transcribe',
+        'ID001',
+        '--max-cpu',
+        '50',
+        '--no-gpu',
+        '--denoise',
+        'on',
+      ]);
+    });
+  });
+
+  it('forwards none of the three to the detached child when nothing was asked for', async () => {
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', 'ID001', '--detach']);
+      const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).not.toContain('--max-cpu');
+      expect(commandArgs).not.toContain('--no-gpu');
+      expect(commandArgs).not.toContain('--denoise');
+    });
+  });
 });
 
 /** Captures every `(stage, fraction)` pair `transcribing` reports, in order. */
