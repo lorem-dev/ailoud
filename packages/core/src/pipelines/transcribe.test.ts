@@ -576,6 +576,56 @@ describe('transcribeRecording progress', () => {
     expect(diarizing.map((e) => e.fraction)).toEqual([undefined, 1]);
   });
 
+  it(
+    'multilingual stage names carry increasing fractions -- segmenting, then ' +
+      'detecting, then labelling at 1 when diarize is on',
+    async () => {
+      // stageScale returns 0 for a stage name it does not recognise, and
+      // nothing throws when that happens -- a typo in one of these three
+      // string literals (each also hardcoded in transcribe.ts) would stall
+      // the bar silently through that whole phase with no test failing.
+      // This pins the literal names by asserting the shape only a CORRECTLY
+      // named stage can produce.
+      const events: ProgressEvent[] = [];
+      const d = multilingualDeps({
+        spans: [
+          { startMs: 0, endMs: 1750 },
+          { startMs: 1800, endMs: 3430 },
+        ],
+        languages: ['en', 'ru'],
+      });
+      // Two speaker turns, one per language span: with --diarize on, the
+      // turns become the detection units instead of the segmenter's spans
+      // (see transcribeMultilingual's own comment), so this is what makes
+      // units.length 2 rather than 1.
+      const diarizer = new FakeDiarizer([
+        { startMs: 0, endMs: 1775, speaker: 'speaker_00' },
+        { startMs: 1775, endMs: 3430, speaker: 'speaker_01' },
+      ]);
+      await transcribeRecording(
+        { ...d, diarizer, onProgress: (event) => events.push(event) },
+        recording,
+        { multilingual: true, declaredLanguages: ['en', 'ru'], diarize: true },
+      );
+
+      const segmenting = events.filter((e) => e.stage === 'segmenting');
+      const detecting = events.filter((e) => e.stage === 'detecting');
+      expect(segmenting.length).toBeGreaterThan(0);
+      // Two detection units (one per span above): strictly increasing, not
+      // merely non-decreasing, is what proves each unit actually advanced
+      // the bar rather than reporting the same number twice.
+      expect(detecting.length).toBe(2);
+      const segmentingEnd = segmenting.at(-1)!.fraction!;
+      expect(detecting[0]!.fraction!).toBeGreaterThan(segmentingEnd);
+      expect(detecting[1]!.fraction!).toBeGreaterThan(detecting[0]!.fraction!);
+
+      // The run's closing report, with --diarize on, lands on 'labelling' at
+      // exactly 1 -- the multilingual sibling of the single-pass
+      // 'diarizing'/1 pair pinned in the test above.
+      expect(events.at(-1)).toEqual({ stage: 'labelling', fraction: 1 });
+    },
+  );
+
   it('still produces a transcript when the progress sink throws', async () => {
     const transcript = await transcribeRecording(
       {
