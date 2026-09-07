@@ -79,7 +79,6 @@ export async function writeJobState(fs: Fs, jobsDir: string, state: JobState): P
  */
 export async function readJobState(fs: Fs, jobsDir: string, id: string): Promise<JobState | null> {
   const path = jobStatePath(jobsDir, id);
-  if (!(await fs.exists(path))) return null;
   try {
     const parsed: unknown = JSON.parse(await fs.readTextFile(path));
     if (typeof parsed !== 'object' || parsed === null) return null;
