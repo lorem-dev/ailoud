@@ -1,20 +1,4 @@
-/**
- * What a noise measurement of one file found.
- *
- * Both fields are nullable, and both nulls mean the same thing: no usable
- * number. `noiseFloorDb` is null when ffmpeg reported `-inf`, which happens
- * for audio with no measurable noise at all -- five of this project's eight
- * fixtures. Treating that as "infinitely noisy" would denoise exactly the
- * files that need it least.
- *
- * Declared here rather than imported from the port so this module stays
- * dependency-free. Task 6 makes `domain/ports.ts` the single home for it and
- * re-exports from here.
- */
-export interface NoiseProfile {
-  readonly noiseFloorDb: number | null;
-  readonly rmsDb: number | null;
-}
+import type { NoiseProfile } from '../domain/ports.js';
 
 export type DenoiseMode = 'auto' | 'on' | 'off';
 

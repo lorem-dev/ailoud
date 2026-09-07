@@ -14,6 +14,7 @@ import type {
   TempFile,
   TranscriptionProvider,
 } from '../domain/ports.js';
+import type { DenoiseMode, WavPrepared } from '../index.js';
 import type {
   RawSegment,
   Recording,
@@ -130,6 +131,8 @@ export class FakeAudioTool implements AudioTool {
   readonly converted: Array<[string, string]> = [];
   /** Every slice() call this fake was given, in call order. */
   readonly sliced: Array<{ input: string; output: string; startMs: number; endMs: number }> = [];
+  /** Every denoise mode this fake was asked for, in call order. */
+  readonly denoiseModes: Array<DenoiseMode | undefined> = [];
 
   constructor(
     private readonly durationMs = 60_000,
@@ -145,8 +148,16 @@ export class FakeAudioTool implements AudioTool {
   async probe(): Promise<{ durationMs: number; recordedAt: string | null }> {
     return { durationMs: this.durationMs, recordedAt: this.recordedAt };
   }
-  async toWav16kMono(input: string, output: string): Promise<void> {
+  async toWav16kMono(
+    input: string,
+    output: string,
+    opts?: { readonly denoise?: DenoiseMode },
+  ): Promise<WavPrepared> {
     this.converted.push([input, output]);
+    this.denoiseModes.push(opts?.denoise);
+    // Reports no measurement: a fake that invented a noise floor would let a
+    // pipeline test pass while the real decision path went untested.
+    return { denoised: false, profile: { noiseFloorDb: null, rmsDb: null } };
   }
   async slice(input: string, output: string, startMs: number, endMs: number): Promise<void> {
     this.sliced.push({ input, output, startMs, endMs });

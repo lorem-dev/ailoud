@@ -8,6 +8,7 @@ import type {
   Transcript,
 } from './model.js';
 import type { PublishedVersion } from './version.js';
+import type { DenoiseMode } from '../audio/noise.js';
 
 export interface Clock {
   nowIso(): string;
@@ -70,6 +71,25 @@ export interface Fs {
   rename(from: string, to: string): Promise<void>;
 }
 
+/**
+ * What a noise measurement of one file found.
+ *
+ * Both fields nullable, both nulls meaning the same thing: no usable number.
+ * `noiseFloorDb` is null when ffmpeg reported `-inf`, which is what audio
+ * with no measurable noise produces -- five of this project's eight fixtures.
+ */
+export interface NoiseProfile {
+  readonly noiseFloorDb: number | null;
+  readonly rmsDb: number | null;
+}
+
+/** What `toWav16kMono` did, beyond converting. */
+export interface WavPrepared {
+  /** True when the denoising chain was applied to `output`. */
+  readonly denoised: boolean;
+  readonly profile: NoiseProfile;
+}
+
 export interface AudioTool {
   /**
    * Container facts. `recordedAt` is the creation-time tag normalised to an
@@ -79,7 +99,26 @@ export interface AudioTool {
    * splitting it would double the cost of importing every file.
    */
   probe(path: string): Promise<{ durationMs: number; recordedAt: string | null }>;
-  toWav16kMono(input: string, output: string): Promise<void>;
+  /**
+   * Converts to the 16 kHz mono wav every engine here is fed, and -- when
+   * asked to -- measures the result and denoises it in place.
+   *
+   * The measurement and the filtering live behind this one call rather than
+   * beside it, on purpose. This method has exactly two production call sites,
+   * both in the transcribe pipeline, and separate port methods would have put
+   * a second temp file and a second nested try/finally into both the
+   * single-pass and the multilingual path. That is the most fragile code in
+   * the project, and a feature five of eight fixtures never even trigger does
+   * not get to restructure it.
+   *
+   * Omitting `opts` means no measurement and no filtering, which is what
+   * every caller predating this option already expects.
+   */
+  toWav16kMono(
+    input: string,
+    output: string,
+    opts?: { readonly denoise?: DenoiseMode },
+  ): Promise<WavPrepared>;
   /**
    * Writes the audio between `startMs` and `endMs` to `output`. This is the
    * audio-splitting work M1 deferred, in the shape the multilingual path
