@@ -75,14 +75,32 @@ interface PathEntry {
   readonly node: CommandNode;
 }
 
-/** Every command path, with the words that follow it. Depth-first, stable order. */
+/**
+ * Every command path, with the words that follow it. Depth-first, stable order.
+ *
+ * Recursed once per SPELLING of each child, not once per canonical name. The
+ * aliases are already offered as candidates -- the design lists the group
+ * plurals as "words a user types and might Tab" -- and descending only through
+ * canonical names meant `ailoud recordings <TAB>` matched no case arm and
+ * completed nothing in all three shells. Offering a word and then completing
+ * nothing after it is worse than never offering it.
+ *
+ * The duplication this costs is bounded by the aliases that survive
+ * `describeTree`: three group plurals, each on a leaf-bearing group. One-letter
+ * aliases are already dropped there, which is what keeps this from doubling
+ * every verb.
+ */
 function paths(node: CommandNode, prefix: readonly string[] = []): PathEntry[] {
   const words: readonly string[] = [
     ...node.children.flatMap((child) => [child.name, ...child.aliases]),
     ...node.options,
   ];
   const here: PathEntry[] = [{ path: prefix, words, node }];
-  return here.concat(node.children.flatMap((child) => paths(child, [...prefix, child.name])));
+  return here.concat(
+    node.children.flatMap((child) =>
+      [child.name, ...child.aliases].flatMap((spelling) => paths(child, [...prefix, spelling])),
+    ),
+  );
 }
 
 /**

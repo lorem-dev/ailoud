@@ -115,6 +115,19 @@ describe('renderCompletions', () => {
     }
   });
 
+  it('routes through an alias, not only past it', () => {
+    // `recordings` was offered as a candidate and then completed nothing:
+    // verified in real bash, where `ailoud recordings <TAB>` produced two
+    // bells and no list. Offering a word and then having nothing follow it is
+    // worse than never offering it.
+    const tree = describeTree(sample());
+    expect(renderCompletions('bash', tree)).toContain('"recordings")');
+    expect(renderCompletions('zsh', tree)).toContain('"recordings")');
+    expect(renderCompletions('fish', tree)).toContain(
+      "__fish_seen_subcommand_from recordings' -a 'ls'",
+    );
+  });
+
   it('produces the same bytes for the same tree', () => {
     // `update` compares before and after to report "unchanged"; a generator
     // that reorders its own output would rewrite the file on every run.
