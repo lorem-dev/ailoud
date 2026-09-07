@@ -159,10 +159,23 @@ function notice(deps: TranscribeDeps, message: string): void {
  * One line describing what the conversion did about noise, with the numbers
  * that decided it -- an agent reading a job log has to be able to tell that
  * the audio was altered, or that it deliberately was not.
+ *
+ * `mode` decides how to read a null SNR: `on` and `off` never measure (see
+ * ffmpeg.ts's `toWav16kMono`), so their profile is always two nulls, and
+ * reporting that as "no measurable noise floor" would claim a measurement
+ * that never happened. Only `auto` actually measures, so only there does a
+ * null SNR mean the measurement ran and found nothing.
  */
-function denoiseMessage(prepared: WavPrepared): string {
+function denoiseMessage(prepared: WavPrepared, mode: DenoiseMode): string {
   const snr = snrDb(prepared.profile);
-  const measured = snr === null ? 'no measurable noise floor' : `snr ${snr.toFixed(1)} dB`;
+  const measured =
+    mode === 'on'
+      ? 'not measured, denoising was requested'
+      : mode === 'off'
+        ? 'not measured, denoising is off'
+        : snr === null
+          ? 'no measurable noise floor'
+          : `snr ${snr.toFixed(1)} dB`;
   return prepared.denoised
     ? `audio denoised before transcription (${measured})`
     : `audio not denoised (${measured})`;
@@ -335,11 +348,11 @@ export async function transcribeRecording(
       options.denoise === undefined ? undefined : { denoise: options.denoise },
     );
     if (options.denoise !== undefined) {
-      notice(deps, denoiseMessage(prepared));
+      notice(deps, denoiseMessage(prepared, options.denoise));
       // The terminal hears about it only when the audio actually changed: the
       // transcript no longer comes from the file the user imported, and that
       // is worth one line.
-      if (prepared.denoised) deps.onWarning?.(denoiseMessage(prepared));
+      if (prepared.denoised) deps.onWarning?.(denoiseMessage(prepared, options.denoise));
     }
     report(deps, 'transcribing', scale('transcribing', 0));
     const result = await deps.stt.transcribe(tempWav.path, {
@@ -450,11 +463,11 @@ async function transcribeMultilingual(
       options.denoise === undefined ? undefined : { denoise: options.denoise },
     );
     if (options.denoise !== undefined) {
-      notice(deps, denoiseMessage(prepared));
+      notice(deps, denoiseMessage(prepared, options.denoise));
       // The terminal hears about it only when the audio actually changed: the
       // transcript no longer comes from the file the user imported, and that
       // is worth one line.
-      if (prepared.denoised) deps.onWarning?.(denoiseMessage(prepared));
+      if (prepared.denoised) deps.onWarning?.(denoiseMessage(prepared, options.denoise));
     }
     report(deps, 'segmenting');
 

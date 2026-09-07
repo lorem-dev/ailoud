@@ -329,6 +329,19 @@ describe('ailoud transcribe --max-cpu, --no-gpu, --denoise', () => {
       ).rejects.toThrow(/1.*100/);
       expect(spawnDetachedJob).not.toHaveBeenCalled();
       expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+
+      await expect(
+        buildProgram(ctx).parseAsync([
+          'node',
+          'ailoud',
+          'transcribe',
+          '--denoise',
+          'sometimes',
+          '--detach',
+        ]),
+      ).rejects.toThrow(/auto.*on.*off/);
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
     });
   });
 

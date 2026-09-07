@@ -13,8 +13,9 @@ import type {
   TempDir,
   TempFile,
   TranscriptionProvider,
+  WavPrepared,
 } from '../domain/ports.js';
-import type { DenoiseMode, WavPrepared } from '../index.js';
+import type { DenoiseMode } from '../audio/noise.js';
 import type {
   RawSegment,
   Recording,

@@ -802,6 +802,32 @@ describe('denoising', () => {
     expect(audio.denoiseModes).toEqual([undefined]);
   });
 
+  it('notices that denoising was not measured, only requested, when the mode is "on"', async () => {
+    // "on" skips the measurement entirely (see ffmpeg.ts), so the profile is
+    // two nulls -- reporting that as "no measurable noise floor" would claim
+    // a measurement that never ran.
+    const notices: string[] = [];
+    const audio = new FakeAudioTool();
+    audio.prepared = { denoised: true, profile: { rmsDb: null, noiseFloorDb: null } };
+    await transcribeRecording(
+      { ...deps(), audio, onNotice: (message) => notices.push(message) },
+      recording,
+      { denoise: 'on' },
+    );
+    expect(notices.join('\n')).toMatch(/not measured, denoising was requested/);
+  });
+
+  it('notices that denoising was not measured, only skipped, when the mode is "off"', async () => {
+    const notices: string[] = [];
+    const audio = new FakeAudioTool();
+    await transcribeRecording(
+      { ...deps(), audio, onNotice: (message) => notices.push(message) },
+      recording,
+      { denoise: 'off' },
+    );
+    expect(notices.join('\n')).toMatch(/not measured, denoising is off/);
+  });
+
   it('notices that it left the audio alone, without warning about it', async () => {
     // The job log gets the decision in both directions; the terminal only
     // hears about it when the audio was actually altered. "I left your audio
