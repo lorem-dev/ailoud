@@ -97,11 +97,11 @@ Names survive `--force`, so re-transcribing does not lose them.
 `--detach` starts the work and prints a job id instead of waiting:
 
 ```
-ailoud audio transcribe 01M1Y5HXT9KTGKE1AV04EZTNPN --lang ru,en --detach
+ailoud audio transcribe 01M1YDT42V1RMRB80EXHK4R5EQ --lang ru,en --detach
 ```
 
 ```
-ok  started job 01M1Y5J22JMX4PK4988HVAFHK1 -- progress in /private/tmp/ailoud-docs-demo/.ailoud/jobs/01M1Y5J22JMX4PK4988HVAFHK1.json
+ok  started job 01M1YDT6XENN575E031PE32AKS -- progress in /private/tmp/ailoud-docs-demo/.ailoud/jobs/01M1YDT6XENN575E031PE32AKS.json
 ```
 
 ```
@@ -109,20 +109,22 @@ ailoud job ls
 ```
 
 ```
-01M1Y5J22JMX4PK4988HVAFHK1  transcribe  running   28%  detecting
+01M1YDT6XENN575E031PE32AKS  transcribe  running   56%  detecting
 ```
 
 ```
-ailoud job show 01M1Y5J22JMX4PK4988HVAFHK1
+ailoud job show 01M1YDT6XENN575E031PE32AKS
 ```
 
 ```
-Job 01M1Y5J22JMX4PK4988HVAFHK1 -- transcribe, done
+Job 01M1YDT6XENN575E031PE32AKS -- transcribe, done
 Progress: 100% (transcribing)
 Recordings: 1/1
-Started: 2026-09-07T14:50:04.755Z
-Finished: 2026-09-07T14:50:25.648Z
-Log: /private/tmp/ailoud-docs-demo/.ailoud/jobs/01M1Y5J22JMX4PK4988HVAFHK1.log
+Started: 2026-09-07T17:14:20.462Z
+Finished: 2026-09-07T17:14:39.096Z
+Declared: unknown speakers, languages ru, en
+Result: {"transcribed":[{"recordingId":"01M1YDT42V1RMRB80EXHK4R5EQ","transcriptId":"01M1YDTS3NX10EKBGHVPMSR2Z8","language":"en","segments":12}]}
+Log: /private/tmp/ailoud-docs-demo/.ailoud/jobs/01M1YDT6XENN575E031PE32AKS.log
 ```
 
 `audio summarize --detach` works the same way. `job rm <id>` forgets a

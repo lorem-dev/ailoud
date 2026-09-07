@@ -60,7 +60,16 @@ function details(job: JobState): string {
   ];
   if (job.finishedAt !== null) lines.push(`Finished: ${job.finishedAt}`);
   if (job.etaSeconds !== undefined) lines.push(`ETA: ${job.etaSeconds}s`);
+  if (job.declared !== null) {
+    const languages =
+      job.declared.languages.length === 0 ? 'unspecified' : job.declared.languages.join(', ');
+    lines.push(`Declared: ${job.declared.speakers} speakers, languages ${languages}`);
+  }
   if (job.error !== null) lines.push(`Error: ${job.error}`);
+  // For a finished summarize job, reportId lives only here -- with no
+  // --json, this is the sole pointer to the saved output. docs/usage/cli.md
+  // promises this command "prints one job in full".
+  if (job.result !== null) lines.push(`Result: ${JSON.stringify(job.result)}`);
   lines.push(`Log: ${job.log}`);
   return lines.join('\n');
 }
