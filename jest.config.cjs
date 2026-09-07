@@ -55,6 +55,7 @@ module.exports = {
         '<rootDir>/e2e/tests/mcp-install.spec.ts',
         '<rootDir>/e2e/tests/self-update.spec.ts',
         '<rootDir>/e2e/tests/setup.spec.ts',
+        '<rootDir>/e2e/tests/completions.spec.ts',
       ],
     },
     {
@@ -65,6 +66,7 @@ module.exports = {
         '<rootDir>/e2e/tests/mcp-install\\.spec\\.ts',
         '<rootDir>/e2e/tests/self-update\\.spec\\.ts',
         '<rootDir>/e2e/tests/setup\\.spec\\.ts',
+        '<rootDir>/e2e/tests/completions\\.spec\\.ts',
       ],
     },
   ],

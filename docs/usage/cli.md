@@ -202,6 +202,21 @@ corrupted file `doctor` cannot see is broken. If you use a local summariser
 (`--llm local`), it also reinstalls llama.cpp and re-downloads its 2.1 GB
 model; a hosted summariser (Claude, OpenAI) is untouched either way.
 
+## self completions
+
+```
+ailoud self completions install [--shell <ids>] [-y]
+ailoud self completions uninstall [--shell <ids>]
+ailoud self completions update
+ailoud self completions print <shell>
+```
+
+Shells: `bash`, `zsh`, `fish`. Fish autoloads its own completions directory,
+so `install` and `uninstall` never touch a fish startup file; bash and zsh
+both get a marker block added to (or removed from) `~/.bashrc` /
+`~/.zshrc`. `setup --yes` installs none of these; accept its prompt or pass
+`--completions` to get them without asking.
+
 ## Exit codes
 
 | Code | Means                 |

@@ -48,6 +48,12 @@
   check already passes, useful for a corrupted install.
 - Switching the transcription model now prints where the previous model file
   was left, since ailoud never deletes it.
+- `self completions` adds `install`, `uninstall`, `update` and `print`
+  subcommands for bash, zsh and fish.
+- `self sync` now refreshes installed shell completions alongside a
+  project's rules block.
+- `setup` offers to install shell completions at the end of a successful
+  run; skip with `--no-completions`.
 
 ### Changed
 
