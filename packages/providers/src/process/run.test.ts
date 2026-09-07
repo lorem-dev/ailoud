@@ -38,6 +38,52 @@ describe('run', () => {
     const result = await run('node', ['-e', 'process.kill(process.pid, "SIGTERM")']);
     expect(result.code).toBe(128 + 15);
   });
+
+  it('delivers stderr lines as they arrive, without their newline', async () => {
+    const lines: string[] = [];
+    await run('node', ['-e', 'process.stderr.write("a\\nb\\n")'], {
+      onStderrLine: (line) => lines.push(line),
+    });
+    expect(lines).toEqual(['a', 'b']);
+  });
+
+  it('delivers a trailing fragment that never got its newline', async () => {
+    const lines: string[] = [];
+    await run('node', ['-e', 'process.stderr.write("a\\nb")'], {
+      onStderrLine: (line) => lines.push(line),
+    });
+    expect(lines).toEqual(['a', 'b']);
+  });
+
+  it('reassembles a line split across two chunks', async () => {
+    const lines: string[] = [];
+    // Two writes with a tick between them, so the runtime cannot coalesce
+    // them into one 'data' event. A naive per-chunk split loses "hello".
+    await run(
+      'node',
+      ['-e', 'process.stderr.write("hel"); setTimeout(() => process.stderr.write("lo\\n"), 50);'],
+      { onStderrLine: (line) => lines.push(line) },
+    );
+    expect(lines).toEqual(['hello']);
+  });
+
+  it('buffers stderr identically whether or not a line sink is passed', async () => {
+    const args = ['-e', 'process.stderr.write("one\\ntwo\\n")'];
+    const without = await run('node', args);
+    const with_ = await run('node', args, { onStderrLine: () => {} });
+    expect(with_.stderr).toBe(without.stderr);
+    expect(with_.stderr).toBe('one\ntwo\n');
+  });
+
+  it('survives a line sink that throws', async () => {
+    const result = await run('node', ['-e', 'process.stderr.write("x\\n"); process.exit(0)'], {
+      onStderrLine: () => {
+        throw new Error('sink exploded');
+      },
+    });
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('x\n');
+  });
 });
 
 describe('runInteractive', () => {
