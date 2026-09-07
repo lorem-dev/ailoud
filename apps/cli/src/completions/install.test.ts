@@ -99,6 +99,27 @@ describe('uninstall', () => {
     const outcome = await uninstall(fs, bash, PLACES);
     expect(actions(outcome.files)[`${HOME}/.bashrc`]).toBe('absent');
   });
+
+  it('preserves .bashrc that was empty before install: after uninstall, file exists empty and reports cleaned', async () => {
+    // A user may deliberately create an empty .bashrc to override a distro's
+    // default startup script. When ailoud installs into it, it adds a block and
+    // reports "updated". On uninstall, removing that block leaves it empty, but
+    // the file must not be deleted — it was not created by ailoud and must not
+    // be destroyed by uninstall. The outcome must be "cleaned", not "removed".
+    const fs = new MemFs({ [`${HOME}/.bashrc`]: '' });
+    const bash = findShell('bash')!;
+
+    // First install into the empty file
+    const installOutcome = await install(fs, bash, TREE, PLACES);
+    expect(actions(installOutcome.files)[`${HOME}/.bashrc`]).toBe('updated');
+
+    // Then uninstall
+    const uninstallOutcome = await uninstall(fs, bash, PLACES);
+    const byPath = actions(uninstallOutcome.files);
+    expect(byPath[`${HOME}/.bashrc`]).toBe('cleaned');
+    expect(await fs.exists(`${HOME}/.bashrc`)).toBe(true);
+    expect(await fs.readTextFile(`${HOME}/.bashrc`)).toBe('');
+  });
 });
 
 describe('refresh', () => {
