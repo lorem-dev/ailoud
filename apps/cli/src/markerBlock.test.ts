@@ -36,6 +36,29 @@ describe('markerBlock', () => {
     expect(withoutBlock(before, HASH)).toContain('we wrap ours in');
   });
 
+  it('skips an END that has no START before it, and finds the real block after it', () => {
+    // A hand edit that deleted the START line, or prose quoting the closing
+    // marker, leaves an orphan END. Stopping at the first END reported "no
+    // block here" for a file that plainly has one: `install` then appended a
+    // second, duplicate block on every run, `self sync` and `self update`
+    // silently stopped refreshing, and `uninstall` printed "Nothing to remove"
+    // while leaving every block in place -- permanently, since nothing ever
+    // removes the orphan.
+    const before = `${HASH.end}\n\n# my rc\n\n${block}\n`;
+    expect(hasBlock(before, HASH)).toBe(true);
+    const range = blockRange(before, HASH)!;
+    expect(before.slice(range.from, range.to)).toBe(block);
+
+    // The consequences the orphan caused, each asserted where it showed up.
+    const rewritten = withBlock(before, block, HASH);
+    expect(rewritten.split(HASH.start).length - 1).toBe(1);
+    expect(rewritten).toBe(before);
+    const removed = withoutBlock(before, HASH);
+    expect(removed).not.toBeNull();
+    expect(removed).toContain('# my rc');
+    expect(removed).not.toContain('export PATH=x');
+  });
+
   it('reports absence rather than an empty range', () => {
     expect(blockRange('# nothing here\n', HASH)).toBeNull();
     expect(hasBlock('# nothing here\n', HASH)).toBe(false);

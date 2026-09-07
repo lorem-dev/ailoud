@@ -21,21 +21,37 @@ export interface Markers {
 /**
  * Where our block sits, or null.
  *
- * The START taken is the LAST one before the first END, not the first one in
- * the file. Pairing the first START with the first END destroyed user text: a
- * file that merely MENTIONS the marker -- "we wrap our rules in <!--
- * AILOUD_START --> markers" -- made the range run from that sentence to the
- * end of our real block, and everything in between was replaced or deleted.
+ * The START taken is the LAST one before the END it is paired with, not the
+ * first one in the file. Pairing the first START with the first END destroyed
+ * user text: a file that merely MENTIONS the marker -- "we wrap our rules in
+ * <!-- AILOUD_START --> markers" -- made the range run from that sentence to
+ * the end of our real block, and everything in between was replaced or deleted.
+ *
+ * The scan walks ENDs and skips any that has no START before it, rather than
+ * giving up on the first one. An END with no START is not hypothetical: a hand
+ * edit that deleted the START line, or prose quoting the closing marker, leaves
+ * one. Stopping there reported "no block here" for a file that plainly has one,
+ * which made `install` append a second, duplicate block on every run, made
+ * `self sync`/`self update` silently stop refreshing, and made `uninstall`
+ * print "Nothing to remove" while leaving every block in place -- permanently,
+ * because nothing ever removes the orphan.
  */
 export function blockRange(
   text: string,
   markers: Markers,
 ): { readonly from: number; readonly to: number } | null {
-  const end = text.indexOf(markers.end);
-  if (end === -1) return null;
-  const from = text.lastIndexOf(markers.start, end);
-  if (from === -1) return null;
-  return { from, to: end + markers.end.length };
+  for (let at = 0; ; ) {
+    const end = text.indexOf(markers.end, at);
+    if (end === -1) return null;
+    const from = text.lastIndexOf(markers.start, end);
+    // `from + start.length <= end` rejects a START that overlaps the END it
+    // would be paired with, which is reachable when one marker is a prefix of
+    // the other. A range whose start runs past its own end is not a block.
+    if (from !== -1 && from + markers.start.length <= end) {
+      return { from, to: end + markers.end.length };
+    }
+    at = end + markers.end.length;
+  }
 }
 
 /** Whether a file already carries our block. */
