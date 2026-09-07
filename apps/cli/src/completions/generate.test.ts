@@ -103,16 +103,21 @@ describe('renderCompletions', () => {
     expect(script).toContain('list them');
   });
 
-  it('quotes a description safely for every shell', () => {
+  it('escapes an apostrophe in the fish description, the only shell that emits one', () => {
     // A description with an apostrophe closed the quoting and produced a
     // script that fails to parse -- silently, because nothing sources it
     // until the user opens a new terminal.
+    //
+    // fish only: bash and zsh emit no descriptions at all, so asserting the
+    // raw string is absent from those two passed for the wrong reason. What
+    // matters is not that the raw form is missing but that the escaped form
+    // is present, since an implementation that dropped the description
+    // entirely would also satisfy "does not contain".
     const program = new Command().name('ailoud');
     program.command('x').description("don't break");
-    for (const shell of ['bash', 'zsh', 'fish'] as const) {
-      const script = renderCompletions(shell, describeTree(program));
-      expect(script).not.toContain("don't break");
-    }
+    const fish = renderCompletions('fish', describeTree(program));
+    expect(fish).toContain("-d 'don'\\''t break'");
+    expect(fish).not.toContain("-d 'don't break'");
   });
 
   it('leaves filename completion working in every shell', () => {

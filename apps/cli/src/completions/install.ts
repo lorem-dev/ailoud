@@ -176,16 +176,16 @@ export async function uninstall(
       const rcAfter = withoutIn(rcBefore, MARKERS);
       if (rcAfter === null) {
         files.push({ path: rcPath, action: 'unchanged' });
-      } else if (rcAfter === '') {
-        // Never delete a shell startup file even if removing our block empties it.
-        // Such a file may have been deliberately created as empty by the user (e.g.,
-        // to override a distro's default startup script). Deleting it is not reversible
-        // and was never requested by the user. This differs from mcp/install.ts's
-        // deletion of an MCP server config it created — that file is a tool's own
-        // config, while a shell startup file is the user's property.
-        await write(fs, rcPath, rcAfter);
-        files.push({ path: rcPath, action: 'cleaned' });
       } else {
+        // One branch, including when removing our block empties the file: the
+        // startup file is written back empty and never deleted. It may have
+        // been created empty on purpose -- to override a distro's default --
+        // and deleting it is not reversible and was never asked for. This
+        // differs from mcp/install.ts deleting an MCP server config it created:
+        // that file is a tool's own config, a shell startup file is the user's
+        // property. Kept as one arm because the empty case and the rest do
+        // exactly the same thing, and two identical arms invite an edit to one
+        // that silently misses the other.
         await write(fs, rcPath, rcAfter);
         files.push({ path: rcPath, action: 'cleaned' });
       }

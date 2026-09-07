@@ -55,6 +55,11 @@
 - `setup` offers to install shell completions at the end of a successful
   run; skip with `--no-completions`.
 
+### Fixed
+
+- A rules file holding a stray `AILOUD_END` marker is found again, instead of
+  gaining a duplicate block on every `mcp install` and never being refreshed.
+
 ### Changed
 
 - New rules blocks now go to `.claude/CLAUDE.md`; blocks already in a
