@@ -12,6 +12,13 @@
 ## A full config file
 
 ```yaml
+resources:
+  maxCpuPercent: 90
+  gpu: true
+
+audio:
+  denoise: auto
+
 stt:
   provider: whisper-cpp
   whisperCpp:
@@ -33,6 +40,54 @@ llm:
     model: sonnet
     contextTokens: 200000
 ```
+
+| Key                       | Default | Means                                                                                             |
+| ------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `resources.maxCpuPercent` | `90`    | Share of the machine's fast cores an engine may use, 1 to 100.                                    |
+| `resources.gpu`           | `true`  | Use the GPU where a binary supports it.                                                           |
+| `audio.denoise`           | `auto`  | `auto` measures the audio and cleans only noisy recordings. `on` always cleans, `off` never does. |
+| `stt.diarization.threads` | `null`  | Follow `maxCpuPercent`. A number overrides it.                                                    |
+| `llm.llamaCpp.threads`    | `null`  | Follow `maxCpuPercent`. A number overrides it.                                                    |
+
+### Acceleration
+
+`ailoud doctor` reports which backends each engine loaded:
+
+```
+GPU build (BLAS, MTL, CPU): transcription is already fast, and threads mainly affect speaker diarization. Raise resources.maxCpuPercent only if diarization is slow.
+ok    cpu                            10 logical, 8 performance -> 7 threads, 6 for segmentation and diarization, at 90%
+ok    whisper backends               BLAS, MTL, CPU
+n/a   neural engine                  not available: whisper.cpp reaches the Neural Engine only when built with CoreML support and given a converted model, which the packaged build is not
+```
+
+whisper.cpp and llama.cpp use Metal or CUDA automatically when their build
+supports it, so there is no flag to turn that on.
+
+What actually changes the speed, measured on 40 seconds of audio with the
+`small` model:
+
+| Threads | GPU build | CPU-only build |
+| ------- | --------- | -------------- |
+| 1       | 2.6 s     | 77.0 s         |
+| 4       | 2.1 s     | 21.0 s         |
+| 8       | 1.9 s     | 19.6 s         |
+
+- A GPU build is about ten times faster, and needs no flag.
+- On a GPU build the thread count barely matters, so one thread is fine and
+  leaves the CPU free.
+- Without a GPU, threads are worth about four times, and nearly all of that
+  by four threads.
+- Speech segmentation and speaker diarization always run on the CPU, and both
+  get a lower share than the other engines because both were measured to slow
+  down past it -- the segmenter by 39 percent at 7 threads against 6, the
+  diarizer by 25 percent.
+
+Apple's Neural Engine would move the encoder off the GPU onto the Neural
+Engine, freeing the GPU and cutting encoder time on long files. It needs
+whisper.cpp built with `WHISPER_COREML=1` and a model converted to CoreML,
+which the packaged builds do not include. See
+[whisper.cpp's CoreML instructions](https://github.com/ggml-org/whisper.cpp#core-ml-support)
+to build it yourself, then point `stt.whisperCpp.binary` at the result.
 
 ## Language model
 

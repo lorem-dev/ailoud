@@ -65,16 +65,19 @@ ailoud audio import <path...> [--title <text>] [--notes <text>] [--tag <tag>]
 ailoud audio transcribe [ids...] [options]
 ```
 
-| Option           | Does                                                    |
-| ---------------- | ------------------------------------------------------- |
-| `--lang <codes>` | `ru`, or `ru,en` for several, or `auto`                 |
-| `--model <name>` | override the configured model                           |
-| `--force`        | re-transcribe recordings that already have a transcript |
-| `--multilingual` | segment by speech and language, transcribe each run     |
-| `--diarize`      | attribute segments to speakers                          |
-| `--speakers <n>` | known number of speakers                                |
-| `--tag <tag>`    | tag these recordings; repeatable                        |
-| `--detach`       | start the work in the background and print a job id     |
+| Option                | Does                                                    |
+| --------------------- | ------------------------------------------------------- |
+| `--lang <codes>`      | `ru`, or `ru,en` for several, or `auto`                 |
+| `--model <name>`      | override the configured model                           |
+| `--force`             | re-transcribe recordings that already have a transcript |
+| `--multilingual`      | segment by speech and language, transcribe each run     |
+| `--diarize`           | attribute segments to speakers                          |
+| `--speakers <n>`      | known number of speakers                                |
+| `--tag <tag>`         | tag these recordings; repeatable                        |
+| `--max-cpu <percent>` | share of this machine to use, 1 to 100                  |
+| `--no-gpu`            | do not use the GPU, even where a binary supports it     |
+| `--denoise <mode>`    | `auto`, `on` or `off`                                   |
+| `--detach`            | start the work in the background and print a job id     |
 
 With no ids, transcribes everything that has no transcript yet.
 
@@ -99,15 +102,17 @@ ailoud audio search <query...> [options]
 ailoud audio summarize [ids...] [options]
 ```
 
-| Option              | Does                                                |
-| ------------------- | --------------------------------------------------- |
-| `--tag <tag>`       | summarise everything carrying this tag; repeatable  |
-| `--template <name>` | which shape; see `ailoud template ls`               |
-| `--context <text>`  | a sentence the transcript does not say              |
-| `--lang <code>`     | write the summary in this language                  |
-| `--fresh`           | re-read transcripts instead of stored reports       |
-| `--no-save`         | do not store the summary                            |
-| `--detach`          | start the work in the background and print a job id |
+| Option                | Does                                                |
+| --------------------- | --------------------------------------------------- |
+| `--tag <tag>`         | summarise everything carrying this tag; repeatable  |
+| `--template <name>`   | which shape; see `ailoud template ls`               |
+| `--context <text>`    | a sentence the transcript does not say              |
+| `--lang <code>`       | write the summary in this language                  |
+| `--fresh`             | re-read transcripts instead of stored reports       |
+| `--no-save`           | do not store the summary                            |
+| `--max-cpu <percent>` | share of this machine to use, 1 to 100              |
+| `--no-gpu`            | do not use the GPU, even where a binary supports it |
+| `--detach`            | start the work in the background and print a job id |
 
 ## audio ls
 

@@ -58,6 +58,11 @@
   printing a job id; `job ls|show|rm` follow them.
 - Transcription reports an approximate percentage while it runs, on the spinner
   and in a job's state file.
+- `--max-cpu` and `resources.maxCpuPercent` cap how much of the machine each
+  engine takes; `--no-gpu` opts out of GPU use. Diarization gets a lower,
+  measured share.
+- `--denoise` and `audio.denoise` clean noisy audio before transcription.
+  The default `auto` measures each recording and leaves clean ones untouched.
 
 ### Changed
 

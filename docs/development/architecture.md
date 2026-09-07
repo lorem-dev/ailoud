@@ -40,6 +40,13 @@ the domain, the ports, and pure logic.
 
 Swapping an engine means writing one adapter. Nothing in `core` changes.
 
+Resource limits are computed once per command in `apps/cli/src/wiring.ts` and
+handed to each engine adapter. The arithmetic is a pure function in
+`packages/core/src/resources/budget.ts`, so core keeps doing no I/O; reading
+the CPU topology is a provider. Engines do not all get the same number:
+speaker diarization is measurably slower past a lower thread count than
+whisper, so it gets a capped share of the same ceiling.
+
 ## Database
 
 SQLite through `node:sqlite`, with `PRAGMA foreign_keys = ON`.
