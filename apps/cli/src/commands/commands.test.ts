@@ -306,6 +306,16 @@ describe('ailoud transcribe --job', () => {
     expect(jobOption?.hidden).toBe(true);
   });
 
+  it('never appears in rendered --help text either', () => {
+    // The option-object check above pins commander's `hidden` flag, but not
+    // that commander actually honours it when rendering. Checked against the
+    // pinned commander version in use.
+    const ctx = context();
+    const program = buildProgram(ctx);
+    const transcribeCmd = program.commands.find((c) => c.name() === 'transcribe')!;
+    expect(transcribeCmd.helpInformation()).not.toContain('--job');
+  });
+
   it('rejects an id with no matching job', async () => {
     const ctx = context();
     await expect(

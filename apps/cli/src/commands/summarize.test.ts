@@ -302,6 +302,16 @@ describe('ailoud summarize --job', () => {
     expect(jobOption?.hidden).toBe(true);
   });
 
+  it('never appears in rendered --help text either', async () => {
+    // The option-object check above pins commander's `hidden` flag, but not
+    // that commander actually honours it when rendering. Checked against the
+    // pinned commander version in use.
+    const ctx = await contextWithTranscript({ clearLines: true });
+    const program = buildProgram(ctx);
+    const summarizeCmd = program.commands.find((c) => c.name() === 'summarize')!;
+    expect(summarizeCmd.helpInformation()).not.toContain('--job');
+  });
+
   it('rejects an id with no matching job', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await expect(
