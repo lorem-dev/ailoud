@@ -42,19 +42,28 @@ export function context(): CliContext & {
   diarizerInstances: FakeDiarizer[];
   summarizerPrompts: string[];
   /**
-   * Every budget `createStt`, `createSegmenter`, `createDiarizer` and
-   * `createSummarizer` were called with, in call order -- `undefined` where a
-   * caller passed none. This is how a test proves a budget actually reached
-   * the factory, since the fakes themselves have no thread count to inspect.
+   * Every budget each factory was called with, in call order -- `undefined`
+   * where a caller passed none. Kept as four separate arrays, one per
+   * factory, rather than one shared array: a shared array is how a dropped
+   * argument at one call site went undetected, since `toContainEqual`
+   * against it passes as long as *any* factory received a matching budget,
+   * and `createStt` always does. A per-factory array can only be satisfied by
+   * that factory's own call sites.
    */
-  budgets: Array<ResourceBudget | undefined>;
+  sttBudgets: Array<ResourceBudget | undefined>;
+  segmenterBudgets: Array<ResourceBudget | undefined>;
+  diarizerBudgets: Array<ResourceBudget | undefined>;
+  summarizerBudgets: Array<ResourceBudget | undefined>;
 } {
   const lines: string[] = [];
   const sttInstances: FakeStt[] = [];
   const segmenterInstances: FakeSegmenter[] = [];
   const diarizerInstances: FakeDiarizer[] = [];
   const summarizerPrompts: string[] = [];
-  const budgets: Array<ResourceBudget | undefined> = [];
+  const sttBudgets: Array<ResourceBudget | undefined> = [];
+  const segmenterBudgets: Array<ResourceBudget | undefined> = [];
+  const diarizerBudgets: Array<ResourceBudget | undefined> = [];
+  const summarizerBudgets: Array<ResourceBudget | undefined> = [];
   const write = (line: string): void => {
     lines.push(line);
   };
@@ -64,7 +73,10 @@ export function context(): CliContext & {
     segmenterInstances,
     diarizerInstances,
     summarizerPrompts,
-    budgets,
+    sttBudgets,
+    segmenterBudgets,
+    diarizerBudgets,
+    summarizerBudgets,
     paths: {
       configFile: '/c/ailoud/config.yaml',
       configHome: '/c',
@@ -117,7 +129,7 @@ export function context(): CliContext & {
         },
       ),
     createStt: (budget?: ResourceBudget): TranscriptionProvider => {
-      budgets.push(budget);
+      sttBudgets.push(budget);
       const stt = new FakeStt({
         language: 'ru',
         model: 'base.bin',
@@ -127,19 +139,19 @@ export function context(): CliContext & {
       return stt;
     },
     createSegmenter: (budget?: ResourceBudget): SpeechSegmenter => {
-      budgets.push(budget);
+      segmenterBudgets.push(budget);
       const segmenter = new FakeSegmenter([{ startMs: 0, endMs: 1500 }]);
       segmenterInstances.push(segmenter);
       return segmenter;
     },
     createDiarizer: (budget?: ResourceBudget): Diarizer => {
-      budgets.push(budget);
+      diarizerBudgets.push(budget);
       const diarizer = new FakeDiarizer([{ startMs: 0, endMs: 1500, speaker: 'speaker_00' }]);
       diarizerInstances.push(diarizer);
       return diarizer;
     },
     createSummarizer: (budget?: ResourceBudget): Summarizer => {
-      budgets.push(budget);
+      summarizerBudgets.push(budget);
       // Echoes back what it was asked, so a test can assert on the prompt the
       // pipeline built without needing a model. Specs that care about the
       // summary itself override this.
@@ -197,7 +209,10 @@ export async function contextWithTranscript(opts: ContextWithTranscriptOptions =
     lines: string[];
     sttInstances: FakeStt[];
     summarizerPrompts: string[];
-    budgets: Array<ResourceBudget | undefined>;
+    sttBudgets: Array<ResourceBudget | undefined>;
+    segmenterBudgets: Array<ResourceBudget | undefined>;
+    diarizerBudgets: Array<ResourceBudget | undefined>;
+    summarizerBudgets: Array<ResourceBudget | undefined>;
   }
 > {
   const ctx = context();
@@ -205,7 +220,10 @@ export async function contextWithTranscript(opts: ContextWithTranscriptOptions =
     lines: string[];
     sttInstances: FakeStt[];
     summarizerPrompts: string[];
-    budgets: Array<ResourceBudget | undefined>;
+    sttBudgets: Array<ResourceBudget | undefined>;
+    segmenterBudgets: Array<ResourceBudget | undefined>;
+    diarizerBudgets: Array<ResourceBudget | undefined>;
+    summarizerBudgets: Array<ResourceBudget | undefined>;
   } => {
     if (opts.clearLines === true) ctx.lines.length = 0;
     return ctx;

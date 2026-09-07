@@ -523,13 +523,30 @@ describe('ailoud summarize --max-cpu, --no-gpu', () => {
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--max-cpu', '50']);
     // testContext's fixed topology is { logical: 10, performance: 8 }: 50% of the
     // 8 performance cores, rounded, is 4.
-    expect(ctx.budgets).toContainEqual(expect.objectContaining({ threads: 4, gpu: true }));
+    //
+    // createSummarizer is called twice per `summarize` run -- once at
+    // summarize.ts:216 for the summarizer's name (used in a progress note),
+    // once inside runSummary at summarizeRun.ts:113, which is the call that
+    // actually does the work -- and both must carry the budget. Asserting the
+    // whole array, not just toContainEqual, is what makes this catch a
+    // dropped argument at summarizeRun.ts:113 specifically: before this test
+    // was tightened, that call site could fall back to createSummarizer's own
+    // "no budget" default of 4 threads while the name-only call at
+    // summarize.ts:216 still supplied a real budget, and `toContainEqual`
+    // against a shared array could not tell the two apart.
+    expect(ctx.summarizerBudgets).toEqual([
+      expect.objectContaining({ threads: 4, gpu: true }),
+      expect.objectContaining({ threads: 4, gpu: true }),
+    ]);
   });
 
   it('--no-gpu forwards gpu: false to the summarizer', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--no-gpu']);
-    expect(ctx.budgets).toContainEqual(expect.objectContaining({ gpu: false }));
+    expect(ctx.summarizerBudgets).toEqual([
+      expect.objectContaining({ gpu: false }),
+      expect.objectContaining({ gpu: false }),
+    ]);
   });
 
   it('does not register --denoise: summarizing reads stored transcripts, not audio', async () => {

@@ -259,14 +259,18 @@ describe('ailoud transcribe --max-cpu, --no-gpu, --denoise', () => {
     },
   );
 
-  it('accepts a --max-cpu inside the range and forwards the resulting budget to the factories', async () => {
+  it('accepts a --max-cpu inside the range and forwards the resulting budget to createStt', async () => {
     const ctx = context();
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--max-cpu', '50']);
     // testContext's fixed topology is { logical: 10, performance: 8 }: 50% of the
     // 8 performance cores, rounded, is 4 -- the proof the budget actually reached
-    // createStt rather than that factory's own "no budget" fallback of 4.
-    expect(ctx.budgets).toContainEqual(expect.objectContaining({ threads: 4, gpu: true }));
+    // createStt (transcribe.ts:333) rather than that factory's own "no budget"
+    // fallback of 4. Checked against ctx.sttBudgets rather than a shared array:
+    // a shared array would still pass if this call site's own argument were
+    // dropped, as long as some other factory in the run still received a
+    // budget -- which is exactly the hole a whole-branch review found.
+    expect(ctx.sttBudgets).toEqual([expect.objectContaining({ threads: 4, gpu: true })]);
   });
 
   it('uses the configured default share when --max-cpu is not given', async () => {
@@ -276,14 +280,55 @@ describe('ailoud transcribe --max-cpu, --no-gpu, --denoise', () => {
     // 90% (the schema default) of 8 performance cores, rounded, is 7 -- distinct
     // from both 4 above and the factory's own unrelated fallback of 4, so this
     // could not pass by accident.
-    expect(ctx.budgets).toContainEqual(expect.objectContaining({ threads: 7, gpu: true }));
+    expect(ctx.sttBudgets).toEqual([expect.objectContaining({ threads: 7, gpu: true })]);
   });
 
   it('--no-gpu forwards gpu: false, never true', async () => {
     const ctx = context();
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--no-gpu']);
-    expect(ctx.budgets).toContainEqual(expect.objectContaining({ gpu: false }));
+    expect(ctx.sttBudgets).toEqual([expect.objectContaining({ gpu: false })]);
+  });
+
+  it('forwards the resulting budget to createSegmenter under --multilingual', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    // createSegmenter(budget) (transcribe.ts:334) runs before the pipeline
+    // checks the fake provider's capabilities, so the expected failure below
+    // (the default fake cannot detect a language -- see the sibling
+    // "--multilingual reaches the pipeline" test) happens after the budget
+    // has already reached the factory and is no obstacle to asserting on it.
+    await expect(
+      buildProgram(ctx).parseAsync([
+        'node',
+        'ailoud',
+        'transcribe',
+        '--multilingual',
+        '--max-cpu',
+        '50',
+      ]),
+    ).rejects.toThrow(/cannot detect a language/);
+    // Pins transcribe.ts:334 (createSegmenter(budget)). Before this test
+    // existed, deleting the budget argument at this call site left build,
+    // lint, typecheck and every unit test green -- the segmenter fell back to
+    // its factory's own "no budget" default of 4 threads regardless of
+    // --max-cpu, silently.
+    expect(ctx.segmenterBudgets).toEqual([expect.objectContaining({ threads: 4, gpu: true })]);
+  });
+
+  it('forwards the resulting budget to createDiarizer under --diarize', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync([
+      'node',
+      'ailoud',
+      'transcribe',
+      '--diarize',
+      '--max-cpu',
+      '50',
+    ]);
+    // Pins transcribe.ts:335 (createDiarizer(budget)).
+    expect(ctx.diarizerBudgets).toEqual([expect.objectContaining({ threads: 4, gpu: true })]);
   });
 
   it('refuses an unknown --denoise mode, naming the three accepted ones', async () => {
