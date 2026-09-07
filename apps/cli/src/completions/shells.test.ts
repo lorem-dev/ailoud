@@ -101,6 +101,28 @@ describe('detect', () => {
     await fs.writeTextFile(`${HOME}/.bash_profile`, '');
     expect(await detect(fs, bash, HOME, CONFIG, env())).toBe(true);
   });
+
+  it('counts a shell present when its binary is on $PATH, with no rc file and another $SHELL', async () => {
+    // The third signal the design lists, and the one the other two miss: a
+    // user who installed fish but has never launched it has no
+    // ~/.config/fish/ and still has $SHELL=/bin/zsh. That is precisely the
+    // user the signal exists for.
+    const fs = new MemFs({});
+    const fish = findShell('fish')!;
+    const at = { SHELL: '/bin/zsh', PATH: '/usr/bin:/opt/homebrew/bin' };
+    expect(await detect(fs, fish, HOME, CONFIG, at)).toBe(false);
+    await fs.writeTextFile('/opt/homebrew/bin/fish', '');
+    expect(await detect(fs, fish, HOME, CONFIG, at)).toBe(true);
+  });
+
+  it('does not read an empty $PATH entry as the current directory', async () => {
+    // POSIX reads an empty element as ".", so resolving one would ask about
+    // ./fish and call the shell present because the user happened to be
+    // standing in a directory holding a file of that name.
+    const fs = new MemFs({});
+    await fs.writeTextFile('fish', '');
+    expect(await detect(fs, findShell('fish')!, HOME, CONFIG, { PATH: ':/usr/bin' })).toBe(false);
+  });
 });
 
 describe('warnAbout', () => {

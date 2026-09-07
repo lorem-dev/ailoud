@@ -1,4 +1,4 @@
-import { basename, dirname, join } from 'node:path';
+import { basename, delimiter, dirname, join } from 'node:path';
 import type { Fs } from '@ailoud/core';
 import { SHELLS, type Shell } from './generate.js';
 
@@ -154,13 +154,22 @@ export function shellIds(): string {
 /**
  * Whether `target`'s shell looks like one the user actually has.
  *
- * Two independent signals, either sufficient: a startup file already on
- * disk, or `$SHELL` naming this shell for a user who has not created one yet.
+ * Three independent signals, any one sufficient: a startup file already on
+ * disk, the shell's binary somewhere on `$PATH`, or `$SHELL` naming it.
+ *
+ * The binary on `$PATH` is the signal the other two miss, and the design says
+ * so explicitly: a user who installed fish but has not launched it yet has no
+ * `~/.config/fish/` and still has `$SHELL=/bin/zsh`, and is precisely the user
+ * most helped by having completions set up for them. Requiring a startup file
+ * would offer nothing until after they had configured the shell by hand.
+ *
  * `$SHELL` is compared by basename, not by substring -- `/usr/bin/bash`
  * contains none of the letters "fish", but a home directory such as
  * `/home/fisherman` or a shell path containing another shell's name as a
  * substring is exactly the false positive a substring match invites, and
- * basename comparison against the full shell name sidesteps it.
+ * basename comparison against the full shell name sidesteps it. The `$PATH`
+ * walk joins the shell name onto each entry for the same reason: it asks
+ * whether that exact file exists, never whether some path contains the word.
  */
 export async function detect(
   fs: Fs,
@@ -173,5 +182,13 @@ export async function detect(
     if (await fs.exists(path)) return true;
   }
   const shellEnv = env['SHELL'];
-  return shellEnv !== undefined && basename(shellEnv) === target.shell;
+  if (shellEnv !== undefined && basename(shellEnv) === target.shell) return true;
+  // Empty entries are skipped rather than resolved: POSIX reads an empty
+  // `$PATH` element as the current directory, so `join('', 'fish')` would ask
+  // about `./fish` and report the shell present because the user happened to
+  // be standing in a directory holding a file of that name.
+  for (const dir of (env['PATH'] ?? '').split(delimiter)) {
+    if (dir !== '' && (await fs.exists(join(dir, target.shell)))) return true;
+  }
+  return false;
 }
