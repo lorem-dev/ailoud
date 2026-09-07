@@ -17,6 +17,7 @@ import { availableParallelism } from 'node:os';
 import { delimiter, join } from 'node:path';
 import type { Sandbox } from '../src/cli';
 import { makeSandbox } from '../src/cli';
+import { wordErrorRate } from '../src/wer';
 
 const REPO_ROOT = join(__dirname, '..', '..');
 const FIXTURES_DIR = join(REPO_ROOT, 'fixtures');
@@ -548,5 +549,158 @@ describe('resource flags', () => {
     const rules = await readFile(join(sandbox.projectDir, '.claude', 'CLAUDE.md'), 'utf8');
     expect(rules).toMatch(/not ask about CPU or GPU/i);
     expect(rules).not.toContain('--max-cpu');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Real audio, below. Everything above this line drives the binary through
+// stub engines and belongs to both jest projects. Everything from here on
+// spawns a real ffmpeg/whisper-cli against a real model and belongs to
+// `tools` alone -- guarded by AILOUD_E2E_TOOLS (see the file header and
+// jest.config.cjs), which is why the whole describe block below is wrapped
+// in a runtime check rather than split into a second file: Jest's testMatch
+// assigns a whole file to a project, never one describe block within it.
+
+const REAL_TOOLS = process.env['AILOUD_E2E_TOOLS'] === 'true';
+
+const NOISY_WAV = join(FIXTURES_DIR, 'noisy-short.wav');
+
+/**
+ * A real, working whisper.cpp model this block needs to actually transcribe
+ * rather than merely check that a path exists. There is no packaged fixture
+ * model -- whisper.cpp models are hundreds of megabytes -- so this points at
+ * the same manual-install location the maintainer's own
+ * `~/.config/ailoud/config.yaml` uses: a `models/` directory under the real,
+ * unsandboxed XDG data dir. See pipeline.spec.ts's own WHISPER_MODEL comment
+ * for the full reasoning; kept as a second, local copy here rather than an
+ * import because these are two independent spec files under Jest, neither of
+ * which exports anything for the other to import.
+ */
+const REAL_HOME = process.env['HOME'] ?? '';
+const WHISPER_MODEL = join(REAL_HOME, '.local', 'share', 'ailoud', 'models', 'ggml-small.bin');
+
+/** Below this, a transcript is close enough to the reference to prove the right audio reached the right model. */
+const WER_THRESHOLD = 0.2;
+
+interface ShowJson {
+  readonly segments: ReadonlyArray<{ readonly text: string }>;
+}
+
+/**
+ * The transcript's actual words, from `show --format json`'s segments --
+ * not `--format text`, which prefixes every line with a timestamp that would
+ * count as extra reference-mismatched words. See pipeline.spec.ts's own
+ * transcriptTextFromShowJson for the full reasoning; a second small copy,
+ * for the same reason WHISPER_MODEL above is one.
+ */
+function transcriptTextFromShowJson(raw: string): string {
+  const parsed = JSON.parse(raw) as ShowJson;
+  return parsed.segments.map((segment) => segment.text).join(' ');
+}
+
+/** The reference transcript for a fixture (fixtures/<name>.txt), trimmed. */
+async function reference(name: string): Promise<string> {
+  return (await readFile(join(FIXTURES_DIR, `${name}.txt`), 'utf8')).trim();
+}
+
+/**
+ * Reads a job's append-only log file: jobsDir/<id>.log, plain text, one line
+ * per notice (see apps/cli/src/jobs/log.ts and the `onNotice` wiring in
+ * apps/cli/src/commands/transcribe.ts). Distinct from the job STATE file
+ * (`readJobState`, above): the denoise decision is written by `onNotice`,
+ * which reaches only the job log, never the terminal or the state document.
+ */
+async function readJobLog(sandbox: Sandbox, jobId: string): Promise<string> {
+  return readFile(join(sandbox.dataDir, 'jobs', `${jobId}.log`), 'utf8');
+}
+
+/**
+ * Imports a fixture, transcribes it against the real, configured model, and
+ * returns the transcript's text. Throws with the CLI's own stderr on a
+ * non-zero exit, so a genuine defect is reported rather than swallowed into
+ * a confusing downstream assertion failure.
+ */
+async function transcribeFixture(
+  sandbox: Sandbox,
+  fixturePath: string,
+  extraArgs: readonly string[],
+): Promise<string> {
+  await sandbox.writeConfig(`stt:\n  whisperCpp:\n    model: ${WHISPER_MODEL}\n`);
+  const imported = await sandbox.run(['import', fixturePath]);
+  const id = parseImportLine(imported.stdout.trim()).id;
+  const transcribed = await sandbox.run(['transcribe', id, ...extraArgs]);
+  if (transcribed.code !== 0) {
+    throw new Error(`transcribe failed (code ${transcribed.code}): ${transcribed.stderr}`);
+  }
+  const shown = await sandbox.run(['show', id, '--format', 'json']);
+  return transcriptTextFromShowJson(shown.stdout);
+}
+
+(REAL_TOOLS ? describe : describe.skip)('resource limits against real audio', () => {
+  let sandbox: Sandbox;
+
+  beforeEach(async () => {
+    sandbox = await makeSandbox();
+  });
+
+  afterEach(async () => {
+    await sandbox.cleanup();
+  });
+
+  it.each(['10', '100'])('transcribes en-short.wav correctly at --max-cpu %s', async (percent) => {
+    // The limit changes speed, never output. This is the whole safety
+    // property: a resource hint is an optimisation, never a precondition.
+    const text = await transcribeFixture(sandbox, EN_WAV, ['--max-cpu', percent]);
+    expect(wordErrorRate(await reference('en-short'), text)).toBeLessThan(WER_THRESHOLD);
+  });
+
+  it('transcribes the noisy fixture correctly with --denoise on', async () => {
+    // Asserts the filter chain is HARMLESS. It deliberately does not claim
+    // the denoising rescued anything: raw noisy-short.wav also transcribes
+    // correctly (measured: 16.35 dB SNR, below the "noisy" threshold, yet
+    // still within WER_THRESHOLD both raw and denoised) -- a test claiming a
+    // rescue here would pass for the wrong reason.
+    const text = await transcribeFixture(sandbox, NOISY_WAV, ['--denoise', 'on']);
+    expect(wordErrorRate(await reference('noisy-short'), text)).toBeLessThan(WER_THRESHOLD);
+  });
+
+  it('leaves clean audio alone on auto, and says so in the job log', async () => {
+    // --detach, because the "not denoised" line goes to the job log only:
+    // a routine decision is not a warning and does not reach the terminal
+    // (see denoiseMessage/onNotice in
+    // packages/core/src/pipelines/transcribe.ts and
+    // apps/cli/src/commands/transcribe.ts).
+    await sandbox.writeConfig(`stt:\n  whisperCpp:\n    model: ${WHISPER_MODEL}\n`);
+    const imported = await sandbox.run(['import', EN_WAV]);
+    const id = parseImportLine(imported.stdout.trim()).id;
+
+    const detached = await sandbox.run(['transcribe', id, '--denoise', 'auto', '--detach']);
+    expect(detached.code).toBe(0);
+    const jobId = parseDetachId(detached.stdout);
+    const state = await waitForTerminal(sandbox, jobId);
+    expect(state.state).toBe('done');
+
+    const log = await readJobLog(sandbox, jobId);
+    expect(log).toMatch(/not denoised/i);
+    // The measured number travels with the decision. en-short.wav is 27.1 dB.
+    expect(log).toMatch(/2[0-9]\.[0-9] dB/);
+
+    const shown = await sandbox.run(['show', id, '--format', 'json']);
+    const text = transcriptTextFromShowJson(shown.stdout);
+    expect(wordErrorRate(await reference('en-short'), text)).toBeLessThan(WER_THRESHOLD);
+  });
+
+  it('names a real backend for whisper-cli, and names segmentation and diarization on the cpu line', async () => {
+    await sandbox.writeConfig(`stt:\n  whisperCpp:\n    model: ${WHISPER_MODEL}\n`);
+    await sandbox.run(['import', EN_WAV]); // ensures dataDir exists; irrelevant to this check
+    const { code, stdout } = await sandbox.run(['doctor']);
+    expect(code).toBe(0);
+    // On any real ggml build at least one backend loads.
+    expect(stdout).toMatch(/whisper backends\s+\S/);
+    // Shape, not the numbers: they differ from machine to machine (see the
+    // MEASURED comment on accelerationChecks in apps/cli/src/commands/doctor.ts).
+    expect(stdout).toMatch(
+      /cpu\s+\d+ logical(?:, \d+ performance)? -> \d+ threads, \d+ for segmentation and diarization, at \d+%/,
+    );
   });
 });
