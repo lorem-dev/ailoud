@@ -32,6 +32,22 @@ describe('rulesBlock', () => {
     expect(rulesBlock()).toMatch(/MCP tools\*\* \(prefer/);
   });
 
+  it('tells the agent not to ask about cpu or gpu settings', () => {
+    // An agent that asks "what should I set --max-cpu to?" spends a turn on a
+    // question whose answer changes nothing: the default is already right.
+    expect(rulesBlock()).toMatch(/not ask about CPU or GPU/i);
+  });
+
+  it('points at doctor rather than explaining the numbers here', () => {
+    // The room for the reasoning is SERVER_INSTRUCTIONS and docs/, per this
+    // file's own ceiling test below.
+    expect(rulesBlock()).toContain('doctor');
+  });
+
+  it('never names the per-run flag in the rules block', () => {
+    expect(rulesBlock()).not.toContain('--max-cpu');
+  });
+
   it('stays short, since it shares a file with the project instructions', () => {
     // A ceiling, not a measurement. If a change needs more room than this,
     // the room belongs in SERVER_INSTRUCTIONS or in docs/, not here.

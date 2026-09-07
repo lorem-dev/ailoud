@@ -73,6 +73,16 @@ Six rules, in the order they matter:
    transcribed; a finished summarize job carries the report id to read with
    \`get_report\`.
 
+   How fast that is depends on the machine, not on anything you pass. A
+   build with a GPU backend transcribes about ten times faster than one
+   without, and on a GPU machine the thread count barely changes anything.
+   Without a GPU, more threads are worth about four times the speed. Speaker
+   diarization always runs on the CPU, so it is where a thread limit shows
+   most. Do not ask the user about CPU or GPU settings: the defaults are
+   already right. If they say transcription is slow, run \`doctor\` -- its
+   first line reports what this machine's build actually loaded, which
+   answers the question.
+
    \`transcribe\` will REFUSE until you say how many people speak and which
    languages to expect. That is not bureaucracy: whisper's detector answers
    with any language in the world, so on a Russian and English recording it

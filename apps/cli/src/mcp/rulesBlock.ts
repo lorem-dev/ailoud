@@ -55,6 +55,9 @@ export function rulesBlock(): string {
     '',
     '`transcribe` and `summarize` return a job id: poll `job_status` with it, a few minutes',
     'apart, rather than waiting.',
+    '',
+    'Do not ask about CPU or GPU settings: the defaults are right. Speed comes from the build',
+    'having a GPU; without one, more threads help (`ailoud doctor` reports which).',
     END,
   ].join('\n');
 }
