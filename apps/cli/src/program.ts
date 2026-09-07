@@ -15,6 +15,7 @@ import { registerMcp } from './commands/mcp.js';
 import { attachLetters, group, inGroupAndTopLevel } from './commands/groups.js';
 import { registerTranscribe } from './commands/transcribe.js';
 import { registerSelfCheck, registerSelfSync, registerSelfUpdate } from './commands/self.js';
+import { registerSelfCompletions } from './commands/selfCompletions.js';
 import type { CliContext } from './wiring.js';
 import { VERSION } from './version.js';
 
@@ -107,6 +108,9 @@ export function buildProgram(context: CliContext): Command {
   inGroupAndTopLevel(program, self, registerSelfCheck, context);
   inGroupAndTopLevel(program, self, registerSelfUpdate, context);
   inGroupAndTopLevel(program, self, registerSelfSync, context);
+  // On the group only, not through inGroupAndTopLevel: the top level is for
+  // verbs that act on recordings, and this acts on the installation.
+  registerSelfCompletions(self, context);
   attachLetters(self);
 
   return program;

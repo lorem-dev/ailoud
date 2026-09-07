@@ -14,6 +14,8 @@ import type { DetectOptions, RunOptions, RunResult } from '@ailoud/providers';
 import type { CliContext } from '../wiring.js';
 import { VERSION } from '../version.js';
 import { AGENTS, defaultHome } from '../mcp/agents.js';
+import { describeTree } from '../completions/generate.js';
+import { refreshCompletions, rootOf } from './selfCompletions.js';
 import { update } from '../mcp/install.js';
 import type { AgentOutcome } from '../mcp/install.js';
 import { pruneProjects, readProjects, registryPath, rememberProject } from '../projects.js';
@@ -244,11 +246,39 @@ export async function syncProjects(deps: SyncDeps): Promise<SyncReport> {
   return { rows, failed };
 }
 
+/**
+ * Refreshes installed shell completions, reporting a failure rather than
+ * raising one.
+ *
+ * Completions are a convenience on top of the sync, not the sync itself. A
+ * `self update` reaches here through the freshly installed binary, by which
+ * point the new version is already on disk; turning "your completions are
+ * one version stale" into a non-zero exit would tell the user their upgrade
+ * did not happen when it did. Same shape as `registerAfterInstall` in
+ * `commands/mcpInstall.ts`, for the same reason.
+ */
+async function syncCompletions(context: CliContext, command: Command): Promise<void> {
+  try {
+    const outcomes = await refreshCompletions(context, describeTree(rootOf(command)));
+    for (const outcome of outcomes) {
+      for (const file of outcome.files) {
+        if (file.action === 'created' || file.action === 'updated') {
+          context.ui.success(`${file.action.padEnd(9)} ${file.path}`);
+        }
+      }
+    }
+  } catch (error) {
+    context.ui.warn(
+      `could not refresh shell completions: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 export function registerSelfSync(parent: Command, context: CliContext): void {
   parent
     .command('sync')
-    .description('Refresh the rules block in every project ailoud has been used in')
-    .action(async () => {
+    .description('Refresh the rules block in every project, and any installed completions')
+    .action(async (_options: unknown, command: Command) => {
       await context.ui.frame('Syncing rules', async () => {
         const report = await syncProjects({
           fs: context.fs,
@@ -256,6 +286,14 @@ export function registerSelfSync(parent: Command, context: CliContext): void {
           userDataDir: context.paths.userDataDir,
           home: defaultHome(),
         });
+
+        // Before the reporting below, because that has both an early return
+        // and a throw in it: a project registry that is empty, or one project
+        // that failed, must not decide whether completions get refreshed.
+        // `self update` reaches this command through the NEWLY installed
+        // binary, which is the only process whose command tree is the one the
+        // completions should describe.
+        await syncCompletions(context, command);
 
         if (report.rows.length === 0) {
           context.ui.content('No projects registered yet.');

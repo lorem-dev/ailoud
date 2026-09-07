@@ -322,10 +322,24 @@ describe('command layout', () => {
     ]);
     expect(unlettered.map((command) => command.name())).toEqual(['mcp']);
 
+    // A second-level command that has subcommands of its own is a sub-group,
+    // not a verb: `self completions` is never typed alone, only ever
+    // `self completions install`. A letter for the group node would be worth
+    // nothing and would eat one of the group's few free letters -- `self`
+    // already spends c, u and s on check, update and sync. Sub-groups are
+    // therefore exempt from needing a letter, and the assertion below pins
+    // which commands took that exemption so one cannot appear unnoticed.
+    const subGroups = lettered.flatMap((command) =>
+      command.commands
+        .filter((verb) => verb.name() !== 'help' && verb.commands.length > 0)
+        .map((verb) => `${command.name()} ${verb.name()}`),
+    );
+    expect(subGroups).toEqual(['self completions']);
+
     for (const groupName of lettered.map((command) => command.name())) {
       const found = buildProgram(ctx).commands.find((c) => c.name() === groupName)!;
       const letters = found.commands
-        .filter((command) => command.name() !== 'help')
+        .filter((command) => command.name() !== 'help' && command.commands.length === 0)
         .map((command) => command.aliases()[0]);
       expect(letters, groupName).not.toContain(undefined);
       expect(new Set(letters).size, groupName).toBe(letters.length);
