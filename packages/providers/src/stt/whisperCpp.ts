@@ -4,13 +4,13 @@ import type { RawSegment, TranscriptionProvider } from '@ailoud/core';
 import { FailureError } from '@ailoud/core';
 import { run as defaultRunner } from '../process/run.js';
 
-// NOT VERIFIED AGAINST A REAL BUILD: this JSON shape ("-oj" output: a
-// top-level "result.language" and a "transcription" array of segments with
-// "offsets.from"/"offsets.to" and "text") is written against whisper.cpp's
-// documented output, with no whisper-cli binary available in this
-// environment to confirm it against a real run. See buildWhisperArgs below
-// for the sibling warning on the argument list; both get confirmed by the
-// end-to-end suite once it runs against a real binary.
+// VERIFIED against a real build: this JSON shape ("-oj" output: a top-level
+// "result.language" and a "transcription" array of segments with
+// "offsets.from"/"offsets.to" and "text") was confirmed by running
+// homebrew's whisper-cli over fixtures/en-short.wav and parsing the result
+// through parseWhisperJson below, which returned the fixture's reference
+// sentence and its language. This comment used to warn that no binary was
+// available to check it; one is, and it agrees.
 interface WhisperJson {
   result?: { language?: string };
   transcription?: Array<{ offsets?: { from?: number; to?: number }; text?: string }>;
@@ -82,15 +82,18 @@ export function parseWhisperJson(raw: string): { language: string; segments: Raw
 /**
  * Builds the whisper-cli argument array for one transcription run.
  *
- * NOT VERIFIED AGAINST A REAL BUILD: these flags (-m model path, -f input
- * file, -l language or "auto", -oj JSON output, -of output base path) are
- * written against whisper.cpp's documented command-line interface. No
- * whisper-cli binary is available in this environment to confirm them
- * against an actual build. The end-to-end suite runs against a real binary
- * and is where this argument list gets confirmed; if a flag turns out to
- * differ there, fix it here in this one place. `-pp` (print progress) is the
- * exception: it is measured against a real build, unlike the rest of this
- * list -- see parseProgressPercent above.
+ * VERIFIED against a real build, every flag: `-m`, `-f`, `-l`, `-t`, `-ng`,
+ * `-oj`, `-pp` and `-of` were all read out of `whisper-cli --help` on a
+ * homebrew ggml 0.22.0 build, and this whole list was then run over
+ * fixtures/en-short.wav and produced the fixture's reference transcript.
+ * This comment used to say the opposite -- that no binary was available and
+ * the end-to-end suite would have to confirm it later. It has been confirmed.
+ *
+ * Keep it that way. An argument list that has only been read in
+ * documentation is one a unit test with a mocked runner will happily pass
+ * while the real binary refuses to start: that is exactly how the sibling
+ * noise scan in ../audio/noise.ts shipped without its output target, green
+ * tests and all.
  */
 function buildWhisperArgs(
   modelPath: string,
@@ -177,10 +180,9 @@ export class WhisperCppProvider implements TranscriptionProvider {
     // a dot inside a directory name too, so an extension-less file inside a
     // directory like "ailoud-1.2" would collapse to a sibling path outside that
     // directory and silently collide with another recording's output.
-    // NOT VERIFIED AGAINST A REAL BUILD: that whisper-cli writes exactly
-    // "<outputBase>.json" (not, say, "<outputBase>.json.txt" or a name that
-    // depends on other flags) is likewise taken from documentation, not
-    // confirmed against a real run; see the warning on buildWhisperArgs.
+    // VERIFIED: whisper-cli writes exactly "<outputBase>.json" -- a real run
+    // over fixtures/en-short.wav with this argument list was read back from
+    // that path successfully. See buildWhisperArgs above.
     const outputBase = join(dirname(audioPath), basename(audioPath, extname(audioPath)));
     const modelPath = opts.model ?? this.options.modelPath;
     const args = buildWhisperArgs(
