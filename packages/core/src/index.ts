@@ -131,3 +131,6 @@ export {
   stageScale,
   weightedOverall,
 } from './progress/scale.js';
+
+export type { LanguageGuess } from './transcribe/languageGuess.js';
+export { guessLanguages } from './transcribe/languageGuess.js';
