@@ -31,6 +31,28 @@ export function parseDetectedLanguage(output: string): string {
 }
 
 /**
+ * Reads whisper's progress line, or returns null.
+ *
+ * MEASURED, not guessed, unlike the argument list below: `whisper-cli` with
+ * `-pp` prints `whisper_print_progress_callback: progress =  46%` to stderr,
+ * with variable padding before the number, and fires once per decoded
+ * segment rather than on fixed steps. A 57-second fixture produced three
+ * lines; an hour-long recording produces hundreds.
+ *
+ * Returns null rather than throwing for anything it does not recognise --
+ * including a percentage outside 0..100. This runs on all ~104 stderr lines
+ * of every run, and a parser that throws here would abort a transcription
+ * over a cosmetic feature.
+ */
+export function parseProgressPercent(line: string): number | null {
+  const match = /progress\s*=\s*(\d{1,3})%/.exec(line);
+  if (match?.[1] === undefined) return null;
+  const percent = Number(match[1]);
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) return null;
+  return percent;
+}
+
+/**
  * Pure parser for whisper-cli's "-oj" JSON output.
  *
  * Whisper prefixes every segment's text with a leading space, and emits
@@ -66,7 +88,9 @@ export function parseWhisperJson(raw: string): { language: string; segments: Raw
  * whisper-cli binary is available in this environment to confirm them
  * against an actual build. The end-to-end suite runs against a real binary
  * and is where this argument list gets confirmed; if a flag turns out to
- * differ there, fix it here in this one place.
+ * differ there, fix it here in this one place. `-pp` (print progress) is the
+ * exception: it is measured against a real build, unlike the rest of this
+ * list -- see parseProgressPercent above.
  */
 function buildWhisperArgs(
   modelPath: string,
@@ -74,7 +98,18 @@ function buildWhisperArgs(
   language: string | undefined,
   outputBase: string,
 ): string[] {
-  return ['-m', modelPath, '-f', audioPath, '-l', language ?? 'auto', '-oj', '-of', outputBase];
+  return [
+    '-m',
+    modelPath,
+    '-f',
+    audioPath,
+    '-l',
+    language ?? 'auto',
+    '-oj',
+    '-pp',
+    '-of',
+    outputBase,
+  ];
 }
 
 export interface WhisperCppOptions {
@@ -103,7 +138,11 @@ export class WhisperCppProvider implements TranscriptionProvider {
 
   async transcribe(
     audioPath: string,
-    opts: { readonly language?: string; readonly model?: string },
+    opts: {
+      readonly language?: string;
+      readonly model?: string;
+      readonly onProgress?: (fraction: number) => void;
+    },
   ): Promise<{ language: string; model: string; segments: RawSegment[] }> {
     // whisper-cli writes <outputBase>.json rather than printing to stdout.
     // Derived from the filename component only (node:path), not a bare regex
@@ -121,7 +160,24 @@ export class WhisperCppProvider implements TranscriptionProvider {
 
     // Six hours, not the run helper's half-hour default: a long recording on
     // CPU-only whisper is genuinely slow, and the default would kill real work.
-    const result = await this.runner(this.options.binary, args, { timeoutMs: 6 * 60 * 60_000 });
+    const result = await this.runner(this.options.binary, args, {
+      timeoutMs: 6 * 60 * 60_000,
+      ...(opts.onProgress === undefined
+        ? {}
+        : {
+            onStderrLine: (line) => {
+              const percent = parseProgressPercent(line);
+              if (percent === null) return;
+              // run() already swallows a throwing sink; this try is here so
+              // the guarantee holds for any future caller of the parser too.
+              try {
+                opts.onProgress?.(percent / 100);
+              } catch {
+                // An observer does not get to fail a transcription.
+              }
+            },
+          }),
+    });
 
     if (result.code !== 0) {
       throw new FailureError(`whisper failed: ${result.stderr.trim() || `exit ${result.code}`}`);

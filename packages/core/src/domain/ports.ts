@@ -99,7 +99,20 @@ export interface TranscriptionProvider {
   };
   transcribe(
     audioPath: string,
-    opts: { readonly language?: string; readonly model?: string },
+    opts: {
+      readonly language?: string;
+      readonly model?: string;
+      /**
+       * Called with how far along this one call is, 0..1, when the provider
+       * can tell. Optional on both sides: a provider that cannot report
+       * progress simply never calls it, and a caller that does not care
+       * omits it.
+       *
+       * A provider must not let this throw into its own work. See the
+       * enrichment rule in pipelines/transcribe.ts.
+       */
+      readonly onProgress?: (fraction: number) => void;
+    },
   ): Promise<{ language: string; model: string; segments: RawSegment[] }>;
   /**
    * Detects the language spoken in `audioPath` without transcribing it.

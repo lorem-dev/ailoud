@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { parseDetectedLanguage, parseWhisperJson, WhisperCppProvider } from './whisperCpp.js';
+import {
+  parseDetectedLanguage,
+  parseProgressPercent,
+  parseWhisperJson,
+  WhisperCppProvider,
+} from './whisperCpp.js';
 
 const WHISPER_OUTPUT = JSON.stringify({
   result: { language: 'ru' },
@@ -55,6 +60,31 @@ describe('parseDetectedLanguage', () => {
   });
 });
 
+describe('parseProgressPercent', () => {
+  it('reads the line whisper actually prints', () => {
+    // Measured against whisper-cli (Homebrew, ggml-small.bin). Note the
+    // two spaces of padding before a two-digit number.
+    expect(parseProgressPercent('whisper_print_progress_callback: progress =  46%')).toBe(46);
+  });
+
+  it('reads an unpadded hundred', () => {
+    expect(parseProgressPercent('whisper_print_progress_callback: progress = 100%')).toBe(100);
+  });
+
+  it('returns null for any other line rather than throwing', () => {
+    for (const line of [
+      '',
+      'whisper_init_from_file_with_params_no_state: loading model',
+      'whisper_print_progress_callback: progress =  ??%',
+      'progress = 46',
+      'whisper_print_progress_callback: progress =  -1%',
+      'whisper_print_progress_callback: progress =  101%',
+    ]) {
+      expect(parseProgressPercent(line)).toBeNull();
+    }
+  });
+});
+
 describe('WhisperCppProvider', () => {
   it('passes the model, the audio, and the language hint', async () => {
     const runner = vi.fn(async () => ({ code: 0, stdout: '', stderr: '' }));
@@ -70,7 +100,7 @@ describe('WhisperCppProvider', () => {
 
     expect(runner).toHaveBeenCalledWith(
       'whisper-cli',
-      ['-m', '/models/base.bin', '-f', '/tmp/a.wav', '-l', 'ru', '-oj', '-of', '/tmp/a'],
+      ['-m', '/models/base.bin', '-f', '/tmp/a.wav', '-l', 'ru', '-oj', '-pp', '-of', '/tmp/a'],
       expect.anything(),
     );
     expect(result.language).toBe('ru');
@@ -107,7 +137,7 @@ describe('WhisperCppProvider', () => {
 
     expect(runner).toHaveBeenCalledWith(
       'whisper-cli',
-      ['-m', '/models/large.bin', '-f', '/tmp/a.wav', '-l', 'auto', '-oj', '-of', '/tmp/a'],
+      ['-m', '/models/large.bin', '-f', '/tmp/a.wav', '-l', 'auto', '-oj', '-pp', '-of', '/tmp/a'],
       expect.anything(),
     );
     expect(result.model).toBe('large.bin');
@@ -200,5 +230,63 @@ describe('WhisperCppProvider', () => {
       ['-m', '/models/large.bin', '-f', '/tmp/a.wav', '-dl'],
       expect.anything(),
     );
+  });
+
+  it('passes -pp so whisper prints progress at all', async () => {
+    let seen: readonly string[] = [];
+    const provider = new WhisperCppProvider({
+      binary: 'whisper-cli',
+      modelPath: '/models/m.bin',
+      runner: async (_binary, args) => {
+        seen = args;
+        return { code: 0, stdout: '', stderr: '' };
+      },
+      readFile: async () => JSON.stringify({ result: { language: 'en' }, transcription: [] }),
+    });
+    await provider.transcribe('/tmp/a.wav', {});
+    expect(seen).toContain('-pp');
+  });
+
+  it('reports whisper progress as a fraction', async () => {
+    const seen: number[] = [];
+    const provider = new WhisperCppProvider({
+      binary: 'whisper-cli',
+      modelPath: '/models/m.bin',
+      runner: async (_binary, _args, options) => {
+        options?.onStderrLine?.('whisper_print_progress_callback: progress =  46%');
+        options?.onStderrLine?.('ggml_metal_init: found device');
+        options?.onStderrLine?.('whisper_print_progress_callback: progress = 100%');
+        return { code: 0, stdout: '', stderr: '' };
+      },
+      readFile: async () =>
+        JSON.stringify({
+          result: { language: 'en' },
+          transcription: [{ offsets: { from: 0, to: 10 }, text: ' hi' }],
+        }),
+    });
+    await provider.transcribe('/tmp/a.wav', { onProgress: (f) => seen.push(f) });
+    expect(seen).toEqual([0.46, 1]);
+  });
+
+  it('transcribes normally when the progress sink throws', async () => {
+    const provider = new WhisperCppProvider({
+      binary: 'whisper-cli',
+      modelPath: '/models/m.bin',
+      runner: async (_binary, _args, options) => {
+        options?.onStderrLine?.('whisper_print_progress_callback: progress =  46%');
+        return { code: 0, stdout: '', stderr: '' };
+      },
+      readFile: async () =>
+        JSON.stringify({
+          result: { language: 'en' },
+          transcription: [{ offsets: { from: 0, to: 10 }, text: ' hi' }],
+        }),
+    });
+    const result = await provider.transcribe('/tmp/a.wav', {
+      onProgress: () => {
+        throw new Error('sink exploded');
+      },
+    });
+    expect(result.segments).toHaveLength(1);
   });
 });
