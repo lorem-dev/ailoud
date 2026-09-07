@@ -135,5 +135,8 @@ export {
 export type { LanguageGuess } from './transcribe/languageGuess.js';
 export { guessLanguages } from './transcribe/languageGuess.js';
 
+export { DENOISE_MODES, NOISY_SNR_DB, shouldDenoise, snrDb } from './audio/noise.js';
+export type { DenoiseMode } from './audio/noise.js';
+
 export { DEFAULT_MAX_CPU_PERCENT, resourceBudget } from './resources/budget.js';
 export type { CpuTopology, ResourceBudget } from './resources/budget.js';
