@@ -31,7 +31,9 @@ describe('buildDetachedArgs', () => {
 // whether `node` itself can be launched in CI.
 vi.mock('node:child_process', () => ({ spawn: vi.fn() }));
 
-function fakeChild(pid: number | undefined): { unref: ReturnType<typeof vi.fn> } {
+function fakeChild(
+  pid: number | undefined,
+): EventEmitter & { pid: number | undefined; unref: ReturnType<typeof vi.fn> } {
   const child = new EventEmitter() as EventEmitter & {
     pid: number | undefined;
     unref: ReturnType<typeof vi.fn>;
@@ -113,5 +115,61 @@ describe('spawnDetachedJob', () => {
 
     const state = await readJobState(fs, jobsDir, initial.id);
     expect(state).toEqual(initial);
+  });
+
+  it("does not walk percent and stage back to zero when the child's own progress lands first", async () => {
+    // The `job` snapshot spawnDetachedJob is called with is stale the moment
+    // it is created -- percent: 0, stage: 'starting'. If the child's own pid
+    // claim and its first report() land on disk before this correction runs,
+    // a naive `{ ...job, pid, error: null }` write would spread that stale
+    // snapshot back over real progress. The correction must touch only pid
+    // and error.
+    const { spawn } = await import('node:child_process');
+    vi.mocked(spawn).mockReturnValue(fakeChild(4242) as unknown as ReturnType<typeof spawn>);
+    const fs = new MemFs();
+    const jobsDir = '/d/jobs';
+    const initial = job();
+    // The child has already claimed its own pid and reported real progress
+    // by the time the launcher's correction gets a chance to run.
+    const advanced: JobState = { ...initial, pid: 4242, percent: 47, stage: 'transcribing' };
+    await writeJobState(fs, jobsDir, advanced);
+
+    await spawnDetachedJob({ fs, jobsDir }, ['transcribe'], initial);
+
+    const state = await readJobState(fs, jobsDir, initial.id);
+    expect(state).toEqual(advanced);
+  });
+
+  it('marks the job failed, without throwing, when spawn itself reports an error', async () => {
+    // An asynchronous spawn failure (EMFILE, a permissions problem, resource
+    // exhaustion) arrives as an 'error' event on the child, not as a thrown
+    // exception -- and it can arrive after spawnDetachedJob has already
+    // returned. A missing listener would take the launcher down with an
+    // uncaught exception; this asserts spawnDetachedJob itself never throws
+    // and that the failure is recorded on the job instead.
+    const { spawn } = await import('node:child_process');
+    const child = fakeChild(4242);
+    vi.mocked(spawn).mockReturnValue(child as unknown as ReturnType<typeof spawn>);
+    const fs = new MemFs();
+    const jobsDir = '/d/jobs';
+    const initial = job();
+    await writeJobState(fs, jobsDir, initial);
+
+    await expect(
+      spawnDetachedJob({ fs, jobsDir }, ['transcribe'], initial),
+    ).resolves.toBeUndefined();
+
+    const error = Object.assign(new Error('spawn EMFILE'), { code: 'EMFILE' });
+    child.emit('error', error);
+
+    await vi.waitFor(async () => {
+      const state = await readJobState(fs, jobsDir, initial.id);
+      expect(state?.state).toBe('failed');
+    });
+
+    const state = await readJobState(fs, jobsDir, initial.id);
+    expect(state?.state).toBe('failed');
+    expect(state?.error).toContain('EMFILE');
+    expect(state?.finishedAt).not.toBeNull();
   });
 });

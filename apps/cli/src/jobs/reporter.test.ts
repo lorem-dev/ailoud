@@ -132,6 +132,26 @@ describe('JobReporter', () => {
     });
   });
 
+  it('clears a stale error carried in from initial once the job finishes', async () => {
+    await withDir(async (dir) => {
+      // A job whose launcher had already exited by the time something read
+      // it back reads as dead under withLiveness -- error message and all --
+      // even though the work genuinely finished. `initial` here stands in
+      // for that: this pins finish() clearing it rather than letting a
+      // 'done' job carry a leftover error that contradicts its own state.
+      const reporter = new JobReporter({
+        fs: new NodeFs(),
+        jobsDir: dir,
+        initial: { ...initial(dir), error: "the job's process (pid 999999) is no longer running" },
+        log: new JobLog(join(dir, 'j.log')),
+      });
+      await reporter.finish({ ok: true });
+      const state = await readJobState(new NodeFs(), dir, initial(dir).id);
+      expect(state?.state).toBe('done');
+      expect(state?.error).toBeNull();
+    });
+  });
+
   it('never lowers the percentage', async () => {
     await withDir(async (dir) => {
       let clock = 0;

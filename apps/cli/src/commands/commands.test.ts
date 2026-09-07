@@ -408,6 +408,22 @@ describe('ailoud transcribe --detach', () => {
     });
   });
 
+  it('refuses an empty default selection before creating a job or spawning anything', async () => {
+    // The default selector means "everything not yet transcribed"; once
+    // every recording already has a transcript, --detach would otherwise
+    // hand back a job id for a child that does nothing at all.
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe']);
+      await expect(
+        buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--detach']),
+      ).rejects.toThrow(/--detach has nothing to transcribe/);
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+    });
+  });
+
   it('refuses when another job already holds the lock, without creating a job', async () => {
     const ctx = context();
     await withRealDataDir(ctx, async () => {

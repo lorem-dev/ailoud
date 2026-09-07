@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { Fs } from '@ailoud/core';
-import { writeJobState } from './state.js';
+import { readJobState, writeJobState } from './state.js';
 import type { JobState } from './state.js';
 
 /**
@@ -22,6 +22,69 @@ export function buildDetachedArgs(commandArgs: readonly string[], jobId: string)
 }
 
 /**
+ * Best-effort: overwrites only `pid` and `error` on whatever the job's state
+ * file actually holds at the moment this runs, not on the `job` snapshot
+ * `createJob` handed back.
+ *
+ * That snapshot is stale by construction -- it is a picture of `percent: 0,
+ * stage: 'starting'` from before the child had done anything. The child
+ * claims its own pid on load too (see loadJob.ts) and starts reporting real
+ * progress immediately; if that lands before this correction does, spreading
+ * the stale `job` over the current file (`{ ...job, pid, error: null }`)
+ * would silently walk `percent` and `stage` back to zero under real progress
+ * already written. Reading the current state first and touching only the
+ * two fields this correction is actually about avoids that regression
+ * entirely, whichever of the two writers landed last.
+ */
+async function correctPid(
+  deps: { readonly fs: Fs; readonly jobsDir: string },
+  job: JobState,
+  pid: number,
+): Promise<void> {
+  try {
+    const current = (await readJobState(deps.fs, deps.jobsDir, job.id)) ?? job;
+    await writeJobState(deps.fs, deps.jobsDir, { ...current, pid, error: null });
+  } catch {
+    // Best-effort, like every other write JobReporter makes: the child is
+    // already running, detached, whether or not this correction lands.
+    // Losing it costs a poller a stale pid and a phantom "failed" until
+    // the job reaches finish() or fail() -- which now always clear
+    // `error` on the way to a terminal state, see JobReporter's own
+    // comment -- but it does not cost the transcription, and it must
+    // never be confused with the spawn itself having failed.
+  }
+}
+
+/**
+ * Best-effort: marks the job failed when the child never actually started.
+ *
+ * Same read-modify-write shape as correctPid, and the same reason: this
+ * fires from the 'error' handler below, which can race the child's own
+ * writes in principle, so it must not clobber real state with a stale
+ * snapshot either -- though in practice a child that never started has
+ * written nothing yet.
+ */
+async function markSpawnFailed(
+  deps: { readonly fs: Fs; readonly jobsDir: string },
+  job: JobState,
+  message: string,
+): Promise<void> {
+  try {
+    const current = (await readJobState(deps.fs, deps.jobsDir, job.id)) ?? job;
+    await writeJobState(deps.fs, deps.jobsDir, {
+      ...current,
+      state: 'failed',
+      finishedAt: new Date().toISOString(),
+      error: message,
+    });
+  } catch {
+    // The id this job was handed out under must always resolve, but a
+    // write that fails here does not get to escape and take the launcher
+    // down a second time -- see the 'error' handler's own comment.
+  }
+}
+
+/**
  * Starts the work in a process that outlives this one.
  *
  * `detached` plus `unref` is what lets an MCP server exit, or an agent's
@@ -35,6 +98,17 @@ export function buildDetachedArgs(commandArgs: readonly string[], jobId: string)
  *
  * `run()` is deliberately not used: it waits for the child and buffers its
  * output, which is the opposite of what is wanted here.
+ *
+ * No timeout, unlike every other subprocess this project spawns (run.ts's
+ * `DEFAULT_TIMEOUT_MS`), and `runInteractive` is not the only other
+ * exception: this is the second. A detached job outlives its launcher by
+ * definition, so the launcher cannot hold a timer for it -- it is about to
+ * exit -- and inventing one it cannot enforce would be worse than none. The
+ * work inside the child is bounded anyway: whisper itself is spawned through
+ * `run()` with its own six-hour timeout (whisperCpp.ts). What a timeout here
+ * could catch that nothing else does is the child wedging on something
+ * outside a subprocess call entirely, and `withLiveness` (store.ts) cannot
+ * see that either -- it detects a dead pid, not a hung one.
  *
  * `job` is the record `createJob` just wrote, whose `pid` is *this*
  * process's -- the launcher's, which is about to return and exit. That is
@@ -62,18 +136,21 @@ export async function spawnDetachedJob(
     stdio: 'ignore',
     shell: false,
   });
+  // Attached synchronously, right after spawn(): an asynchronous spawn
+  // failure -- EMFILE, a permissions problem, resource exhaustion, anything
+  // that is not a synchronous throw -- arrives as an 'error' event on the
+  // child, and with no listener Node turns that into an uncaught exception.
+  // That exception surfaces after this function has already returned and
+  // the launcher has already printed the job id, so without this the
+  // launcher would die with a stack trace instead of exiting cleanly. Marks
+  // the job failed instead, best-effort, and never rethrows -- an id handed
+  // out must always resolve. Same class of failure, same fix, as run.ts's
+  // 'error' handler.
+  child.on('error', (error) => {
+    void markSpawnFailed(deps, job, error instanceof Error ? error.message : String(error));
+  });
   child.unref();
   if (child.pid !== undefined) {
-    try {
-      await writeJobState(deps.fs, deps.jobsDir, { ...job, pid: child.pid, error: null });
-    } catch {
-      // Best-effort, like every other write JobReporter makes: the child is
-      // already running, detached, whether or not this correction lands.
-      // Losing it costs a poller a stale pid and a phantom "failed" until
-      // the job reaches finish() or fail() -- which now always clear
-      // `error` on the way to a terminal state, see JobReporter's own
-      // comment -- but it does not cost the transcription, and it must
-      // never be confused with the spawn itself having failed.
-    }
+    await correctPid(deps, job, child.pid);
   }
 }

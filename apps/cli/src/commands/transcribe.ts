@@ -209,6 +209,19 @@ export function registerTranscribe(program: Command, context: CliContext): void 
         // file exists or anything is spawned -- see resolveTranscribeRun's
         // own comment.
         const resolved = await resolveTranscribeRun(context, ids, options);
+        if (resolved.recordings.length === 0) {
+          // Only reachable via the default selector: with explicit ids, an
+          // empty result means every id was missing, and resolveRecordings
+          // (inside resolveTranscribeRun) already threw for that. Refused
+          // here, before the lock check or createJob -- the same point
+          // summarize refuses an empty selection -- because handing back a
+          // job id for "there was never anything to do" is a confusing
+          // artifact, and taking the job lock for it is pointless.
+          throw new UsageError(
+            '--detach has nothing to transcribe: every recording already has a transcript. ' +
+              'Pass ids explicitly, or --force, to redo one.',
+          );
+        }
         const holder = await jobLockHolder(context.paths.dataDir);
         if (holder !== null) {
           throw new FailureError(jobBusyMessage(holder));
