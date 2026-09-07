@@ -65,7 +65,7 @@ describe('ailoud self completions', () => {
   it('print bash writes a script to stdout and installs nothing', async () => {
     const result = await sandbox.run(['self', 'completions', 'print', 'bash']);
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('complete -F _ailoud ailoud');
+    expect(result.stdout).toContain('-F _ailoud ailoud');
 
     // "print" only renders; it must never reach for the install/rc writers.
     const p = completionPaths(sandbox);
@@ -91,7 +91,7 @@ describe('ailoud self completions', () => {
     const result = await sandbox.run(['self', 'completions', 'install', '--shell', 'bash']);
     expect(result.code).toBe(0);
 
-    expect(await read(p.bashScript)).toContain('complete -F _ailoud ailoud');
+    expect(await read(p.bashScript)).toContain('-F _ailoud ailoud');
 
     const rc = await read(p.bashrc);
     expect(rc).toContain('export EDITOR=vim');

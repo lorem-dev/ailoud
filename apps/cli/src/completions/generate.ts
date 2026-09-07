@@ -68,10 +68,21 @@ export function describeTree(command: Command): CommandNode {
   };
 }
 
-/** One command path, with the words that complete it. */
+/**
+ * One command path, with the words that complete it.
+ *
+ * Subcommands and options are kept apart rather than merged into one list
+ * because the shells offer them at different moments: a word starting with
+ * `-` is being completed as an option, anything else as a subcommand. Merging
+ * them is what made `ailoud audio import <TAB>` answer with five option names
+ * where the user wanted a file.
+ */
 interface PathEntry {
   readonly path: readonly string[];
-  readonly words: readonly string[];
+  /** Subcommand names, each spelling of them. */
+  readonly subs: readonly string[];
+  /** Long option flags, e.g. `--json`. */
+  readonly opts: readonly string[];
   readonly node: CommandNode;
 }
 
@@ -91,11 +102,8 @@ interface PathEntry {
  * every verb.
  */
 function paths(node: CommandNode, prefix: readonly string[] = []): PathEntry[] {
-  const words: readonly string[] = [
-    ...node.children.flatMap((child) => [child.name, ...child.aliases]),
-    ...node.options,
-  ];
-  const here: PathEntry[] = [{ path: prefix, words, node }];
+  const subs = node.children.flatMap((child) => [child.name, ...child.aliases]);
+  const here: PathEntry[] = [{ path: prefix, subs, opts: node.options, node }];
   return here.concat(
     node.children.flatMap((child) =>
       [child.name, ...child.aliases].flatMap((spelling) => paths(child, [...prefix, spelling])),
@@ -114,29 +122,49 @@ function quote(text: string): string {
   return text.replace(/'/g, "'\\''");
 }
 
+/** The `case` label for one command path: the empty path is the bare `ailoud`. */
+function caseLabel(path: readonly string[]): string {
+  return path.length === 0 ? '""' : `"${path.join(' ')}"`;
+}
+
 function renderBash(tree: CommandNode): string {
   const cases = paths(tree)
     .map(
-      ({ path, words }) =>
-        `    ${path.length === 0 ? '""' : `"${path.join(' ')}"`})\n      words="${words.join(' ')}" ;;`,
+      ({ path, subs, opts }) =>
+        `    ${caseLabel(path)})\n      subs="${subs.join(' ')}"; opts="${opts.join(' ')}" ;;`,
     )
     .join('\n');
   return [
     '_ailoud() {',
-    '  local cur path i words',
+    '  local cur path i subs opts',
     '  cur="${COMP_WORDS[COMP_CWORD]}"',
     '  path=""',
     '  for (( i=1; i < COMP_CWORD; i++ )); do',
     '    case "${COMP_WORDS[i]}" in -*) continue ;; esac',
     '    path="${path:+$path }${COMP_WORDS[i]}"',
     '  done',
-    '  words=""',
+    '  subs=""',
+    '  opts=""',
     '  case "$path" in',
     cases,
     '  esac',
-    '  COMPREPLY=( $(compgen -W "$words" -- "$cur") )',
+    // Options only while the word being completed already starts with `-`.
+    // Merging them into one list meant `ailoud audio import <TAB>` answered
+    // with the option names and nothing else, where the argument the user is
+    // actually typing is a media file.
+    '  case "$cur" in',
+    '    -*) COMPREPLY=( $(compgen -W "$opts" -- "$cur") ) ;;',
+    '    *) COMPREPLY=( $(compgen -W "$subs" -- "$cur") ) ;;',
+    '  esac',
     '}',
-    'complete -F _ailoud ailoud',
+    // `-o default -o bashdefault`, without which installing completions REMOVED
+    // filename completion: `complete -F` alone tells bash the function is the
+    // whole answer, so an empty COMPREPLY means "no completions" rather than
+    // "fall back". Verified in bash 3.2 -- before installing, `ailoud audio
+    // import fx/<TAB>` listed the media files; after, it rang the bell twice.
+    // `import` and `transcribe` are the commands users type most, so a
+    // completion feature that breaks paths for them is worse than none.
+    'complete -o default -o bashdefault -F _ailoud ailoud',
     '',
   ].join('\n');
 }
@@ -144,8 +172,8 @@ function renderBash(tree: CommandNode): string {
 function renderZsh(tree: CommandNode): string {
   const cases = paths(tree)
     .map(
-      ({ path, words }) =>
-        `    ${path.length === 0 ? '""' : `"${path.join(' ')}"`})\n      candidates="${words.join(' ')}" ;;`,
+      ({ path, subs, opts }) =>
+        `    ${caseLabel(path)})\n      subs="${subs.join(' ')}"; opts="${opts.join(' ')}" ;;`,
     )
     .join('\n');
   return [
@@ -155,19 +183,25 @@ function renderZsh(tree: CommandNode): string {
     // so `local path=""` empties `$PATH` for the whole call and it ends up
     // holding the words being completed. Verified in zsh 5.9: during `ailoud
     // audio import <TAB>` the function saw `PATH=audio import`, and `date`
-    // run from inside it failed with "command not found". The body happens to
-    // use only builtins today, so nothing broke yet -- but `_files`,
-    // `_message`, `_describe`, or any wrapper a user has put around `compadd`
-    // would die there and Tab would silently return nothing.
-    '  local _path="" candidates="" i',
+    // run from inside it failed with "command not found". `_files` below is
+    // exactly the kind of helper that would have died there.
+    '  local _path="" subs="" opts="" cur i',
     '  for (( i = 2; i < CURRENT; i++ )); do',
     '    [[ ${words[i]} == -* ]] && continue',
     '    _path="${_path:+$_path }${words[i]}"',
     '  done',
+    '  cur="${words[CURRENT]}"',
     '  case "$_path" in',
     cases,
     '  esac',
-    '  compadd -- ${=candidates}',
+    // Same split as bash, and the same fallback: `_files` only once `compadd`
+    // has reported that it matched nothing, so `ailoud <TAB>` still lists the
+    // commands alone instead of every file in the directory.
+    '  if [[ $cur == -* ]]; then',
+    '    compadd -- ${=opts}',
+    '  else',
+    '    compadd -- ${=subs} || _files',
+    '  fi',
     '}',
     '_ailoud "$@"',
     '',
@@ -175,7 +209,12 @@ function renderZsh(tree: CommandNode): string {
 }
 
 function renderFish(tree: CommandNode): string {
-  const lines: string[] = ['complete -c ailoud -f'];
+  // No `complete -c ailoud -f`. That line said "this command never takes a
+  // file", which is how fish's half of the same defect bash had appeared:
+  // `ailoud audio import <TAB>` stopped offering media files the moment the
+  // completions were installed. Without it fish keeps its own filename
+  // completion alongside ours, which is what the user had before installing.
+  const lines: string[] = [];
   for (const { path, node } of paths(tree)) {
     // Fish ANDs multiple `-n` flags, so a completion three levels deep
     // needs one flag per ancestor segment, not just the last. Naming only

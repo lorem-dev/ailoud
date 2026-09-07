@@ -70,7 +70,7 @@ describe('describeTree', () => {
 describe('renderCompletions', () => {
   it('emits the shape bash needs and names the real commands', () => {
     const script = renderCompletions('bash', describeTree(sample()));
-    expect(script).toContain('complete -F _ailoud ailoud');
+    expect(script).toContain('-F _ailoud ailoud');
     expect(script).toContain('audio');
     expect(script).toContain('recordings');
     expect(script).toContain('--json');
@@ -113,6 +113,37 @@ describe('renderCompletions', () => {
       const script = renderCompletions(shell, describeTree(program));
       expect(script).not.toContain("don't break");
     }
+  });
+
+  it('leaves filename completion working in every shell', () => {
+    // Installing completions REMOVED filename completion. Verified in bash
+    // 3.2: before installing, `ailoud audio import fx/<TAB>` listed the media
+    // files; after, it rang the bell twice and offered nothing. `complete -F`
+    // alone tells bash the function is the whole answer, fish's `-f` says the
+    // command takes no file at all, and the zsh function never reached
+    // `_files`. `import` and `transcribe` are the commands users type most.
+    const tree = describeTree(sample());
+    expect(renderCompletions('bash', tree)).toContain('complete -o default -o bashdefault -F');
+    expect(renderCompletions('zsh', tree)).toContain('_files');
+    expect(renderCompletions('fish', tree)).not.toContain('complete -c ailoud -f\n');
+  });
+
+  it('offers options only once the word starts with a dash', () => {
+    // One merged candidate list meant `ailoud audio import <TAB>` answered
+    // with the option names, so the fallback to files above was never
+    // reached for the empty word -- which is how that argument is usually
+    // typed.
+    const bash = renderCompletions('bash', describeTree(sample()));
+    expect(bash).toContain('-*) COMPREPLY=( $(compgen -W "$opts" -- "$cur") ) ;;');
+    expect(bash).toContain('*) COMPREPLY=( $(compgen -W "$subs" -- "$cur") ) ;;');
+    // A leaf: no subcommand of its own, so an empty word falls through to the
+    // filename completion `-o default` restores.
+    expect(bash).toContain('subs=""; opts="--json --help --version"');
+    expect(bash).toContain('subs="audio recordings ls"; opts="--help --version"');
+
+    const zsh = renderCompletions('zsh', describeTree(sample()));
+    expect(zsh).toContain('if [[ $cur == -* ]]; then');
+    expect(zsh).toContain('compadd -- ${=subs} || _files');
   });
 
   it('emits options for fish too, not subcommands only', () => {
