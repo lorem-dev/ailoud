@@ -55,17 +55,17 @@
 - `setup` offers to install shell completions at the end of a successful
   run; skip with `--no-completions`.
 
-### Fixed
-
-- A rules file holding a stray `AILOUD_END` marker is found again, instead of
-  gaining a duplicate block on every `mcp install` and never being refreshed.
-
 ### Changed
 
 - New rules blocks now go to `.claude/CLAUDE.md`; blocks already in a
   project's own rules files stay there and are all kept current.
 - `setup --model <name>` now switches the transcription model even on a
   healthy machine, instead of being ignored.
+
+### Fixed
+
+- A rules file holding a stray `AILOUD_END` marker is found again, instead of
+  gaining a duplicate block on every `mcp install` and never being refreshed.
 
 ## Version 1.1.0
 
