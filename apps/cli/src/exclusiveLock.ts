@@ -93,10 +93,12 @@ export async function readLockHolder(path: string): Promise<LockHolder | null> {
  * try again. Checking afterwards who won is not enough: two runs can each
  * check after their own write and each see themselves.
  *
- * A live lock is refused immediately rather than waited on. Provisioning is
- * interactive and can sit on a consent prompt for minutes, so a queued
- * second run would look like a hang. The refusal names the holder's pid and
- * start time so the user can decide whether to wait or go and look at it.
+ * A live lock is refused immediately rather than waited on. A caller that
+ * cannot proceed is better told so than left watching a queued run that is,
+ * from the outside, indistinguishable from a hung one -- each caller's own
+ * doc comment gives its specific reason for that. The refusal names the
+ * holder's pid and start time so the user can decide whether to wait or go
+ * and look at it.
  *
  * A stale lock is taken over. After a crash or a Ctrl-C that skipped
  * cleanup, the file outlives its process, and a lock nobody can ever

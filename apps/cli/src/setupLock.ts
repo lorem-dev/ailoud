@@ -12,6 +12,9 @@ export function lockPath(dataDir: string): string {
  * directory, so two runs at once can delete or truncate a file the other is
  * streaming. Before this, that produced a confusing failure rather than a
  * clean refusal.
+ *
+ * Provisioning is interactive and can sit on a consent prompt for minutes,
+ * so a queued second run would look like a hang.
  */
 export function withProvisioningLock<T>(dataDir: string, body: () => Promise<T>): Promise<T> {
   return withExclusiveLock(
