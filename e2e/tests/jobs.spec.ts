@@ -192,8 +192,12 @@ describe('ailoud background jobs', () => {
     expect(state!.state).toBe('done');
     expect(state!.percent).toBe(100);
 
-    // Progress must have moved from 0 to 100, not jumped at the end
+    // Progress must have moved from 0 to 100, not jumped at the end. Both
+    // assertions below would pass for a bar that only ever reported [0, 100]
+    // -- max > 0 is satisfied by the final 100 alone -- so what actually
+    // proves "did not jump at the end" is a value strictly between the two.
     expect(Math.max(...seen)).toBeGreaterThan(0);
+    expect(seen.some((percent) => percent > 0 && percent < 100)).toBe(true);
 
     // Progress must never go backwards (monotonic increasing)
     const sorted = [...seen].sort((a, b) => a - b);
