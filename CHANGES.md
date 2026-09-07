@@ -59,8 +59,10 @@
 - Transcription reports an approximate percentage while it runs, on the spinner
   and in a job's state file.
 - `--max-cpu` and `resources.maxCpuPercent` cap how much of the machine each
-  engine takes; `--no-gpu` opts out of GPU use. Diarization gets a lower,
-  measured share.
+  engine takes; `--no-gpu` opts out. Segmentation and diarization get a
+  lower, measured share.
+- `doctor` reports the CPU split, the GPU backends each binary loaded, and
+  the thread counts derived from them.
 - `--denoise` and `audio.denoise` clean noisy audio before transcription.
   The default `auto` measures each recording and leaves clean ones untouched.
 
