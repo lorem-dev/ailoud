@@ -317,6 +317,10 @@ tokens.
 returns the path, the line count and the duration. The agent reads the part it
 needs with its own tools. The directory is removed when the server stops.
 
+**Pick a template for a summary.** `list_templates` shows the shapes on
+offer; the default meeting shape answers a one-to-one badly, so check the
+list before summarising.
+
 **Context lives in the agent's memory.** `summarize` takes a short `context`;
 AILoud does not remember it between calls. The agent keeps it and passes it
 again.
