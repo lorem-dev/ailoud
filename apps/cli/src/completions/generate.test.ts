@@ -5,7 +5,15 @@ import { describeTree, renderCompletions } from './generate.js';
 function sample(): Command {
   const program = new Command().name('ailoud').description('root');
   const audio = program.command('audio').alias('recordings').description('recordings');
-  audio.command('ls').alias('l').description('list them').option('--json', 'as JSON');
+  audio
+    .command('ls')
+    .alias('l')
+    .description('list them')
+    .option('--json', 'as JSON')
+    // Short-only, so "collects long options" can fail: with `option.flags`
+    // instead of `option.long` this would land in the script as `-q, --quiet`
+    // -- except there is no long form, so it must not land at all.
+    .option('-q', 'quietly');
   // The hidden top-level alias `inGroupAndTopLevel` adds for every verb.
   const hidden = new Command('ls').description('list them');
   program.addCommand(hidden, { hidden: true });
@@ -34,7 +42,28 @@ describe('describeTree', () => {
     const tree = describeTree(sample());
     const ls = tree.children.find((c) => c.name === 'audio')!.children[0]!;
     expect(ls.options).toContain('--json');
+    // `-q` has no long form at all, so nothing about it may reach the script.
     expect(ls.options.every((o) => o.startsWith('--'))).toBe(true);
+    expect(ls.options).not.toContain('-q');
+    expect(ls.options.join(' ')).not.toContain('quiet');
+  });
+
+  it('adds --help and --version to every command, not just the root', () => {
+    // Commander answers both at every depth but registers neither in
+    // `Command.options` below the root, so without this they appear nowhere:
+    // `ailoud audio ls --he<TAB>` completed nothing in real bash.
+    const tree = describeTree(sample());
+    const ls = tree.children.find((c) => c.name === 'audio')!.children[0]!;
+    expect(ls.options).toContain('--help');
+    expect(ls.options).toContain('--version');
+  });
+
+  it('does not repeat --version at the root, where commander registers it', () => {
+    // A duplicate would show twice in the Tab list, and reordering or
+    // re-adding on each run would make `update` report a change every time.
+    const program = new Command().name('ailoud').version('1.0.0');
+    const options = describeTree(program).options;
+    expect(options.filter((o) => o === '--version')).toHaveLength(1);
   });
 });
 

@@ -24,6 +24,19 @@ export interface CommandNode {
 }
 
 /**
+ * The two options commander answers on every command in the tree, at every
+ * depth, without registering either in `Command.options`.
+ *
+ * They therefore have to be added here or they appear nowhere: before this,
+ * `ailoud audio ls --he<TAB>` completed nothing, and `--version` showed up
+ * only at the root, where commander does put it in `options`. Both really do
+ * work everywhere -- `ailoud audio ls --version` prints the version and
+ * `ailoud audio ls --help` prints that command's help -- so listing them is
+ * not a completion promising an invocation that fails.
+ */
+const GLOBAL_OPTIONS: readonly string[] = ['--help', '--version'];
+
+/**
  * The command tree, reduced to what a completion script needs.
  *
  * Read off the live commander tree rather than a list kept beside it. A
@@ -37,13 +50,20 @@ export interface CommandNode {
  * and a Tab list that omitted it would be wrong about what works.
  */
 export function describeTree(command: Command): CommandNode {
+  // `option.long`, not `option.flags`: `flags` is the whole registration
+  // string, so `-t, --tag <tag>` would go into the script verbatim and offer
+  // a candidate no shell can complete to.
+  const longs = command.options
+    .map((option) => option.long)
+    .filter((long): long is string => typeof long === 'string');
   return {
     name: command.name(),
     description: command.description(),
     aliases: command.aliases().filter((alias) => alias.length > 1),
-    options: command.options
-      .map((option) => option.long)
-      .filter((long): long is string => typeof long === 'string'),
+    // Appended, and only when missing, so the root -- where commander does
+    // register `--version` -- keeps one copy and the order stays stable
+    // across runs, which is what lets `update` report "unchanged".
+    options: [...longs, ...GLOBAL_OPTIONS.filter((global) => !longs.includes(global))],
     children: command.commands.map(describeTree),
   };
 }
