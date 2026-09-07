@@ -97,6 +97,8 @@ function buildWhisperArgs(
   audioPath: string,
   language: string | undefined,
   outputBase: string,
+  threads: number,
+  gpu: boolean,
 ): string[] {
   return [
     '-m',
@@ -105,6 +107,12 @@ function buildWhisperArgs(
     audioPath,
     '-l',
     language ?? 'auto',
+    '-t',
+    String(threads),
+    // -p (processors) is deliberately left at the binary's own 1. It decodes
+    // N independent chunks in parallel and loses context at every boundary,
+    // which trades accuracy for speed -- not the trade this feature is for.
+    ...(gpu ? [] : ['-ng']),
     '-oj',
     '-pp',
     '-of',
@@ -115,6 +123,25 @@ function buildWhisperArgs(
 export interface WhisperCppOptions {
   readonly binary: string;
   readonly modelPath: string;
+  /**
+   * Threads for the CPU side of the run. Required, with no fallback: the
+   * binary's own default is 4 whatever the machine has, and an adapter
+   * quietly accepting that is how this went unnoticed. The number belongs to
+   * the resource budget (core/resources/budget.ts), not here.
+   *
+   * Worth knowing before tuning it: on a build with a GPU backend this
+   * barely matters. MEASURED on an M1 Pro, 607 s of speech: 16.56 s at -t 4,
+   * 16.33 s at 6, 16.23 s at 8 -- two percent across the range, because the
+   * encoder runs on Metal. On a CPU-only build the same flag is worth several
+   * times the runtime, which is why it is still passed.
+   */
+  readonly threads: number;
+  /**
+   * False adds `-ng`. True adds nothing at all: a homebrew whisper-cli
+   * already loads Metal on its own (measured), so using the GPU is the
+   * default behaviour and this flag exists only to turn it off.
+   */
+  readonly gpu: boolean;
   readonly runner?: typeof defaultRunner;
   readonly readFile?: (path: string) => Promise<string>;
 }
@@ -156,7 +183,14 @@ export class WhisperCppProvider implements TranscriptionProvider {
     // confirmed against a real run; see the warning on buildWhisperArgs.
     const outputBase = join(dirname(audioPath), basename(audioPath, extname(audioPath)));
     const modelPath = opts.model ?? this.options.modelPath;
-    const args = buildWhisperArgs(modelPath, audioPath, opts.language, outputBase);
+    const args = buildWhisperArgs(
+      modelPath,
+      audioPath,
+      opts.language,
+      outputBase,
+      this.options.threads,
+      this.options.gpu,
+    );
 
     // Six hours, not the run helper's half-hour default: a long recording on
     // CPU-only whisper is genuinely slow, and the default would kill real work.
@@ -205,7 +239,16 @@ export class WhisperCppProvider implements TranscriptionProvider {
     const modelPath = opts.model ?? this.options.modelPath;
     const result = await this.runner(
       this.options.binary,
-      ['-m', modelPath, '-f', audioPath, '-dl'],
+      [
+        '-m',
+        modelPath,
+        '-f',
+        audioPath,
+        '-t',
+        String(this.options.threads),
+        ...(this.options.gpu ? [] : ['-ng']),
+        '-dl',
+      ],
       { timeoutMs: 10 * 60_000 },
     );
     if (result.code !== 0) {

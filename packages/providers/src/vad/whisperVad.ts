@@ -39,6 +39,11 @@ export function parseVadSegments(output: string): SpeechSpan[] {
 export interface WhisperVadOptions {
   readonly binary: string;
   readonly vadModelPath: string;
+  /**
+   * Threads for the segmentation pass. Required, like whisper-cli's: this
+   * binary also defaults to 4 whatever the machine has.
+   */
+  readonly threads: number;
   readonly runner?: typeof defaultRunner;
 }
 
@@ -50,9 +55,20 @@ export class WhisperVadSegmenter implements SpeechSegmenter {
   }
 
   public async segments(audioPath: string): Promise<SpeechSpan[]> {
+    // No GPU flag, and not an oversight: `whisper-vad-speech-segments --help`
+    // lists -t but has no -ng and no --no-gpu. Adding one by symmetry with
+    // whisperCpp.ts would make every segmentation exit non-zero.
     const result = await this.runner(
       this.options.binary,
-      ['-f', audioPath, '-vm', this.options.vadModelPath, '-np'],
+      [
+        '-f',
+        audioPath,
+        '-vm',
+        this.options.vadModelPath,
+        '-t',
+        String(this.options.threads),
+        '-np',
+      ],
       { timeoutMs: VAD_TIMEOUT_MS },
     );
     if (result.code !== 0) {
