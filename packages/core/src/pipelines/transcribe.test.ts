@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RawSegment, Recording } from '../domain/model.js';
 import type { Diarizer, SpeechSpan, TranscriptionProvider } from '../domain/ports.js';
+import type { ProgressEvent } from '../progress/events.js';
 import {
   FakeAudioTool,
   FakeClock,
@@ -501,5 +502,78 @@ describe('transcribeRecording --multilingual', () => {
     expect(diarizer.calls).toEqual([{ audioPath: '/tmp/fake-1.wav' }]);
     const segments = await d.store.listSegments(transcript.id);
     expect(segments.map((s) => s.speaker)).toEqual(['speaker_00', 'speaker_01']);
+  });
+});
+
+describe('transcribeRecording progress', () => {
+  it('reports progress that rises to one on the single-pass path', async () => {
+    const events: ProgressEvent[] = [];
+    await transcribeRecording(
+      { ...deps(), onProgress: (event) => events.push(event) },
+      recording,
+      {},
+    );
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.map((e) => e.stage)).toContain('transcribing');
+    const fractions = events.flatMap((e) => (e.fraction === undefined ? [] : [e.fraction]));
+    expect(Math.max(...fractions)).toBe(1);
+  });
+
+  it('never reports a fraction that went backwards', async () => {
+    const events: ProgressEvent[] = [];
+    const d = multilingualDeps({
+      spans: [
+        { startMs: 0, endMs: 1750 },
+        { startMs: 1800, endMs: 3430 },
+      ],
+      languages: ['en', 'ru'],
+    });
+    await transcribeRecording({ ...d, onProgress: (event) => events.push(event) }, recording, {
+      multilingual: true,
+      declaredLanguages: ['en', 'ru'],
+    });
+    const fractions = events.flatMap((e) => (e.fraction === undefined ? [] : [e.fraction]));
+    for (const [i, fraction] of fractions.entries()) {
+      if (i > 0) expect(fraction).toBeGreaterThanOrEqual(fractions[i - 1]!);
+    }
+  });
+
+  it('reports the diarizing stage while it cannot be measured, then again once done', async () => {
+    // Two 'diarizing' events are expected, not one: the first announces the
+    // stage starting and deliberately carries no fraction (the diarizer
+    // reports nothing about its own progress), and the last is the run's
+    // closing report, which lands on 'diarizing' precisely so the bar
+    // reaches 100% on a diarized run -- see stageScale's doc comment. Only
+    // that closing report is allowed a fraction.
+    const events: ProgressEvent[] = [];
+    const diarizer = new FakeDiarizer([{ startMs: 0, endMs: 3200, speaker: 'speaker_00' }]);
+    await transcribeRecording(
+      { ...deps(), diarizer, onProgress: (event) => events.push(event) },
+      recording,
+      { diarize: true },
+    );
+    const diarizing = events.filter((e) => e.stage === 'diarizing');
+    expect(diarizing.length).toBeGreaterThan(0);
+    expect(diarizing.some((e) => e.fraction === undefined)).toBe(true);
+    expect(diarizing.every((e) => e.fraction === undefined || e.fraction === 1)).toBe(true);
+  });
+
+  it('still produces a transcript when the progress sink throws', async () => {
+    const transcript = await transcribeRecording(
+      {
+        ...deps(),
+        onProgress: () => {
+          throw new Error('sink exploded');
+        },
+      },
+      recording,
+      {},
+    );
+    expect(transcript.id).toBeDefined();
+  });
+
+  it('still produces a transcript when no progress sink is supplied at all', async () => {
+    const transcript = await transcribeRecording(deps(), recording, {});
+    expect(transcript.id).toBeDefined();
   });
 });

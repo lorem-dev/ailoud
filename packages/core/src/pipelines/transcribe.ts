@@ -13,6 +13,8 @@ import type {
 import type { RawSegment, Recording, Segment, Transcript } from '../domain/model.js';
 import { FailureError } from '../domain/errors.js';
 import { assignSpeakers } from '../diarize/assign.js';
+import type { OnProgress } from '../progress/events.js';
+import { multilingualStages, singlePassStages, stageScale } from '../progress/scale.js';
 import {
   detectionWindowMs,
   mergeRuns,
@@ -41,6 +43,16 @@ export interface TranscribeDeps {
    * unset, such problems are simply not reported.
    */
   readonly onWarning?: (message: string) => void;
+  /**
+   * Reports how far along the run is. Supplied by the caller for the same
+   * reason `onWarning` is: core does no I/O and does not know whether this
+   * becomes a spinner, a file, or nothing.
+   *
+   * Every call goes through `report` below, which swallows whatever this
+   * throws. A progress observer that could abort a transcription would be
+   * strictly worse than no progress at all.
+   */
+  readonly onProgress?: OnProgress;
 }
 
 export interface TranscribeOptions {
@@ -75,6 +87,21 @@ export interface TranscribeOptions {
   readonly diarize?: true;
   /** Hint for the diarizer: the known number of speakers, when known. */
   readonly speakers?: number;
+}
+
+/**
+ * Emits one progress event, and cannot fail.
+ *
+ * The try is the whole point of the function existing. Every emitter in this
+ * file goes through it, so "a progress sink cannot break a transcription" is
+ * true by structure rather than by everyone remembering to wrap their call.
+ */
+function report(deps: TranscribeDeps, stage: string, fraction?: number): void {
+  try {
+    deps.onProgress?.({ stage, ...(fraction === undefined ? {} : { fraction }) });
+  } catch {
+    // See the doc comment. Deliberately empty.
+  }
 }
 
 /**
@@ -234,17 +261,25 @@ export async function transcribeRecording(
     return transcribeMultilingual(deps, recording, options);
   }
 
+  const scale = stageScale(singlePassStages(options.diarize === true));
   const tempWav = await deps.fs.tempFile('.wav');
   try {
+    report(deps, 'converting', scale('converting', 0));
     await deps.audio.toWav16kMono(`${deps.mediaRoot}/${recording.mediaPath}`, tempWav.path);
+    report(deps, 'transcribing', scale('transcribing', 0));
     const result = await deps.stt.transcribe(tempWav.path, {
       ...(options.language === undefined ? {} : { language: options.language }),
       ...(options.model === undefined ? {} : { model: options.model }),
+      onProgress: (fraction) => report(deps, 'transcribing', scale('transcribing', fraction)),
     });
 
     if (result.segments.length === 0) {
       throw new FailureError(`${deps.stt.name} found no speech in ${recording.sourcePath}`);
     }
+
+    // No fraction: the diarizer reports nothing about its own progress, and
+    // a number invented here would be indistinguishable from a measured one.
+    if (options.diarize === true) report(deps, 'diarizing');
 
     // One diarizer pass over the whole recording, on the same full-recording
     // wav the transcript just came from -- before tempWav.remove() runs in
@@ -263,7 +298,12 @@ export async function transcribeRecording(
 
     const segments = buildSegments(deps, transcript.id, withSpeakerLabels);
 
+    // Nothing progress-related between the assembled transcript and its
+    // write to the store -- that boundary stays exactly as bare as it was
+    // before this feature existed. The closing report lands right after,
+    // once the transcript this run exists to produce is already durable.
     await deps.store.insertTranscript(transcript, segments);
+    report(deps, options.diarize === true ? 'diarizing' : 'transcribing', 1);
     return transcript;
   } finally {
     await tempWav.remove();
@@ -326,7 +366,11 @@ async function transcribeMultilingual(
 
   const tempWav = await deps.fs.tempFile('.wav');
   try {
+    // The scale cannot be built until the units are known -- their count is
+    // one of its weights. Until then, report stages without a fraction.
+    report(deps, 'converting');
     await deps.audio.toWav16kMono(`${deps.mediaRoot}/${recording.mediaPath}`, tempWav.path);
+    report(deps, 'segmenting');
 
     const declared = options.declaredLanguages ?? [];
 
@@ -349,6 +393,16 @@ async function transcribeMultilingual(
             detectionWindowMs(declared.length),
           );
 
+    const audioSeconds = recording.durationMs / 1000;
+    const scale = stageScale(
+      multilingualStages({
+        unitCount: units.length,
+        audioSeconds,
+        diarize: options.diarize === true,
+      }),
+    );
+    report(deps, 'segmenting', scale('segmenting', 1));
+
     const detected: (DetectedSpan & { speaker?: string })[] = [];
     for (const unit of units) {
       const slice = await deps.fs.tempFile('.wav');
@@ -358,6 +412,7 @@ async function transcribeMultilingual(
           ...(options.model === undefined ? {} : { model: options.model }),
         });
         detected.push({ ...unit, language });
+        report(deps, 'detecting', scale('detecting', detected.length / Math.max(1, units.length)));
       } finally {
         await slice.remove();
       }
@@ -383,13 +438,27 @@ async function transcribeMultilingual(
     }
 
     const outcomes: RunOutcome[] = [];
+    const totalRunMs = runs.reduce((sum, run) => sum + (run.endMs - run.startMs), 0);
+    let doneRunMs = 0;
     for (const run of runs) {
+      const runMs = run.endMs - run.startMs;
       const slice = await deps.fs.tempFile('.wav');
       try {
         await deps.audio.slice(tempWav.path, slice.path, run.startMs, run.endMs);
         const result = await deps.stt.transcribe(slice.path, {
           language: run.language,
           ...(options.model === undefined ? {} : { model: options.model }),
+          // Weighted by audio, not by run: runs differ in length by an order
+          // of magnitude, and counting them makes a bar that crawls then jumps.
+          onProgress: (fraction) =>
+            report(
+              deps,
+              'transcribing',
+              scale(
+                'transcribing',
+                totalRunMs <= 0 ? 0 : (doneRunMs + runMs * fraction) / totalRunMs,
+              ),
+            ),
         });
         outcomes.push({
           run,
@@ -406,6 +475,7 @@ async function transcribeMultilingual(
             language: run.language,
           })),
         });
+        doneRunMs += runMs;
       } finally {
         await slice.remove();
       }
@@ -451,7 +521,12 @@ async function transcribeMultilingual(
 
     const segments = buildSegments(deps, transcript.id, withSpeakerLabels);
 
+    // Nothing progress-related between the assembled transcript and its
+    // write to the store, for the same reason the single-pass path holds
+    // that boundary bare. The closing reports land right after.
     await deps.store.insertTranscript(transcript, segments);
+    if (options.diarize === true) report(deps, 'labelling');
+    report(deps, options.diarize === true ? 'labelling' : 'transcribing', 1);
     return transcript;
   } finally {
     await tempWav.remove();
