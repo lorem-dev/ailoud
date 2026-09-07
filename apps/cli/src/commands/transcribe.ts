@@ -1,8 +1,13 @@
 import type { Command } from 'commander';
-import { summarizeLanguages, transcribeRecording, UsageError } from '@ailoud/core';
+import { Option } from 'commander';
+import { summarizeLanguages, transcribeRecording, UsageError, weightedOverall } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecordings } from '../resolveId.js';
 import { collectTag, parseTags } from '../tags.js';
+import { JobLog } from '../jobs/log.js';
+import { JobReporter } from '../jobs/reporter.js';
+import { getJob } from '../jobs/store.js';
+import { withJobLock } from '../jobs/lock.js';
 
 interface TranscribeOptions {
   readonly lang?: string;
@@ -12,6 +17,34 @@ interface TranscribeOptions {
   readonly diarize?: boolean;
   readonly speakers?: string;
   readonly tag?: string[];
+  readonly job?: string;
+}
+
+/**
+ * Loads the job named by `--job`, or undefined when the flag was not given.
+ *
+ * A missing id is a UsageError naming it rather than a silent no-op: the id
+ * came from whatever process started this one (a detached `--detach` child,
+ * or the MCP server), and a wrong or stale one means something upstream is
+ * confused, not that this run should quietly report nowhere.
+ */
+async function loadJob(
+  context: CliContext,
+  id: string | undefined,
+): Promise<{ readonly reporter: JobReporter; readonly log: JobLog } | undefined> {
+  if (id === undefined) return undefined;
+  const state = await getJob(context.fs, context.paths.jobsDir, id);
+  if (state === null) {
+    throw new UsageError(`no such job "${id}".`);
+  }
+  const log = new JobLog(state.log);
+  const reporter = new JobReporter({
+    fs: context.fs,
+    jobsDir: context.paths.jobsDir,
+    initial: state,
+    log,
+  });
+  return { reporter, log };
 }
 
 /**
@@ -88,94 +121,148 @@ export function registerTranscribe(program: Command, context: CliContext): void 
     .option('--diarize', 'attribute segments to speakers by running speaker diarization')
     .option('--speakers <n>', 'known number of speakers, to help the diarizer')
     .option('--tag <tag>', 'group these recordings under a tag; repeatable', collectTag)
+    // Hidden, and not a feature: this is how the detached child started by
+    // `--detach` and by the MCP server is told which job it is. A user has
+    // no reason to pass it, and `--help` listing it would invite exactly the
+    // hand-made half-registered job this avoids.
+    .addOption(
+      new Option(
+        '--job <id>',
+        'report into an existing job state file instead of the terminal',
+      ).hideHelp(),
+    )
     .description('Turn recordings into transcripts')
     .action(async (ids: string[], options: TranscribeOptions) => {
-      await context.ui.frame('Transcribing', async () => {
-        if (options.force === true && ids.length === 0) {
-          throw new UsageError(
-            '--force needs explicit recording ids: it would otherwise re-transcribe the whole library.',
-          );
-        }
-        const languages = parseLanguages(options.lang);
-        // Two or more languages IS the statement that the recording switches
-        // between them, so requiring --multilingual as well would be asking
-        // the user to say the same thing twice.
-        const multilingual = options.multilingual === true || languages.length >= 2;
-        if (options.speakers !== undefined && options.diarize !== true) {
-          // A flag that silently does nothing is worse than one that
-          // complains: without --diarize, --speakers has nothing to inform.
-          throw new UsageError('--speakers needs --diarize: it has no effect without it.');
-        }
-        const speakers =
-          options.speakers === undefined ? undefined : parseSpeakerCount(options.speakers);
-        // Parsed before any transcription starts: a bad tag should cost a
-        // usage error, not an hour of whisper followed by one.
-        const tags = parseTags(options.tag ?? []);
-        // Given ids, each may be a prefix; resolveRecordings refuses the whole
-        // set unless every one picks out exactly one recording. Given none,
-        // the default selector still means "everything not yet transcribed".
-        const recordings =
-          ids.length > 0
-            ? await resolveRecordings(context.store, ids)
-            : await context.store.listRecordings({ withoutTranscript: true });
+      const job = await loadJob(context, options.job);
 
-        if (recordings.length === 0) {
-          // Only reachable via the default selector: with explicit ids, an
-          // empty result means every id was missing, and that already threw
-          // above.
-          context.ui.nothingToTranscribe();
-          return;
-        }
-
-        const stt = context.createStt();
-        const segmenter = multilingual ? context.createSegmenter() : undefined;
-        const diarizer = options.diarize === true ? context.createDiarizer() : undefined;
-        for (const recording of recordings) {
-          if (options.force !== true) {
-            const existing = await context.store.latestTranscript(recording.id);
-            if (existing !== null) {
-              context.ui.skipped(recording);
-              continue;
-            }
+      const body = async (): Promise<unknown> =>
+        context.ui.frame('Transcribing', async () => {
+          if (options.force === true && ids.length === 0) {
+            throw new UsageError(
+              '--force needs explicit recording ids: it would otherwise re-transcribe the whole library.',
+            );
           }
-          const transcript = await context.ui.transcribing(recording, () =>
-            transcribeRecording(
-              {
-                fs: context.fs,
-                store: context.store,
-                audio: context.audio,
-                stt,
-                clock: context.clock,
-                ids: context.ids,
-                mediaRoot: context.paths.mediaRoot,
-                onWarning: (message) => context.ui.warn(message),
-                ...(segmenter === undefined ? {} : { segmenter }),
-                ...(diarizer === undefined ? {} : { diarizer }),
-              },
+          const languages = parseLanguages(options.lang);
+          // Two or more languages IS the statement that the recording switches
+          // between them, so requiring --multilingual as well would be asking
+          // the user to say the same thing twice.
+          const multilingual = options.multilingual === true || languages.length >= 2;
+          if (options.speakers !== undefined && options.diarize !== true) {
+            // A flag that silently does nothing is worse than one that
+            // complains: without --diarize, --speakers has nothing to inform.
+            throw new UsageError('--speakers needs --diarize: it has no effect without it.');
+          }
+          const speakers =
+            options.speakers === undefined ? undefined : parseSpeakerCount(options.speakers);
+          // Parsed before any transcription starts: a bad tag should cost a
+          // usage error, not an hour of whisper followed by one.
+          const tags = parseTags(options.tag ?? []);
+          // Given ids, each may be a prefix; resolveRecordings refuses the whole
+          // set unless every one picks out exactly one recording. Given none,
+          // the default selector still means "everything not yet transcribed".
+          const recordings =
+            ids.length > 0
+              ? await resolveRecordings(context.store, ids)
+              : await context.store.listRecordings({ withoutTranscript: true });
+
+          if (recordings.length === 0) {
+            // Only reachable via the default selector: with explicit ids, an
+            // empty result means every id was missing, and that already threw
+            // above.
+            context.ui.nothingToTranscribe();
+            return { transcribed: [] };
+          }
+
+          const stt = context.createStt();
+          const segmenter = multilingual ? context.createSegmenter() : undefined;
+          const diarizer = options.diarize === true ? context.createDiarizer() : undefined;
+          const transcribedIds: string[] = [];
+          // Reused whenever a stage's fraction cannot be measured (the
+          // diarizer pass), so that stage only changes the text shown to the
+          // user and never walks the number backwards. The same rule
+          // weightedOverall and JobReporter.report already follow.
+          let lastFraction = 0;
+          for (const [index, recording] of recordings.entries()) {
+            if (options.force !== true) {
+              const existing = await context.store.latestTranscript(recording.id);
+              if (existing !== null) {
+                context.ui.skipped(recording);
+                continue;
+              }
+            }
+            const transcript = await context.ui.transcribing(recording, (report) =>
+              transcribeRecording(
+                {
+                  fs: context.fs,
+                  store: context.store,
+                  audio: context.audio,
+                  stt,
+                  clock: context.clock,
+                  ids: context.ids,
+                  mediaRoot: context.paths.mediaRoot,
+                  onWarning: (message) => {
+                    context.ui.warn(message);
+                    job?.log.append(`warning: ${message}`);
+                  },
+                  onProgress: (event) => {
+                    // Weighted by duration across the batch, so finishing four
+                    // short recordings out of five does not claim 80%.
+                    const overall =
+                      event.fraction === undefined
+                        ? lastFraction
+                        : weightedOverall(
+                            recordings.map((r) => r.durationMs),
+                            index,
+                            event.fraction,
+                          );
+                    lastFraction = overall;
+                    report(event.stage, overall);
+                    job?.reporter.report({ stage: event.stage, fraction: overall });
+                  },
+                  ...(segmenter === undefined ? {} : { segmenter }),
+                  ...(diarizer === undefined ? {} : { diarizer }),
+                },
+                recording,
+                {
+                  // One declared language means force it for the whole file, the
+                  // single-pass case. Two or more means multilingual, where the
+                  // set constrains detection instead of forcing an answer. The
+                  // single-language-plus---multilingual case lands in the second
+                  // branch with a one-member set: degenerate, but coherent, and
+                  // not worth refusing.
+                  ...(!multilingual && languages.length === 1 ? { language: languages[0] } : {}),
+                  ...(options.model === undefined ? {} : { model: options.model }),
+                  ...(multilingual ? { multilingual: true, declaredLanguages: languages } : {}),
+                  ...(options.diarize === true ? { diarize: true } : {}),
+                  ...(speakers === undefined ? {} : { speakers }),
+                },
+              ),
+            );
+            job?.reporter.advance(index + 1);
+            if (tags.length > 0) await context.store.addTags(recording.id, tags);
+            const segments = await context.store.listSegments(transcript.id);
+            context.ui.transcribed(
               recording,
-              {
-                // One declared language means force it for the whole file, the
-                // single-pass case. Two or more means multilingual, where the
-                // set constrains detection instead of forcing an answer. The
-                // single-language-plus---multilingual case lands in the second
-                // branch with a one-member set: degenerate, but coherent, and
-                // not worth refusing.
-                ...(!multilingual && languages.length === 1 ? { language: languages[0] } : {}),
-                ...(options.model === undefined ? {} : { model: options.model }),
-                ...(multilingual ? { multilingual: true, declaredLanguages: languages } : {}),
-                ...(options.diarize === true ? { diarize: true } : {}),
-                ...(speakers === undefined ? {} : { speakers }),
-              },
-            ),
-          );
-          if (tags.length > 0) await context.store.addTags(recording.id, tags);
-          const segments = await context.store.listSegments(transcript.id);
-          context.ui.transcribed(
-            recording,
-            transcript,
-            segments.length,
-            summarizeLanguages(segments),
-          );
+              transcript,
+              segments.length,
+              summarizeLanguages(segments),
+            );
+            transcribedIds.push(recording.id);
+          }
+          return { transcribed: transcribedIds };
+        });
+
+      if (job === undefined) {
+        await body();
+        return;
+      }
+      await withJobLock(context.paths.dataDir, async () => {
+        try {
+          const result = await body();
+          await job.reporter.finish(result);
+        } catch (error) {
+          await job.reporter.fail(error instanceof Error ? error.message : String(error));
+          throw error;
         }
       });
     });

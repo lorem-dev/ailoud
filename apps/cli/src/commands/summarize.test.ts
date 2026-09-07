@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { UsageError } from '@ailoud/core';
 import type { Summarizer } from '@ailoud/core';
 import { buildProgram } from '../program.js';
-import { contextWithTranscript } from './testContext.js';
+import { contextWithTranscript, withRealDataDir } from './testContext.js';
 import type { MemFs } from '@ailoud/core/testing';
 import { transcriptBudget } from './summarize.js';
+import { createJob, getJob } from '../jobs/store.js';
 
 const summarizer = (contextTokens: number): Summarizer => ({
   name: 'fake',
@@ -285,6 +286,58 @@ describe('ailoud summarize: progress', () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--fresh']);
     expect(ctx.lines.filter((line) => /%\)/.test(line))).toEqual([]);
+  });
+});
+
+describe('ailoud summarize --job', () => {
+  it('is hidden from --help', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    const program = buildProgram(ctx);
+    const summarizeCmd = program.commands.find((c) => c.name() === 'summarize')!;
+    const jobOption = summarizeCmd.options.find((o) => o.long === '--job');
+    expect(jobOption?.hidden).toBe(true);
+  });
+
+  it('rejects an id with no matching job', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--job', 'nope']),
+    ).rejects.toThrow(UsageError);
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--job', 'nope']),
+    ).rejects.toThrow(/nope/);
+  });
+
+  it('reports success into the job state file, without the summary body', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'summarize', recordings: 1, declared: null },
+      );
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--job', job.id]);
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
+      expect(state?.state).toBe('done');
+      expect(state?.percent).toBe(100);
+      expect(state?.result).toMatchObject({ reportId: expect.any(String) });
+      expect(JSON.stringify(state?.result)).not.toContain('a summary');
+    });
+  });
+
+  it('reports a failure into the job state file and still rethrows, exit code unchanged', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'summarize', recordings: 1, declared: null },
+      );
+      await expect(
+        buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'NOPE', '--job', job.id]),
+      ).rejects.toThrow();
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
+      expect(state?.state).toBe('failed');
+      expect(state?.error).toBeTruthy();
+    });
   });
 });
 

@@ -104,12 +104,21 @@ export interface Ui {
   imported(recording: Recording, alreadyPresent: boolean): void;
 
   /**
-   * Runs `task`, the actual transcription work, decorating it with
-   * progress feedback (a spinner naming `recording`, in pretty mode).
-   * Returns whatever `task` resolves to, and rethrows whatever it throws,
-   * so callers can treat this as a transparent wrapper around the call.
+   * Runs `task`, the actual transcription work, decorating it with progress
+   * feedback (a spinner naming `recording`, in pretty mode).
+   *
+   * `report(stage, fraction)` updates that feedback. Shaped like
+   * `summarising`'s reporter but taking a fraction rather than done/total:
+   * transcription progress is a proportion computed from weighted stages,
+   * not a count of anything a reader would recognise.
+   *
+   * Returns whatever `task` resolves to, and rethrows whatever it throws, so
+   * callers can treat this as a transparent wrapper around the call.
    */
-  transcribing<T>(recording: Recording, task: () => Promise<T>): Promise<T>;
+  transcribing<T>(
+    recording: Recording,
+    task: (report: (stage: string, fraction: number) => void) => Promise<T>,
+  ): Promise<T>;
 
   /**
    * Runs the summary work behind a spinner, with a way to say how far along it

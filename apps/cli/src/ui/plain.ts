@@ -45,10 +45,17 @@ export class PlainUi implements Ui {
     );
   }
 
-  public async transcribing<T>(_recording: Recording, task: () => Promise<T>): Promise<T> {
+  public async transcribing<T>(
+    _recording: Recording,
+    task: (report: (stage: string, fraction: number) => void) => Promise<T>,
+  ): Promise<T> {
     // No progress output while the work runs: whisper.cpp already prints
-    // nothing on its own, and the plain path must match that silence.
-    return task();
+    // nothing on its own, and the plain path must match that silence. The
+    // callback is accepted and ignored -- PlainUi is what runs whenever
+    // stdout is not a terminal, including under an agent's shell and under a
+    // redirect, so a redrawn percentage here would write control bytes into
+    // someone's piped output.
+    return task(() => {});
   }
 
   public async summarising<T>(

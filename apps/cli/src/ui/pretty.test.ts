@@ -232,6 +232,16 @@ describe('PrettyUi.transcribing', () => {
     expect(spinnerHandle.error).toHaveBeenCalledTimes(1);
     expect(spinnerHandle.stop).not.toHaveBeenCalled();
   });
+
+  it('shows the transcription percentage on the spinner', async () => {
+    spinnerHandle.message.mockClear();
+    const ui = new PrettyUi();
+    await ui.transcribing(A_RECORDING, async (report) => {
+      report('transcribing', 0.46);
+    });
+    const messages = spinnerHandle.message.mock.calls.map((call) => call[0] as string);
+    expect(messages.some((line) => line.includes('46%'))).toBe(true);
+  });
 });
 
 describe('PrettyUi.recordings', () => {

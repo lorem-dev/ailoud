@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { Command } from 'commander';
-import { FailureError } from '@ailoud/core';
+import { FailureError, UsageError } from '@ailoud/core';
+import type { Recording } from '@ailoud/core';
+import { FakeStt } from '@ailoud/core/testing';
 import { buildProgram } from '../program.js';
-import { context } from './testContext.js';
+import { context, withRealDataDir } from './testContext.js';
 import { parseLanguages } from './transcribe.js';
 import { group } from './groups.js';
+import { PlainUi } from '../ui/plain.js';
+import { createJob, getJob } from '../jobs/store.js';
 
 describe('group', () => {
   it('gives a noun without a plural exactly one name', () => {
@@ -233,6 +237,112 @@ describe('ailoud transcribe --diarize', () => {
       ).rejects.toThrow(/--speakers must be a positive integer/);
     },
   );
+});
+
+/** Captures every `(stage, fraction)` pair `transcribing` reports, in order. */
+class SpyUi extends PlainUi {
+  public readonly reports: Array<{ readonly stage: string; readonly fraction: number }> = [];
+
+  public override async transcribing<T>(
+    _recording: Recording,
+    task: (report: (stage: string, fraction: number) => void) => Promise<T>,
+  ): Promise<T> {
+    return task((stage, fraction) => {
+      this.reports.push({ stage, fraction });
+    });
+  }
+}
+
+describe('ailoud transcribe: an unmeasurable stage never lowers the percentage', () => {
+  it('reuses the last fraction when the diarizer reports its stage with none of its own', async () => {
+    const ctx = context();
+    const spy = new SpyUi((line) => ctx.lines.push(line));
+    // `ui` is declared readonly on CliContext; Object.assign does not go
+    // through that check, and this test's entire job is to swap it out for
+    // one that records what transcribing() reports.
+    Object.assign(ctx, { ui: spy });
+    // Drives transcribe()'s onProgress up near the end of the transcribing
+    // stage before diarizing (which reports no fraction of its own) starts.
+    ctx.createStt = () => {
+      const stt = new FakeStt(
+        {
+          language: 'ru',
+          model: 'base.bin',
+          segments: [{ startMs: 0, endMs: 1500, text: 'Privet.' }],
+        },
+        undefined,
+        [],
+        [0.5, 1],
+      );
+      ctx.sttInstances.push(stt);
+      return stt;
+    };
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--diarize']);
+
+    const fractions = spy.reports.map((r) => r.fraction);
+    for (let i = 1; i < fractions.length; i += 1) {
+      expect(fractions[i]).toBeGreaterThanOrEqual(fractions[i - 1]!);
+    }
+    // The diarizer's first event carries no fraction of its own (see
+    // transcribeRecording's "No fraction" comment). Reused, not treated as
+    // 0, so the number the UI was told does not walk backwards.
+    const noFractionStage = spy.reports.findIndex((r) => r.stage === 'diarizing');
+    expect(noFractionStage).toBeGreaterThan(0);
+    expect(spy.reports[noFractionStage]!.fraction).toBe(spy.reports[noFractionStage - 1]!.fraction);
+  });
+});
+
+describe('ailoud transcribe --job', () => {
+  it('is hidden from --help', () => {
+    const ctx = context();
+    const program = buildProgram(ctx);
+    const transcribeCmd = program.commands.find((c) => c.name() === 'transcribe')!;
+    const jobOption = transcribeCmd.options.find((o) => o.long === '--job');
+    expect(jobOption?.hidden).toBe(true);
+  });
+
+  it('rejects an id with no matching job', async () => {
+    const ctx = context();
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--job', 'nope']),
+    ).rejects.toThrow(UsageError);
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--job', 'nope']),
+    ).rejects.toThrow(/nope/);
+  });
+
+  it('reports success into the job state file', async () => {
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'transcribe', recordings: 1, declared: null },
+      );
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--job', job.id]);
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
+      expect(state?.state).toBe('done');
+      expect(state?.percent).toBe(100);
+      expect(state?.result).toEqual({ transcribed: ['ID001'] });
+    });
+  });
+
+  it('reports a failure into the job state file and still rethrows, exit code unchanged', async () => {
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'transcribe', recordings: 1, declared: null },
+      );
+      await expect(
+        buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', 'ID999', '--job', job.id]),
+      ).rejects.toThrow(FailureError);
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
+      expect(state?.state).toBe('failed');
+      expect(state?.error).toContain('ID999');
+    });
+  });
 });
 
 describe('parseLanguages', () => {

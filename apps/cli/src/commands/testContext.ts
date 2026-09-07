@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   Diarizer,
   PublishedVersion,
@@ -178,4 +181,27 @@ export async function contextWithTranscript(
   if (opts.skipTranscribe === true) return done();
   await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe']);
   return done();
+}
+
+/**
+ * Points `context.paths.dataDir` at a real, writable temporary directory for
+ * the duration of `body`, then removes it.
+ *
+ * `withJobLock` (and the exclusive lock underneath it) takes its lock
+ * through node:fs directly rather than through the injected `Fs` port -- see
+ * `exclusiveLock.ts`'s own module comment for why -- so a `--job` test that
+ * exercises the lock needs a real directory underneath it, not the
+ * in-memory one every other command test runs against.
+ */
+export async function withRealDataDir<T>(ctx: CliContext, body: () => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), 'ailoud-cli-test-'));
+  // `paths` is declared readonly on CliContext so ordinary commands cannot
+  // repoint it mid-run; Object.assign does not go through that check, and
+  // this helper's entire job is to override it for one test.
+  Object.assign(ctx, { paths: { ...ctx.paths, dataDir: dir } });
+  try {
+    return await body();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
