@@ -12,7 +12,7 @@ import {
   planDownloadBytes,
   planProvisioning,
 } from '@ailoud/core';
-import type { Action, LlmProvider, Remedy } from '@ailoud/core';
+import type { Action, Fs, LlmProvider, Remedy } from '@ailoud/core';
 import {
   LLAMA_VERSION,
   SHERPA_VERSION,
@@ -35,7 +35,7 @@ import { NOT_READY_MESSAGE, runChecks } from './doctor.js';
 import type { CliContext } from '../wiring.js';
 import type { Check } from '../ui/index.js';
 import { install } from '../completions/install.js';
-import type { ShellOutcome } from '../completions/install.js';
+import type { Places, ShellOutcome } from '../completions/install.js';
 import { describeTree } from '../completions/generate.js';
 import type { ShellTarget } from '../completions/shells.js';
 // setup.ts and selfCompletions.ts end up importing each other (selfCompletions
@@ -620,16 +620,53 @@ export async function resolveCompletionsShells(
   options: SetupOptions,
   interactive: boolean,
   detected: readonly ShellTarget[],
+  announce: () => void,
 ): Promise<readonly ShellTarget[]> {
   if (options.completions === false || detected.length === 0) return [];
   if (options.completions === true) return detected;
   if (options.yes === true || !interactive) return [];
+  // The exact files, before the question rather than after it, the same shape
+  // `mcp install` uses before asking about an allow-list. The question used to
+  // name all three shells and then install the DETECTED ones without saying
+  // which: on a stock macOS box with .zshrc and .bash_profile, yes edited
+  // ~/.zshrc and CREATED a ~/.bashrc the user had never had, with no chance to
+  // see that first. Announced here, inside the only branch that prompts, so
+  // the flag and non-interactive paths stay silent.
+  announce();
   const answer = await confirm({
-    message: 'Install shell completions for ailoud (bash, zsh, fish)?',
+    message: `Install shell completions for ${detected.map((t) => t.label).join(', ')}?`,
     initialValue: true,
   });
   if (isCancel(answer) || answer !== true) return [];
   return detected;
+}
+
+/**
+ * One line per file the offer above would write, saying whether it exists.
+ *
+ * "create" is the word that matters: a `~/.bashrc` that is not there yet gets
+ * made, and a user who only ever had `~/.bash_profile` should read that before
+ * answering, not discover it afterwards.
+ *
+ * Deliberately a listing and not a multiselect: the plan keeps `setup`'s offer
+ * a single question, and `self completions install` is where a user picks
+ * shells one by one. This only makes the one question honest about its scope.
+ */
+export async function completionsPlanLines(
+  fs: Fs,
+  detected: readonly ShellTarget[],
+  places: Places,
+): Promise<readonly string[]> {
+  const lines: string[] = [];
+  for (const target of detected) {
+    const rcPath = target.rcPath(places.home);
+    const paths = [target.scriptPath(places.home, places.configHome, places.userDataDir)];
+    if (rcPath !== null) paths.push(rcPath);
+    for (const path of paths) {
+      lines.push(`  ${target.label}: ${(await fs.exists(path)) ? 'edit' : 'create'} ${path}`);
+    }
+  }
+  return lines;
 }
 
 /**
@@ -657,7 +694,15 @@ async function offerCompletions(
 ): Promise<void> {
   const places = placesFor(context, processEnv);
   const detected = await parseShells(context, 'auto', places, processEnv);
-  const targets = await resolveCompletionsShells(options, interactive, detected);
+  // Resolved up front because it reads the filesystem and the callback that
+  // prints it runs inside the one branch that prompts, which is synchronous.
+  // A handful of `exists` calls on a run that never asks is not worth a
+  // second code path.
+  const lines = await completionsPlanLines(context.fs, detected, places);
+  const targets = await resolveCompletionsShells(options, interactive, detected, () => {
+    context.ui.note('Shell completions would be written to:');
+    for (const line of lines) context.ui.note(line);
+  });
   if (targets.length === 0) return;
 
   const tree = describeTree(rootOf(command));

@@ -2,7 +2,9 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import type { Action } from '@ailoud/core';
+import { MemFs } from '@ailoud/core/testing';
 import {
   EMBEDDING_MODEL,
   EnvironmentError,
@@ -15,6 +17,7 @@ import {
   blocksReadiness,
   chooseModel,
   collectRemedies,
+  completionsPlanLines,
   describeAction,
   describePlan,
   formatBytes,
@@ -240,19 +243,26 @@ describe('requireConsent', () => {
 
 describe('resolveCompletionsShells', () => {
   const zsh = SHELL_TARGETS.find((target) => target.shell === 'zsh')!;
+  const bash = SHELL_TARGETS.find((target) => target.shell === 'bash')!;
+  let announce: Mock;
 
   beforeEach(() => {
     for (const fn of Object.values(clack)) fn.mockReset();
     clack.isCancel.mockReturnValue(false);
+    announce = vi.fn();
   });
 
   it('honours --completions without prompting', async () => {
-    expect(await resolveCompletionsShells({ completions: true }, true, [zsh])).toEqual([zsh]);
+    expect(await resolveCompletionsShells({ completions: true }, true, [zsh], announce)).toEqual([
+      zsh,
+    ]);
     expect(clack.confirm).not.toHaveBeenCalled();
   });
 
   it('honours --no-completions without prompting', async () => {
-    expect(await resolveCompletionsShells({ completions: false }, true, [zsh])).toEqual([]);
+    expect(await resolveCompletionsShells({ completions: false }, true, [zsh], announce)).toEqual(
+      [],
+    );
     expect(clack.confirm).not.toHaveBeenCalled();
   });
 
@@ -261,35 +271,85 @@ describe('resolveCompletionsShells', () => {
     // resolving an unasked question as yes would append lines to a user's
     // shell startup file in CI on the strength of a flag that says nothing
     // about shell configuration.
-    expect(await resolveCompletionsShells({ yes: true }, true, [zsh])).toEqual([]);
+    expect(await resolveCompletionsShells({ yes: true }, true, [zsh], announce)).toEqual([]);
     expect(clack.confirm).not.toHaveBeenCalled();
   });
 
   it('does not prompt, and installs nothing, when no shell was detected', async () => {
-    expect(await resolveCompletionsShells({}, true, [])).toEqual([]);
+    expect(await resolveCompletionsShells({}, true, [], announce)).toEqual([]);
     expect(clack.confirm).not.toHaveBeenCalled();
   });
 
   it('does not prompt non-interactively either, with neither flag given', async () => {
-    expect(await resolveCompletionsShells({}, false, [zsh])).toEqual([]);
+    expect(await resolveCompletionsShells({}, false, [zsh], announce)).toEqual([]);
     expect(clack.confirm).not.toHaveBeenCalled();
   });
 
   it('asks when interactive with neither flag given, and returns the detected shells on yes', async () => {
     clack.confirm.mockResolvedValue(true);
-    expect(await resolveCompletionsShells({}, true, [zsh])).toEqual([zsh]);
+    expect(await resolveCompletionsShells({}, true, [zsh], announce)).toEqual([zsh]);
     expect(clack.confirm).toHaveBeenCalledOnce();
+  });
+
+  it('names the shells it will act on, not all three', async () => {
+    // The question used to read "(bash, zsh, fish)" and then install the
+    // DETECTED set without saying which -- on a stock macOS box that meant
+    // editing ~/.zshrc and creating a ~/.bashrc the user never had.
+    clack.confirm.mockResolvedValue(true);
+    await resolveCompletionsShells({}, true, [zsh, bash], announce);
+    const { message } = clack.confirm.mock.calls[0]![0] as { message: string };
+    expect(message).toContain('Zsh, Bash');
+    expect(message).not.toContain('fish');
+  });
+
+  it('shows what will be written before asking, and only when it asks', async () => {
+    clack.confirm.mockResolvedValue(true);
+    await resolveCompletionsShells({}, true, [zsh], announce);
+    expect(announce).toHaveBeenCalledOnce();
+    // Before, so the user can read it while answering.
+    expect(announce.mock.invocationCallOrder[0]!).toBeLessThan(
+      clack.confirm.mock.invocationCallOrder[0]!,
+    );
+
+    announce.mockClear();
+    await resolveCompletionsShells({ completions: true }, true, [zsh], announce);
+    await resolveCompletionsShells({ yes: true }, true, [zsh], announce);
+    await resolveCompletionsShells({}, false, [zsh], announce);
+    expect(announce).not.toHaveBeenCalled();
   });
 
   it('installs nothing when the offer is declined', async () => {
     clack.confirm.mockResolvedValue(false);
-    expect(await resolveCompletionsShells({}, true, [zsh])).toEqual([]);
+    expect(await resolveCompletionsShells({}, true, [zsh], announce)).toEqual([]);
   });
 
   it('installs nothing when the offer is cancelled', async () => {
     clack.confirm.mockResolvedValue(undefined);
     clack.isCancel.mockReturnValueOnce(true);
-    expect(await resolveCompletionsShells({}, true, [zsh])).toEqual([]);
+    expect(await resolveCompletionsShells({}, true, [zsh], announce)).toEqual([]);
+  });
+});
+
+describe('completionsPlanLines', () => {
+  const places = { home: '/home/u', configHome: '/home/u/.config', userDataDir: '/home/u/.ailoud' };
+
+  it('says "create" for a startup file the user does not have', async () => {
+    // The case the offer used to hide: a stock macOS box has .zshrc and
+    // .bash_profile, so answering yes CREATED a ~/.bashrc that had never
+    // existed. The user should read that before answering, not after.
+    const fs = new MemFs({});
+    await fs.writeTextFile('/home/u/.zshrc', '');
+    const bash = SHELL_TARGETS.find((target) => target.shell === 'bash')!;
+    const zsh = SHELL_TARGETS.find((target) => target.shell === 'zsh')!;
+    const lines = await completionsPlanLines(fs, [bash, zsh], places);
+    expect(lines).toContain('  Bash: create /home/u/.bashrc');
+    expect(lines).toContain('  Zsh: edit /home/u/.zshrc');
+  });
+
+  it('lists no startup file for fish, which needs none', async () => {
+    const fish = SHELL_TARGETS.find((target) => target.shell === 'fish')!;
+    const lines = await completionsPlanLines(new MemFs({}), [fish], places);
+    expect(lines).toEqual(['  Fish: create /home/u/.config/fish/completions/ailoud.fish']);
   });
 });
 
