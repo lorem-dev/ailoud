@@ -343,6 +343,27 @@ describe('ailoud summarize --job', () => {
       expect(state?.error).toBeTruthy();
     });
   });
+
+  it('records a failure when the job lock is already held on the way in', async () => {
+    // See the identical test in commands.test.ts (transcribe --job) for why:
+    // withJobLock itself can throw before body() ever runs, and the
+    // try/catch has to wrap the lock call, not just its body, to catch that.
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'summarize', recordings: 1, declared: null },
+      );
+      await withJobLock(ctx.paths.dataDir, async () => {
+        await expect(
+          buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--job', job.id]),
+        ).rejects.toThrow(FailureError);
+      });
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
+      expect(state?.state).toBe('failed');
+      expect(state?.error).toMatch(/already running/);
+    });
+  });
 });
 
 describe('ailoud summarize --detach', () => {

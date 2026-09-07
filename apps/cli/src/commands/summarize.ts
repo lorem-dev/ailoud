@@ -249,6 +249,7 @@ export function registerSummarize(program: Command, context: CliContext): void {
             // Never the summary body -- see JobState.result's own comment.
             return {
               reportId: result.reportId,
+              template: template.name,
               portions: result.portions,
               reused: result.reused,
               provider: result.provider,
@@ -264,14 +265,18 @@ export function registerSummarize(program: Command, context: CliContext): void {
         await body();
         return;
       }
-      await withJobLock(context.paths.dataDir, async () => {
-        try {
+      // The try/catch wraps withJobLock itself, not just its body -- see
+      // transcribe.ts's identical comment. Taking the lock can throw before
+      // body() ever runs, and a catch placed inside withJobLock's callback
+      // never sees that.
+      try {
+        await withJobLock(context.paths.dataDir, async () => {
           const result = await body();
           await job.reporter.finish(result);
-        } catch (error) {
-          await job.reporter.fail(error instanceof Error ? error.message : String(error));
-          throw error;
-        }
-      });
+        });
+      } catch (error) {
+        await job.reporter.fail(error instanceof Error ? error.message : String(error));
+        throw error;
+      }
     });
 }
