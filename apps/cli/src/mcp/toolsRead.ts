@@ -13,6 +13,7 @@ import {
 import type { CliContext } from '../wiring.js';
 import { resolveRecording, resolveSummary } from '../resolveId.js';
 import { loadTemplates, templatesDir } from '../templateStore.js';
+import { getJob, listJobs } from '../jobs/store.js';
 import type { McpDeps } from './deps.js';
 import { safePathComponent } from './safePath.js';
 import { fail, ok } from './reply.js';
@@ -387,5 +388,41 @@ export function registerReadTools(server: McpServer, context: CliContext, deps: 
         directory: templatesDir(context.paths.configFile),
         note: 'These are editable YAML files. Prefer an existing one; use create_template only when none fits.',
       }),
+  );
+
+  server.registerTool(
+    'job_status',
+    {
+      title: 'How a background job is doing',
+      description:
+        'Reports a transcription or summary job started by `transcribe` or `summarize`.\n\n' +
+        'CHEAP, and the right way to wait: poll this rather than blocking. A few minutes ' +
+        'between calls is usually enough -- polling does not make the work go faster.\n\n' +
+        'Returns state, an APPROXIMATE percentage, the current stage, an ETA once there is ' +
+        'enough of the run to estimate from, and the PATH to the job log. The log is a path ' +
+        'and not text on purpose: it holds every line the engine printed, which is thousands ' +
+        'of tokens of no interest unless something failed.\n\n' +
+        'Without a jobId, lists what is running plus the most recent finished jobs.',
+      inputSchema: {
+        jobId: z.string().optional().describe('The id transcribe or summarize returned.'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ jobId }) => {
+      if (jobId === undefined) {
+        const jobs = await listJobs(context.fs, context.paths.jobsDir);
+        const running = jobs.filter((job) => job.state === 'running');
+        const finished = jobs.filter((job) => job.state !== 'running').slice(0, 5);
+        return ok({ jobs: [...running, ...finished] });
+      }
+      const job = await getJob(context.fs, context.paths.jobsDir, jobId);
+      if (job === null) {
+        // Unknown, not failed. A pruned or mistyped id is "I lost track of
+        // this", and an agent that cannot tell it from "this went wrong"
+        // will report a failure that never happened.
+        return fail({ error: `no such job: ${jobId}`, hint: 'call job_status with no id to list' });
+      }
+      return ok(job);
+    },
   );
 }
