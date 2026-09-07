@@ -93,10 +93,15 @@ export function weightedOverall(
  * can never move through, and leaving diarizing's 8 in unused would strand
  * the bar at 92% forever. (Leaving it in at weight zero would not stall it --
  * see multilingualStages below for what a zero-weight stage does instead.)
+ *
+ * Four rather than two since denoising: the stage can now hold a conversion,
+ * a noise scan and a re-encode. No new stage was added for them -- a stage
+ * that is present but never reported is exactly how the bar gets stranded,
+ * per the note below.
  */
 export function singlePassStages(diarize: boolean): StageWeight[] {
   return [
-    { name: 'converting', weight: 2 },
+    { name: 'converting', weight: 4 },
     { name: 'transcribing', weight: 90 },
     ...(diarize ? [{ name: 'diarizing', weight: 8 }] : []),
   ];
@@ -131,7 +136,7 @@ export function multilingualStages(input: {
   const detecting = Math.max(1, Math.round(input.unitCount));
   const transcribing = Math.max(1, Math.round(input.audioSeconds / 10));
   return [
-    { name: 'converting', weight: 2 },
+    { name: 'converting', weight: 4 },
     { name: 'segmenting', weight: 8 },
     { name: 'detecting', weight: detecting },
     { name: 'transcribing', weight: transcribing },

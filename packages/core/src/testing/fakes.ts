@@ -133,6 +133,12 @@ export class FakeAudioTool implements AudioTool {
   readonly sliced: Array<{ input: string; output: string; startMs: number; endMs: number }> = [];
   /** Every denoise mode this fake was asked for, in call order. */
   readonly denoiseModes: Array<DenoiseMode | undefined> = [];
+  /**
+   * What toWav16kMono answers. Defaults to "measured nothing, changed
+   * nothing", so a test that does not care about denoising exercises the
+   * common path.
+   */
+  prepared: WavPrepared = { denoised: false, profile: { noiseFloorDb: null, rmsDb: null } };
 
   constructor(
     private readonly durationMs = 60_000,
@@ -155,9 +161,7 @@ export class FakeAudioTool implements AudioTool {
   ): Promise<WavPrepared> {
     this.converted.push([input, output]);
     this.denoiseModes.push(opts?.denoise);
-    // Reports no measurement: a fake that invented a noise floor would let a
-    // pipeline test pass while the real decision path went untested.
-    return { denoised: false, profile: { noiseFloorDb: null, rmsDb: null } };
+    return this.prepared;
   }
   async slice(input: string, output: string, startMs: number, endMs: number): Promise<void> {
     this.sliced.push({ input, output, startMs, endMs });

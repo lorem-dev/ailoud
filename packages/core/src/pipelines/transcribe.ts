@@ -11,8 +11,11 @@ import type {
   TranscriptionProvider,
 } from '../domain/ports.js';
 import type { RawSegment, Recording, Segment, Transcript } from '../domain/model.js';
+import type { WavPrepared } from '../domain/ports.js';
 import { FailureError } from '../domain/errors.js';
 import { assignSpeakers } from '../diarize/assign.js';
+import type { DenoiseMode } from '../audio/noise.js';
+import { snrDb } from '../audio/noise.js';
 import type { OnProgress } from '../progress/events.js';
 import { multilingualStages, singlePassStages, stageScale } from '../progress/scale.js';
 import {
@@ -43,6 +46,14 @@ export interface TranscribeDeps {
    * unset, such problems are simply not reported.
    */
   readonly onWarning?: (message: string) => void;
+  /**
+   * Routine facts worth recording but not worth interrupting anyone with.
+   *
+   * Distinct from `onWarning`, which reaches the terminal: the CLI wires this
+   * to the job log only. A denoising decision is a routine decision, and a
+   * foreground run has no log, so it correctly prints nothing.
+   */
+  readonly onNotice?: (message: string) => void;
   /**
    * Reports how far along the run is. Supplied by the caller for the same
    * reason `onWarning` is: core does no I/O and does not know whether this
@@ -87,6 +98,11 @@ export interface TranscribeOptions {
   readonly diarize?: true;
   /** Hint for the diarizer: the known number of speakers, when known. */
   readonly speakers?: number;
+  /**
+   * Whether to denoise the converted audio. Absent means no measurement and
+   * no filtering, which is what every caller predating this option expects.
+   */
+  readonly denoise?: DenoiseMode;
 }
 
 /**
@@ -122,6 +138,34 @@ function report(deps: TranscribeDeps, stage: string, fraction?: number): void {
   } catch {
     // See the doc comment. Deliberately empty.
   }
+}
+
+/**
+ * Emits one job-log notice, and cannot fail.
+ *
+ * Same guarantee `report` gives, and for the same reason: an observer does
+ * not get to fail a transcription.
+ */
+function notice(deps: TranscribeDeps, message: string): void {
+  try {
+    deps.onNotice?.(message);
+  } catch {
+    // Same guarantee report() gives: an observer does not get to fail a
+    // transcription.
+  }
+}
+
+/**
+ * One line describing what the conversion did about noise, with the numbers
+ * that decided it -- an agent reading a job log has to be able to tell that
+ * the audio was altered, or that it deliberately was not.
+ */
+function denoiseMessage(prepared: WavPrepared): string {
+  const snr = snrDb(prepared.profile);
+  const measured = snr === null ? 'no measurable noise floor' : `snr ${snr.toFixed(1)} dB`;
+  return prepared.denoised
+    ? `audio denoised before transcription (${measured})`
+    : `audio not denoised (${measured})`;
 }
 
 /**
@@ -285,7 +329,18 @@ export async function transcribeRecording(
   const tempWav = await deps.fs.tempFile('.wav');
   try {
     report(deps, 'converting', scale('converting', 0));
-    await deps.audio.toWav16kMono(`${deps.mediaRoot}/${recording.mediaPath}`, tempWav.path);
+    const prepared = await deps.audio.toWav16kMono(
+      `${deps.mediaRoot}/${recording.mediaPath}`,
+      tempWav.path,
+      options.denoise === undefined ? undefined : { denoise: options.denoise },
+    );
+    if (options.denoise !== undefined) {
+      notice(deps, denoiseMessage(prepared));
+      // The terminal hears about it only when the audio actually changed: the
+      // transcript no longer comes from the file the user imported, and that
+      // is worth one line.
+      if (prepared.denoised) deps.onWarning?.(denoiseMessage(prepared));
+    }
     report(deps, 'transcribing', scale('transcribing', 0));
     const result = await deps.stt.transcribe(tempWav.path, {
       ...(options.language === undefined ? {} : { language: options.language }),
@@ -389,7 +444,18 @@ async function transcribeMultilingual(
     // The scale cannot be built until the units are known -- their count is
     // one of its weights. Until then, report stages without a fraction.
     report(deps, 'converting');
-    await deps.audio.toWav16kMono(`${deps.mediaRoot}/${recording.mediaPath}`, tempWav.path);
+    const prepared = await deps.audio.toWav16kMono(
+      `${deps.mediaRoot}/${recording.mediaPath}`,
+      tempWav.path,
+      options.denoise === undefined ? undefined : { denoise: options.denoise },
+    );
+    if (options.denoise !== undefined) {
+      notice(deps, denoiseMessage(prepared));
+      // The terminal hears about it only when the audio actually changed: the
+      // transcript no longer comes from the file the user imported, and that
+      // is worth one line.
+      if (prepared.denoised) deps.onWarning?.(denoiseMessage(prepared));
+    }
     report(deps, 'segmenting');
 
     const declared = options.declaredLanguages ?? [];

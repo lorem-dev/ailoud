@@ -145,4 +145,15 @@ describe('multilingualStages', () => {
     expect(scale('labelling', 1)).toBe(1);
     expect(scale('transcribing', 1)).toBeLessThan(1);
   });
+
+  it('weights converting for two ffmpeg passes plus a scan', () => {
+    // Denoising can add a measurement and a re-encode to the conversion stage.
+    // No new stage is introduced for them: a stage that is present but never
+    // reported strands the bar, per singlePassStages' own comment.
+    expect(singlePassStages(false)[0]).toEqual({ name: 'converting', weight: 4 });
+    expect(multilingualStages({ unitCount: 4, audioSeconds: 100, diarize: false })[0]).toEqual({
+      name: 'converting',
+      weight: 4,
+    });
+  });
 });

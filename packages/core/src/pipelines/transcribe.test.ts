@@ -787,3 +787,79 @@ describe('transcribeRecording progress', () => {
     expect(transcript.id).toBeDefined();
   });
 });
+
+describe('denoising', () => {
+  it('passes the mode it was given to the converter', async () => {
+    const audio = new FakeAudioTool();
+    await transcribeRecording({ ...deps(), audio }, recording, { denoise: 'auto' });
+    expect(audio.denoiseModes).toEqual(['auto']);
+  });
+
+  it('passes nothing when no mode was given', async () => {
+    // Library callers and every pre-existing test keep the old behaviour.
+    const audio = new FakeAudioTool();
+    await transcribeRecording({ ...deps(), audio }, recording, {});
+    expect(audio.denoiseModes).toEqual([undefined]);
+  });
+
+  it('notices that it left the audio alone, without warning about it', async () => {
+    // The job log gets the decision in both directions; the terminal only
+    // hears about it when the audio was actually altered. "I left your audio
+    // alone" is not worth a line on every run.
+    const notices: string[] = [];
+    const warnings: string[] = [];
+    const audio = new FakeAudioTool();
+    await transcribeRecording(
+      {
+        ...deps(),
+        audio,
+        onNotice: (message) => notices.push(message),
+        onWarning: (message) => warnings.push(message),
+      },
+      recording,
+      { denoise: 'auto' },
+    );
+    expect(notices.join('\n')).toMatch(/not denoised/i);
+    expect(warnings).toEqual([]);
+  });
+
+  it('warns as well as notices when the audio was altered', async () => {
+    const notices: string[] = [];
+    const warnings: string[] = [];
+    const audio = new FakeAudioTool();
+    // The fake reports no denoising by default; override for this one case.
+    audio.prepared = { denoised: true, profile: { rmsDb: -22.18, noiseFloorDb: -38.53 } };
+    await transcribeRecording(
+      {
+        ...deps(),
+        audio,
+        onNotice: (message) => notices.push(message),
+        onWarning: (message) => warnings.push(message),
+      },
+      recording,
+      { denoise: 'auto' },
+    );
+    expect(warnings.join('\n')).toMatch(/denoised/i);
+    // The numbers travel with the decision, so a reader can judge it.
+    expect(notices.join('\n')).toContain('16.4');
+  });
+
+  it('does not fail a transcription when the notice sink throws', async () => {
+    // Same guarantee onProgress already has: an observer does not get to fail
+    // a transcription.
+    const audio = new FakeAudioTool();
+    await expect(
+      transcribeRecording(
+        {
+          ...deps(),
+          audio,
+          onNotice: () => {
+            throw new Error('sink exploded');
+          },
+        },
+        recording,
+        { denoise: 'auto' },
+      ),
+    ).resolves.toBeDefined();
+  });
+});
