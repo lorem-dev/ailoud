@@ -52,7 +52,8 @@ export function context(): CliContext & {
     diarizerInstances,
     summarizerPrompts,
     paths: {
-      configFile: '/c',
+      configFile: '/c/ailoud/config.yaml',
+      configHome: '/c',
       dataDir: '/d',
       dbFile: '/d/ailoud.db',
       mediaRoot: '/d/media',

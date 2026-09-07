@@ -48,6 +48,12 @@
   check already passes, useful for a corrupted install.
 - Switching the transcription model now prints where the previous model file
   was left, since ailoud never deletes it.
+- `self completions` adds `install`, `uninstall`, `update` and `print`
+  subcommands for bash, zsh and fish.
+- `self sync` now refreshes installed shell completions alongside a
+  project's rules block.
+- `setup` offers to install shell completions at the end of a successful
+  run; skip with `--no-completions`.
 
 ### Changed
 
@@ -55,6 +61,11 @@
   project's own rules files stay there and are all kept current.
 - `setup --model <name>` now switches the transcription model even on a
   healthy machine, instead of being ignored.
+
+### Fixed
+
+- A rules file holding a stray `AILOUD_END` marker is found again, instead of
+  gaining a duplicate block on every `mcp install` and never being refreshed.
 
 ## Version 1.1.0
 

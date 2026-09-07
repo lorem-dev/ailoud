@@ -108,6 +108,7 @@ describe('buildProgram', () => {
     return {
       paths: {
         configFile: '/fake/config.yaml',
+        configHome: '/fake',
         dataDir: '/fake/data',
         dbFile: ':memory:',
         mediaRoot: '/fake/data/media',

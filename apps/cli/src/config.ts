@@ -96,6 +96,13 @@ export type AiloudConfig = z.infer<typeof ConfigSchema>;
 
 export interface AiloudPaths {
   readonly configFile: string;
+  /**
+   * The XDG config home, resolved by the same rules `configFile` uses. fish
+   * keeps its completions under it, and reading `XDG_CONFIG_HOME` a second
+   * time somewhere else would drop the empty-means-default and
+   * relative-is-invalid rules this function is careful about.
+   */
+  readonly configHome: string;
   readonly dataDir: string;
   readonly dbFile: string;
   readonly mediaRoot: string;
@@ -192,6 +199,7 @@ export function resolvePaths(
 
   return {
     configFile: `${configHome}/ailoud/config.yaml`,
+    configHome,
     dataDir,
     dbFile: `${dataDir}/ailoud.db`,
     mediaRoot: `${dataDir}/media`,

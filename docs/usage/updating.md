@@ -6,12 +6,13 @@ ailoud self update
 
 `self update` asks the registry itself, so nothing has to be run before it. It
 installs the newer version if there is one, then refreshes the rules block in
-every registered project.
+every registered project and the shell completions wherever they are already
+installed.
 
 ```shell
 ailoud self check          # only look, change nothing
 ailoud self check --json   # the same answer, for a script
-ailoud self sync           # refresh the rules without updating
+ailoud self sync           # refresh the rules and completions without updating
 ```
 
 `self check` is for looking without installing; `self update` does not need
