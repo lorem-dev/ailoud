@@ -40,7 +40,8 @@ export function blockRange(
   text: string,
   markers: Markers,
 ): { readonly from: number; readonly to: number } | null {
-  for (let at = 0; ; ) {
+  let at = 0;
+  for (;;) {
     const end = text.indexOf(markers.end, at);
     if (end === -1) return null;
     const from = text.lastIndexOf(markers.start, end);
