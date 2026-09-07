@@ -43,6 +43,12 @@ export class JobReporter {
   private readonly now: () => number;
   private readonly throttleMs: number;
   private readonly startedAtMs: number;
+  // Baseline for the log-flooding guard in report(): compared against the
+  // PREVIOUS logged event, not the constructor's initial stage, so that
+  // once the stage has moved away from "starting" the comparison does not
+  // stay permanently true. See report()'s comment.
+  private lastLoggedStage: string;
+  private lastLoggedPercent: number;
 
   public constructor(private readonly options: JobReporterOptions) {
     this.current = options.initial;
@@ -50,6 +56,8 @@ export class JobReporter {
     this.now = options.now ?? (() => Date.now());
     this.throttleMs = options.throttleMs ?? DEFAULT_THROTTLE_MS;
     this.startedAtMs = this.now();
+    this.lastLoggedStage = options.initial.stage;
+    this.lastLoggedPercent = options.initial.percent;
   }
 
   /** A sink to hand straight to a pipeline's `onProgress`. */
@@ -62,18 +70,29 @@ export class JobReporter {
   public report(event: ProgressEvent): void {
     const next =
       event.fraction === undefined ? this.fraction : clampMonotonic(this.fraction, event.fraction);
-    const moved = next !== this.fraction;
     this.fraction = next;
+    const percent = Math.floor(next * 100);
+    const etaSeconds = this.eta(next);
+    // Drop any stale etaSeconds from the previous state before deciding
+    // whether the new one applies -- a spread of {} (no ETA this time)
+    // would otherwise leave the old value sitting in the document. See the
+    // class comment and eta()'s own comment.
+    const { etaSeconds: _previousEta, ...withoutEta } = this.current;
     this.current = {
-      ...this.current,
+      ...withoutEta,
       stage: event.stage,
-      percent: Math.floor(next * 100),
-      ...this.eta(next),
+      percent,
+      ...(etaSeconds === undefined ? {} : { etaSeconds }),
     };
-    if (moved || event.stage !== this.options.initial.stage) {
-      this.options.log.append(
-        `${new Date(this.now()).toISOString()} ${event.stage} ${Math.floor(next * 100)}%`,
-      );
+    // Compared against the previous LOGGED event, not the constructor's
+    // fixed initial stage: whisper emits hundreds of lines an hour, and a
+    // comparison against a value that never updates would log every one of
+    // them once the stage had moved even once. Only a genuine stage change
+    // or a genuine percentage change is worth a line.
+    if (event.stage !== this.lastLoggedStage || percent !== this.lastLoggedPercent) {
+      this.lastLoggedStage = event.stage;
+      this.lastLoggedPercent = percent;
+      this.options.log.append(`${new Date(this.now()).toISOString()} ${event.stage} ${percent}%`);
     }
     if (this.now() - this.lastWriteAt >= this.throttleMs) this.enqueueWrite();
   }
@@ -88,8 +107,12 @@ export class JobReporter {
   }
 
   public async finish(result: unknown): Promise<void> {
+    // A terminal state has no remaining time by definition -- drop any ETA
+    // rather than let the last one report() computed ride through into the
+    // persisted 'done' document.
+    const { etaSeconds: _previousEta, ...withoutEta } = this.current;
     this.current = {
-      ...this.current,
+      ...withoutEta,
       state: 'done',
       percent: 100,
       finishedAt: new Date(this.now()).toISOString(),
@@ -99,8 +122,10 @@ export class JobReporter {
   }
 
   public async fail(message: string): Promise<void> {
+    // See finish(): a failed job has no remaining time either.
+    const { etaSeconds: _previousEta, ...withoutEta } = this.current;
     this.current = {
-      ...this.current,
+      ...withoutEta,
       state: 'failed',
       finishedAt: new Date(this.now()).toISOString(),
       error: message,
@@ -117,19 +142,22 @@ export class JobReporter {
   }
 
   /**
-   * Remaining seconds, or nothing.
+   * Remaining seconds, or undefined.
    *
-   * Omitted below ETA_FLOOR: at 2% the elapsed time says almost nothing
+   * Undefined below ETA_FLOOR: at 2% the elapsed time says almost nothing
    * about the total, and a number that will be wrong by an order of
-   * magnitude is worse than no number.
+   * magnitude is worse than no number. Returning a plain `number | undefined`
+   * rather than a spreadable `{ etaSeconds?: number }` is deliberate -- the
+   * caller must decide explicitly whether the key is present or absent in
+   * the next state, not rely on spreading `{}` to leave an old value alone.
    */
-  private eta(fraction: number): { etaSeconds?: number } {
-    if (fraction < ETA_FLOOR || fraction >= 1) return {};
+  private eta(fraction: number): number | undefined {
+    if (fraction < ETA_FLOOR || fraction >= 1) return undefined;
     const elapsed = this.now() - this.startedAtMs;
-    if (elapsed <= 0) return {};
+    if (elapsed <= 0) return undefined;
     const remaining = (elapsed / fraction) * (1 - fraction);
-    if (!Number.isFinite(remaining) || remaining < 0) return {};
-    return { etaSeconds: Math.round(remaining / 1000) };
+    if (!Number.isFinite(remaining) || remaining < 0) return undefined;
+    return Math.round(remaining / 1000);
   }
 
   /**

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -6,8 +6,14 @@ import { NodeFs } from '@ailoud/providers';
 import type { Fs, TempDir, TempFile } from '@ailoud/core';
 import { JobLog } from './log.js';
 import { JobReporter } from './reporter.js';
-import { readJobState } from './state.js';
+import { jobStatePath, readJobState } from './state.js';
 import type { JobState } from './state.js';
+
+/** Reads and parses the state file, for assertions that need to see which keys are truly absent. */
+async function readRawState(dir: string, id: string): Promise<Record<string, unknown>> {
+  const raw = await readFile(jobStatePath(dir, id), 'utf8');
+  return JSON.parse(raw) as Record<string, unknown>;
+}
 
 function initial(dir: string): JobState {
   return {
@@ -34,6 +40,19 @@ async function withDir<T>(body: (dir: string) => Promise<T>): Promise<T> {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * Lets an already-queued async write actually run, without forcing a new
+ * one the way `reporter.flush()` would. `report()` only *starts* a write on
+ * the reporter's internal promise chain -- the chain's `.then()` callback
+ * does not run until the current synchronous stretch of the test yields to
+ * the event loop, and the underlying filesystem I/O settles on a later
+ * macrotask, not merely the next microtask. A real setTimeout gives both a
+ * chance to complete before the next assertion reads `counting.writes`.
+ */
+function settle(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 20));
 }
 
 /**
@@ -135,10 +154,10 @@ describe('JobReporter', () => {
     });
   });
 
-  it('throttles writes but never throttles the terminal one', async () => {
+  it('throttles writes, resumes once the window elapses, and never throttles the terminal write', async () => {
     await withDir(async (dir) => {
       const counting = new CountingFs();
-      const clock = 0;
+      let clock = 0;
       const reporter = new JobReporter({
         fs: counting,
         jobsDir: dir,
@@ -147,7 +166,27 @@ describe('JobReporter', () => {
         now: () => clock,
         throttleMs: 2000,
       });
-      for (let i = 1; i <= 50; i += 1) reporter.report({ stage: 's', fraction: i / 100 });
+      // With the clock frozen, only the very first report can write: this
+      // alone would also pass an implementation that stopped writing
+      // permanently after call one, so it does not by itself prove
+      // throttling -- the clock advance below does. settle() (not flush())
+      // is used to observe the count here: flush() always forces a write of
+      // its own, which would make the count go up regardless of whether the
+      // throttle window had actually elapsed, and so would not prove
+      // resumption at all.
+      for (let i = 1; i <= 25; i += 1) reporter.report({ stage: 's', fraction: i / 100 });
+      await settle();
+      const beforeWindow = counting.writes;
+      expect(beforeWindow).toBeLessThan(5);
+
+      // A full throttle window later, the next report must write again --
+      // this is what distinguishes "throttled" from "never writes again".
+      clock = 2000;
+      reporter.report({ stage: 's', fraction: 0.26 });
+      await settle();
+      expect(counting.writes).toBeGreaterThan(beforeWindow);
+
+      for (let i = 27; i <= 50; i += 1) reporter.report({ stage: 's', fraction: i / 100 });
       await reporter.flush();
       const throttled = counting.writes;
       await reporter.finish(null);
@@ -177,6 +216,106 @@ describe('JobReporter', () => {
       await reporter.flush();
       const eta = (await readJobState(new NodeFs(), dir, initial(dir).id))?.etaSeconds;
       expect(eta).toBeGreaterThan(0);
+    });
+  });
+
+  it('drops the ETA once the job finishes, rather than leaving a stale one', async () => {
+    await withDir(async (dir) => {
+      let clock = 0;
+      const reporter = new JobReporter({
+        fs: new NodeFs(),
+        jobsDir: dir,
+        initial: initial(dir),
+        log: new JobLog(join(dir, 'j.log')),
+        now: () => clock,
+        throttleMs: 100,
+      });
+      // Same shape as "writes the percentage it was told": the second
+      // report computes a real ETA before finish() is ever called.
+      reporter.report({ stage: 'transcribing', fraction: 0.46 });
+      clock = 1000;
+      reporter.report({ stage: 'transcribing', fraction: 0.47 });
+      await reporter.finish({ ok: true });
+      const state = await readRawState(dir, initial(dir).id);
+      // Checks the parsed JSON document itself, not a typed read: a key
+      // that was written as `etaSeconds: undefined` would still read as
+      // `undefined` through readJobState, masking the bug this pins.
+      expect('etaSeconds' in state).toBe(false);
+    });
+  });
+
+  it('drops the ETA when the job fails, rather than leaving a stale one', async () => {
+    await withDir(async (dir) => {
+      let clock = 0;
+      const reporter = new JobReporter({
+        fs: new NodeFs(),
+        jobsDir: dir,
+        initial: initial(dir),
+        log: new JobLog(join(dir, 'j.log')),
+        now: () => clock,
+        throttleMs: 100,
+      });
+      reporter.report({ stage: 'transcribing', fraction: 0.46 });
+      clock = 1000;
+      reporter.report({ stage: 'transcribing', fraction: 0.47 });
+      await reporter.fail('whisper failed: exit 1');
+      const state = await readRawState(dir, initial(dir).id);
+      expect('etaSeconds' in state).toBe(false);
+    });
+  });
+
+  it('clears an earlier ETA once a plain report reaches completion', async () => {
+    await withDir(async (dir) => {
+      let clock = 0;
+      const reporter = new JobReporter({
+        fs: new NodeFs(),
+        jobsDir: dir,
+        initial: initial(dir),
+        log: new JobLog(join(dir, 'j.log')),
+        now: () => clock,
+        throttleMs: 0,
+      });
+      reporter.report({ stage: 'transcribing', fraction: 0.5 });
+      clock = 60_000;
+      reporter.report({ stage: 'transcribing', fraction: 0.51 });
+      await reporter.flush();
+      const withEta = await readRawState(dir, initial(dir).id);
+      expect('etaSeconds' in withEta).toBe(true);
+
+      // fraction 1 with no finish() call at all -- eta() itself must clear
+      // the key, not just finish()/fail().
+      reporter.report({ stage: 'transcribing', fraction: 1 });
+      await reporter.flush();
+      const atCompletion = await readRawState(dir, initial(dir).id);
+      expect('etaSeconds' in atCompletion).toBe(false);
+    });
+  });
+
+  it('logs a stage or percentage change once, and repeats not at all', async () => {
+    await withDir(async (dir) => {
+      const logPath = join(dir, 'j.log');
+      const reporter = new JobReporter({
+        fs: new NodeFs(),
+        jobsDir: dir,
+        initial: initial(dir),
+        log: new JobLog(logPath),
+        now: () => 0,
+        throttleMs: 0,
+      });
+      // First call is a genuine change from the initial "starting"/0%: logs.
+      reporter.report({ stage: 'transcribing', fraction: 0.3 });
+      // Two exact repeats: whisper-style flooding. Neither should log --
+      // the bug this pins compared against the constructor's fixed initial
+      // stage forever, so every one of these would have logged too.
+      reporter.report({ stage: 'transcribing', fraction: 0.3 });
+      reporter.report({ stage: 'transcribing', fraction: 0.3 });
+      // A real stage change: logs again.
+      reporter.report({ stage: 'diarizing', fraction: 0.3 });
+      await reporter.flush();
+      const lines = (await readFile(logPath, 'utf8')).trim().split('\n');
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toContain('transcribing 30%');
+      expect(lines[1]).toContain('diarizing 30%');
     });
   });
 
