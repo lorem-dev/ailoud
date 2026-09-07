@@ -292,7 +292,16 @@ describe('command layout', () => {
         return hidden !== true;
       })
       .map((command) => command.name());
-    expect(visible).toEqual(['audio', 'report', 'template', 'mcp', 'doctor', 'setup', 'self']);
+    expect(visible).toEqual([
+      'audio',
+      'report',
+      'job',
+      'template',
+      'mcp',
+      'doctor',
+      'setup',
+      'self',
+    ]);
   });
 
   it('gives every second-level verb a one-letter alias, none colliding', async () => {
@@ -316,6 +325,7 @@ describe('command layout', () => {
     const unlettered = groups.filter((command) => !lettered.includes(command));
     expect(lettered.map((command) => command.name()).sort()).toEqual([
       'audio',
+      'job',
       'report',
       'self',
       'template',

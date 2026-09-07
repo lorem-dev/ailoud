@@ -9,6 +9,7 @@ import { registerRm } from './commands/rm.js';
 import { registerAnnotate } from './commands/annotate.js';
 import { registerSummarize } from './commands/summarize.js';
 import { registerReports } from './commands/reports.js';
+import { registerJobs } from './commands/jobs.js';
 import { registerTemplate } from './commands/template.js';
 import { registerSearch } from './commands/search.js';
 import { registerMcp } from './commands/mcp.js';
@@ -90,6 +91,12 @@ export function buildProgram(context: CliContext): Command {
   const report = group(program, 'report', 'reports', 'Work with saved summaries');
   registerReports(report, context);
   attachLetters(report);
+
+  // On the group only, not through inGroupAndTopLevel: the top level is for
+  // verbs that act on recordings, and these act on jobs.
+  const job = group(program, 'job', 'jobs', 'Background transcription and summary work');
+  registerJobs(job, context);
+  attachLetters(job);
 
   const template = group(
     program,
