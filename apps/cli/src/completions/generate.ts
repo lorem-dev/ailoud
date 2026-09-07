@@ -113,12 +113,20 @@ function renderZsh(tree: CommandNode): string {
   return [
     '#compdef ailoud',
     '_ailoud() {',
-    '  local path="" candidates="" i',
+    // `_path`, never `path`: zsh ties the array `path` to the scalar `PATH`,
+    // so `local path=""` empties `$PATH` for the whole call and it ends up
+    // holding the words being completed. Verified in zsh 5.9: during `ailoud
+    // audio import <TAB>` the function saw `PATH=audio import`, and `date`
+    // run from inside it failed with "command not found". The body happens to
+    // use only builtins today, so nothing broke yet -- but `_files`,
+    // `_message`, `_describe`, or any wrapper a user has put around `compadd`
+    // would die there and Tab would silently return nothing.
+    '  local _path="" candidates="" i',
     '  for (( i = 2; i < CURRENT; i++ )); do',
     '    [[ ${words[i]} == -* ]] && continue',
-    '    path="${path:+$path }${words[i]}"',
+    '    _path="${_path:+$_path }${words[i]}"',
     '  done',
-    '  case "$path" in',
+    '  case "$_path" in',
     cases,
     '  esac',
     '  compadd -- ${=candidates}',

@@ -55,6 +55,18 @@ describe('renderCompletions', () => {
     expect(script).toContain('audio');
   });
 
+  it('never declares a local named "path" in zsh, which is tied to $PATH', () => {
+    // zsh links the array `path` to the scalar `PATH`. `local path=""` empties
+    // $PATH for the whole completion call -- verified in zsh 5.9, where the
+    // function saw `PATH=audio import` while completing `ailoud audio import`.
+    // Every external command run from the function, and every autoloaded
+    // helper that runs one, then fails with "command not found" and Tab
+    // silently returns nothing.
+    const script = renderCompletions('zsh', describeTree(sample()));
+    expect(script).not.toMatch(/\blocal\b[^\n]*\bpath=/);
+    expect(script).not.toMatch(/\$\{?path\b/);
+  });
+
   it('emits the shape fish needs, with descriptions', () => {
     const script = renderCompletions('fish', describeTree(sample()));
     expect(script).toContain('complete -c ailoud');
