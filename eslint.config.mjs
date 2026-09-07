@@ -28,7 +28,15 @@ export default tseslint.config(
     // syntax, not an unused variable or a misspelled identifier. They are
     // Node, not part of the typed source tree, so they get the recommended
     // rules and Node globals rather than the type-aware config.
-    files: ['*.config.{js,mjs,cjs,ts}', '**/*.config.{js,mjs,cjs,ts}', 'scripts/**/*.mjs'],
+    // `e2e/src/*.cjs` are jest setupFiles rather than configs by name, but
+    // they are the same category: plain Node CommonJS outside the typed
+    // source tree.
+    files: [
+      '*.config.{js,mjs,cjs,ts}',
+      '**/*.config.{js,mjs,cjs,ts}',
+      'scripts/**/*.mjs',
+      'e2e/src/**/*.cjs',
+    ],
     languageOptions: {
       // The Node globals these files actually use. Spelled out rather than
       // pulled from a globals package: it is a short list, and a new name
