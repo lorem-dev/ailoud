@@ -400,8 +400,9 @@ export function registerReadTools(server: McpServer, context: CliContext, deps: 
         'between calls is usually enough -- polling does not make the work go faster.\n\n' +
         'Returns state, an APPROXIMATE percentage, the current stage, an ETA once there is ' +
         'enough of the run to estimate from, and the PATH to the job log. The log is a path ' +
-        'and not text on purpose: it holds every line the engine printed, which is thousands ' +
-        'of tokens of no interest unless something failed.\n\n' +
+        'and not text on purpose: it is a growing trail of stage transitions and warnings ' +
+        'over what can be an hour-long run, worth opening only once something failed -- and ' +
+        "the failure message is already in this reply's `error` field.\n\n" +
         'Without a jobId, lists what is running plus the most recent finished jobs.',
       inputSchema: {
         jobId: z.string().optional().describe('The id transcribe or summarize returned.'),

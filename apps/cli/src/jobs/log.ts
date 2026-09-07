@@ -2,8 +2,10 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 /**
- * The job's append-only trail: stage transitions, warnings, and whisper's
- * stderr.
+ * The job's append-only trail: stage transitions, warnings, and the reason a
+ * job failed. It does NOT carry the engine's own stderr -- nothing in this
+ * codebase plumbs that through yet, and `error` on the state document already
+ * carries the failure message a caller would want.
  *
  * Appends are queued rather than awaited by the caller, because the caller
  * is a progress sink in the middle of a transcription and must not be given

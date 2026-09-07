@@ -9,9 +9,10 @@ export type JobStateName = 'running' | 'done' | 'failed';
  * Everything a poller needs, and nothing more.
  *
  * Small on purpose. This document is what an agent reads every few minutes,
- * so the detail -- stage transitions, warnings, whisper's ~104 lines of
- * stderr per run -- goes to `log` and is fetched by path. Same trade
- * `get_transcript` makes with a transcript.
+ * so the detail -- stage transitions and warnings as the job runs -- goes to
+ * `log` and is fetched by path rather than inlined here. Same trade
+ * `get_transcript` makes with a transcript. The log does not carry the
+ * engine's own stderr; `error` below already carries the failure message.
  */
 export interface JobState {
   readonly id: string;

@@ -23,9 +23,10 @@ const MARKERS = { start: START, end: END };
  * What the agent is told.
  *
  * Short on purpose. This lands in a file that already carries the project's
- * own instructions, and a long block competes with them. It says the three
- * things an agent gets wrong without being told: search instead of reading,
- * transcripts arrive as files, and tag what is untagged.
+ * own instructions, and a long block competes with them. It says the things
+ * an agent gets wrong without being told: search instead of reading,
+ * transcripts arrive as files, tag what is untagged, declare speakers and
+ * languages before transcribing, and poll job_status instead of waiting.
  */
 export function rulesBlock(): string {
   return [

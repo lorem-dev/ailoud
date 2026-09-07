@@ -268,9 +268,10 @@ Poll every minute or two; polling faster does not make the work finish sooner.
 With no `jobId`, `job_status` lists what is running plus the five most recent
 finished jobs.
 
-An id `job_status` does not recognise is reported as UNKNOWN, not as a
-failure -- a pruned or mistyped id is a different fact from a job that ran and
-failed:
+An id `job_status` does not recognise comes back on the same `isError` channel
+a thrown refusal uses, but the payload itself distinguishes it from a job that
+ran and failed -- `error` names the id as unrecognised rather than describing
+a failure, and `hint` says what to do next:
 
 ```json
 { "error": "no such job: nosuchjob", "hint": "call job_status with no id to list" }
@@ -278,25 +279,27 @@ failed:
 
 The state document:
 
-| Field        | Meaning                                                      |
-| ------------ | ------------------------------------------------------------ |
-| `id`         | the job id                                                   |
-| `kind`       | `transcribe` or `summarize`                                  |
-| `state`      | `running`, `done` or `failed`                                |
-| `percent`    | 0-100, approximate, never goes backwards                     |
-| `stage`      | what it is doing right now, e.g. `detecting`, `transcribing` |
-| `etaSeconds` | present once there is enough of the run to estimate from     |
-| `recordings` | `{ total, done }`                                            |
-| `declared`   | the speakers and languages given to `transcribe`, or null    |
-| `startedAt`  | when the job began, ISO 8601                                 |
-| `finishedAt` | when it ended, ISO 8601, or null while running               |
-| `log`        | a **file path**, not the log text                            |
-| `result`     | set on success; a finished `summarize` carries `reportId`    |
-| `error`      | one message, set on failure                                  |
+| Field        | Meaning                                                                 |
+| ------------ | ----------------------------------------------------------------------- |
+| `id`         | the job id                                                              |
+| `kind`       | `transcribe` or `summarize`                                             |
+| `state`      | `running`, `done` or `failed`                                           |
+| `percent`    | 0-100, approximate, never goes backwards                                |
+| `stage`      | what it is doing right now, e.g. `detecting`, `transcribing`            |
+| `etaSeconds` | present once there is enough of the run to estimate from                |
+| `pid`        | the process id doing the work; `job rm` names it if it is still running |
+| `recordings` | `{ total, done }`                                                       |
+| `declared`   | the speakers and languages given to `transcribe`, or null               |
+| `startedAt`  | when the job began, ISO 8601                                            |
+| `finishedAt` | when it ended, ISO 8601, or null while running                          |
+| `log`        | a **file path**, not the log text                                       |
+| `result`     | set on success; a finished `summarize` carries `reportId`               |
+| `error`      | one message, set on failure                                             |
 
-`log` is a path for the same reason `get_transcript` returns one: the engine
-writes far more than an agent needs, and it is only worth reading after
-something fails.
+`log` is a path because it is a growing trail of stage transitions and
+warnings over what can be an hour-long run, and it is only worth reading
+after something fails -- and even then, `error` above already carries the
+failure message.
 
 A finished `summarize` job's `result` carries a `reportId`; read it with
 `get_report`.

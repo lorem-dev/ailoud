@@ -88,8 +88,11 @@ export function weightedOverall(
  *
  * whisper is nearly all of it, and its own reported percentage fills that
  * stage. The conversion is a couple of seconds of ffmpeg. Diarization is
- * omitted entirely when it is off rather than left in at weight zero, so the
- * bar reaches 100% instead of stalling at 92%.
+ * omitted entirely when it is off, rather than left in at its full weight of
+ * 8: a stage that is present but never reports progress is a stage the bar
+ * can never move through, and leaving diarizing's 8 in unused would strand
+ * the bar at 92% forever. (Leaving it in at weight zero would not stall it --
+ * see multilingualStages below for what a zero-weight stage does instead.)
  */
 export function singlePassStages(diarize: boolean): StageWeight[] {
   return [
@@ -111,9 +114,14 @@ export function singlePassStages(diarize: boolean): StageWeight[] {
  * each other. A forty-unit recording therefore does not sit at 20% for most
  * of the run, which a fixed split would have produced.
  *
- * Both computed weights have a floor of 1: a stage with weight 0 is a stage
- * the bar can never move through, and the last such stage would strand the
- * bar below 100%.
+ * Both computed weights have a floor of 1. Without it, a stage with weight 0
+ * that turns out to be the LAST one in the list would make the bar jump to
+ * 100% the moment that stage's name is first reported, not once its work is
+ * actually done: stageScale gives a terminal stage's offset the full total
+ * already, so weight 0 there contributes nothing further and the fraction
+ * reads as complete immediately. The floor keeps every stage genuinely worth
+ * one unit of the bar, at the cost of overweighting it slightly on a very
+ * short recording.
  */
 export function multilingualStages(input: {
   readonly unitCount: number;
