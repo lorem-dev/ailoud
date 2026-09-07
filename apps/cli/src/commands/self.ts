@@ -266,6 +266,12 @@ async function syncCompletions(context: CliContext, command: Command): Promise<v
           context.ui.success(`${file.action.padEnd(9)} ${file.path}`);
         }
       }
+      // The same advisory `self completions install/update` surfaces via
+      // `report()` in selfCompletions.ts -- see ShellTarget.warnAbout. Without
+      // this, a user whose completions were refreshed automatically after
+      // `self update` never learns their macOS login shell does not read the
+      // file that was just written; they only find out when Tab does nothing.
+      if (outcome.note !== '') context.ui.warn(outcome.note);
     }
   } catch (error) {
     context.ui.warn(

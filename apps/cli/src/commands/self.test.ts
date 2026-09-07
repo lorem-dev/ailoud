@@ -13,6 +13,22 @@ import { boundedDetectRun, syncProjects, updateSelf } from './self.js';
 import type { SelfUpdateDeps } from './self.js';
 import { updateLogPath } from '../updateLog.js';
 import { VERSION } from '../version.js';
+import { install as installCompletions } from '../completions/install.js';
+import { findShell } from '../completions/shells.js';
+import type { CommandNode } from '../completions/generate.js';
+
+/**
+ * A minimal command tree for the completions writers below. Its content is
+ * never asserted on -- only that a script got written and then rewritten --
+ * so it does not need to describe the real CLI.
+ */
+const COMPLETIONS_TREE: CommandNode = {
+  name: 'ailoud',
+  description: 'root',
+  aliases: [],
+  options: [],
+  children: [],
+};
 
 /**
  * The build's own version, and one patch above it.
@@ -352,6 +368,160 @@ describe('ailoud self sync (CLI)', () => {
     expect(
       ctx.lines.some((line) => line.startsWith('warning: failed:') && line.includes('/proj/a')),
     ).toBe(true);
+  });
+
+  // placesFor (in selfCompletions.ts) reads $HOME straight from process.env,
+  // not from CliContext.paths, so the three tests below have to set it for
+  // the duration of the test -- there is no other seam to point the
+  // completions writers at the fake filesystem's home directory.
+  function withHome<T>(home: string, run: () => Promise<T>): Promise<T> {
+    const original = process.env['HOME'];
+    process.env['HOME'] = home;
+    return run().finally(() => {
+      if (original === undefined) delete process.env['HOME'];
+      else process.env['HOME'] = original;
+    });
+  }
+
+  it('refreshes an installed shell completions even on the empty-registry early return', async () => {
+    // This is the riskiest property in the sync/completions integration: an
+    // empty project registry takes registerSelfSync's early `return` before
+    // any row is ever printed, and a `syncCompletions` call placed after that
+    // return would never run for a user with no registered projects at all.
+    await withHome('/home/ann', async () => {
+      const ctx = context();
+      const places = {
+        home: '/home/ann',
+        configHome: ctx.paths.configHome,
+        userDataDir: ctx.paths.userDataDir,
+      };
+      await installCompletions(ctx.fs, findShell('zsh')!, COMPLETIONS_TREE, places);
+      const scriptPath = `${ctx.paths.userDataDir}/completions/_ailoud`;
+      // Corrupt the already-installed script so a refresh is the only thing
+      // that can put the real content back -- proving the write actually ran
+      // rather than merely that the file already existed.
+      await ctx.fs.writeTextFile(scriptPath, '# stale\n');
+
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'self', 'sync']);
+
+      expect(ctx.lines).toContain('No projects registered yet.');
+      expect(await ctx.fs.readTextFile(scriptPath)).not.toContain('stale');
+      expect(
+        ctx.lines.some((line) => line.startsWith('ok  updated') && line.includes(scriptPath)),
+      ).toBe(true);
+    });
+  });
+
+  it('refreshes completions before throwing when a project failed to sync', async () => {
+    // The throw for a failed project happens at the very end of the action,
+    // after syncCompletions has already run -- but only the CODE says so.
+    // This proves it by observing the refresh's effect survives the throw.
+    await withHome('/home/ann', async () => {
+      class FlakyFs extends MemFs {
+        armed = false;
+        override async writeTextFile(path: string, content: string): Promise<void> {
+          if (this.armed && path.includes('/proj/a/.claude/CLAUDE.md')) {
+            throw new Error('EACCES: permission denied');
+          }
+          return super.writeTextFile(path, content);
+        }
+      }
+      const fs = new FlakyFs({});
+      const claude = findAgent('claude')!;
+      await install(fs, claude, 'local', '/home/user', '/proj/a', false);
+      const rulesPath = '/proj/a/.claude/CLAUDE.md';
+      const current = await fs.readTextFile(rulesPath);
+      await fs.writeTextFile(rulesPath, current.replace('## AILoud', '## AILoud (old)'));
+
+      const ctx = { ...context(), fs };
+      const places = {
+        home: '/home/ann',
+        configHome: ctx.paths.configHome,
+        userDataDir: ctx.paths.userDataDir,
+      };
+      await installCompletions(fs, findShell('zsh')!, COMPLETIONS_TREE, places);
+      const scriptPath = `${ctx.paths.userDataDir}/completions/_ailoud`;
+      await fs.writeTextFile(scriptPath, '# stale\n');
+
+      await rememberProject(
+        { fs, clock: ctx.clock, userDataDir: ctx.paths.userDataDir },
+        { path: '/proj/a' },
+      );
+      fs.armed = true;
+
+      const error: unknown = await buildProgram(ctx)
+        .parseAsync(['node', 'ailoud', 'self', 'sync'])
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(FailureError);
+      expect(await fs.readTextFile(scriptPath)).not.toContain('stale');
+      expect(
+        ctx.lines.some((line) => line.startsWith('ok  updated') && line.includes(scriptPath)),
+      ).toBe(true);
+    });
+  });
+
+  it('reports a failing refresh as a warning, and still reports the projects', async () => {
+    await withHome('/home/ann', async () => {
+      class FlakyFs extends MemFs {
+        armed = false;
+        override async writeTextFile(path: string, content: string): Promise<void> {
+          // The script write, not the rc write: it happens first inside
+          // install(), so arming this is enough to make the whole refresh
+          // throw without needing to know install()'s internal order.
+          if (this.armed && path.includes('/completions/')) {
+            throw new Error('ENOSPC: no space left on device');
+          }
+          return super.writeTextFile(path, content);
+        }
+      }
+      const fs = new FlakyFs({});
+      const ctx = { ...context(), fs };
+      const places = {
+        home: '/home/ann',
+        configHome: ctx.paths.configHome,
+        userDataDir: ctx.paths.userDataDir,
+      };
+      await installCompletions(fs, findShell('zsh')!, COMPLETIONS_TREE, places);
+      fs.armed = true;
+
+      // Must resolve, not reject: a completions refresh is a convenience on
+      // top of the sync, and turning its failure into a thrown FailureError
+      // would tell the user their sync did not happen when it did.
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'self', 'sync']);
+
+      expect(ctx.lines).toContain('No projects registered yet.');
+      expect(
+        ctx.lines.some((line) => line.startsWith('warning: could not refresh shell completions')),
+      ).toBe(true);
+    });
+  });
+
+  it('surfaces the bash_profile advisory on the sync path too, not only from "self completions"', async () => {
+    // Minor finding: syncCompletions used to report only the file lines and
+    // silently drop outcome.note, so a user whose completions were refreshed
+    // automatically after `self update` never learned their macOS login
+    // shell does not read ~/.bashrc -- the exact advisory the explicit
+    // `self completions install/update` commands already show via report().
+    await withHome('/home/ann', async () => {
+      const ctx = context();
+      const places = {
+        home: '/home/ann',
+        configHome: ctx.paths.configHome,
+        userDataDir: ctx.paths.userDataDir,
+      };
+      // Present but not sourcing .bashrc: exactly what ShellTarget.warnAbout
+      // (bashWarnAbout in completions/shells.ts) looks for.
+      await ctx.fs.writeTextFile('/home/ann/.bash_profile', 'export PATH=x\n');
+      await installCompletions(ctx.fs, findShell('bash')!, COMPLETIONS_TREE, places);
+
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'self', 'sync']);
+
+      expect(ctx.lines).toContain('No projects registered yet.');
+      expect(ctx.lines.some((line) => line.startsWith('warning: ~/.bash_profile exists'))).toBe(
+        true,
+      );
+    });
   });
 });
 
