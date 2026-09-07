@@ -1,24 +1,18 @@
 import { basename } from 'node:path';
 import type { Clock, Fs, Ids } from '@ailoud/core';
+import { isRunning } from '../exclusiveLock.js';
 import { jobLogPath, jobStatePath, readJobState, writeJobState } from './state.js';
 import type { JobKind, JobState } from './state.js';
 
 /**
- * Whether the process that owns a job is still running.
+ * How many finished jobs `createJob` keeps around before pruning the rest.
  *
- * The same signal-0 check `exclusiveLock.ts` uses, with the same two-error
- * subtlety: ESRCH means no such process, so the job died; EPERM means the
- * process EXISTS under another user, which is alive. Getting that backwards
- * would report a live hour-long transcription as dead.
+ * The spec's number: enough for an agent that lost track of a few ids across
+ * a session to still find them with `job_status`'s no-argument listing (which
+ * itself only ever shows the five most recent finished jobs), without the
+ * directory growing by two files per job forever.
  */
-function isRunning(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
+const RETAIN_FINISHED_JOBS = 20;
 
 /**
  * Corrects `running` to `failed` when the owning process is gone.
@@ -73,6 +67,17 @@ export async function createJob(
     error: null,
   };
   await writeJobState(fs, jobsDir, state);
+  // Retention happens here, on the one path both front ends (the CLI's
+  // --detach and the MCP server) funnel through -- see the spec's "On job
+  // creation, finished jobs beyond the N most recent have both files
+  // removed." Best-effort: a prune that cannot list or remove files costs
+  // disk space, never the job this call just created and already wrote.
+  try {
+    await pruneJobs(fs, jobsDir, RETAIN_FINISHED_JOBS);
+  } catch {
+    // See above -- pruning is housekeeping, not part of the contract this
+    // function's own doc comment describes.
+  }
   return state;
 }
 
@@ -130,6 +135,23 @@ export async function pruneJobs(fs: Fs, jobsDir: string, keep: number): Promise<
   const finished = jobs.filter((job) => job.state !== 'running');
   const toRemove = finished.slice(keep);
   for (const job of toRemove) await removeJob(fs, jobsDir, job.id);
+  await removeStaleScratchFiles(fs, jobsDir);
+}
+
+/**
+ * Removes leftover `<id>.json.<uuid>.writing` scratch files.
+ *
+ * `writeJobState` renames its scratch file over the target once the write
+ * completes (see its own doc comment); a crash between writing the scratch
+ * file and the rename leaves it behind, and nothing else in this module ever
+ * looks at it again. Swept from here, on job creation, rather than adding a
+ * second sweep nobody calls -- the same reasoning that put retention itself
+ * in `createJob`.
+ */
+async function removeStaleScratchFiles(fs: Fs, jobsDir: string): Promise<void> {
+  if (!(await fs.exists(jobsDir))) return;
+  const scratch = (await fs.listFiles(jobsDir)).filter((path) => path.endsWith('.writing'));
+  for (const path of scratch) await fs.removeFile(path);
 }
 
 /**

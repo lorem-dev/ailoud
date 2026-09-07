@@ -25,15 +25,21 @@ export interface LockMessages {
 }
 
 /**
- * Whether the process that wrote a lock is still running.
+ * Whether the process behind a pid is still running.
  *
  * Signal 0 performs the permission and existence checks without delivering
- * anything. ESRCH means no such process, so the lock is stale. EPERM means
- * the process EXISTS but belongs to another user -- a live lock, and the
- * most dangerous case to get wrong, because treating it as stale would let
- * two runs proceed at once, which is the whole thing this prevents.
+ * anything. ESRCH means no such process, so the lock (or job) is stale. EPERM
+ * means the process EXISTS but belongs to another user -- alive, and the most
+ * dangerous case to get wrong, because treating it as stale would let two
+ * runs proceed at once, which is the whole thing a lock exists to prevent.
+ *
+ * Exported so `jobs/store.ts`'s `withLiveness` and the e2e suite's cleanup
+ * share this one implementation instead of each carrying their own copy --
+ * this file's own header explains why a second copy of the lock logic is
+ * exactly the mistake that made extracting it out of `setupLock.ts` necessary
+ * in the first place.
  */
-function isRunning(pid: number): boolean {
+export function isRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
