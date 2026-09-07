@@ -23,6 +23,7 @@ import {
   isSwitchingModel,
   planNeedsPackageManager,
   requireConsent,
+  resolveCompletionsShells,
   resolveModelName,
   runProvisioning,
   unfixableChecks,
@@ -39,6 +40,7 @@ import { parseConfig } from '../config.js';
 import { Command } from 'commander';
 import { registerSetup } from './setup.js';
 import { registerDoctor, runChecks } from './doctor.js';
+import { SHELL_TARGETS } from '../completions/shells.js';
 
 describe('isInteractive', () => {
   it('is false under CI even with a real tty', () => {
@@ -233,6 +235,61 @@ describe('requireConsent', () => {
   it('asks when interactive and returns the answer', async () => {
     const confirmImpl = async (): Promise<boolean> => false;
     expect(await requireConsent({ yes: false, interactive: true, confirmImpl })).toBe(false);
+  });
+});
+
+describe('resolveCompletionsShells', () => {
+  const zsh = SHELL_TARGETS.find((target) => target.shell === 'zsh')!;
+
+  beforeEach(() => {
+    for (const fn of Object.values(clack)) fn.mockReset();
+    clack.isCancel.mockReturnValue(false);
+  });
+
+  it('honours --completions without prompting', async () => {
+    expect(await resolveCompletionsShells({ completions: true }, true, [zsh])).toEqual([zsh]);
+    expect(clack.confirm).not.toHaveBeenCalled();
+  });
+
+  it('honours --no-completions without prompting', async () => {
+    expect(await resolveCompletionsShells({ completions: false }, true, [zsh])).toEqual([]);
+    expect(clack.confirm).not.toHaveBeenCalled();
+  });
+
+  it('installs nothing for --yes alone, even while interactive: --yes only means "do not prompt"', async () => {
+    // Same rule, for the same reason, as resolveAllowShell on mcp install:
+    // resolving an unasked question as yes would append lines to a user's
+    // shell startup file in CI on the strength of a flag that says nothing
+    // about shell configuration.
+    expect(await resolveCompletionsShells({ yes: true }, true, [zsh])).toEqual([]);
+    expect(clack.confirm).not.toHaveBeenCalled();
+  });
+
+  it('does not prompt, and installs nothing, when no shell was detected', async () => {
+    expect(await resolveCompletionsShells({}, true, [])).toEqual([]);
+    expect(clack.confirm).not.toHaveBeenCalled();
+  });
+
+  it('does not prompt non-interactively either, with neither flag given', async () => {
+    expect(await resolveCompletionsShells({}, false, [zsh])).toEqual([]);
+    expect(clack.confirm).not.toHaveBeenCalled();
+  });
+
+  it('asks when interactive with neither flag given, and returns the detected shells on yes', async () => {
+    clack.confirm.mockResolvedValue(true);
+    expect(await resolveCompletionsShells({}, true, [zsh])).toEqual([zsh]);
+    expect(clack.confirm).toHaveBeenCalledOnce();
+  });
+
+  it('installs nothing when the offer is declined', async () => {
+    clack.confirm.mockResolvedValue(false);
+    expect(await resolveCompletionsShells({}, true, [zsh])).toEqual([]);
+  });
+
+  it('installs nothing when the offer is cancelled', async () => {
+    clack.confirm.mockResolvedValue(undefined);
+    clack.isCancel.mockReturnValueOnce(true);
+    expect(await resolveCompletionsShells({}, true, [zsh])).toEqual([]);
   });
 });
 
@@ -1889,6 +1946,141 @@ describe('runProvisioning', () => {
       expect(providers.installLlama).toHaveBeenCalled();
     });
   });
+
+  // These pass an actual `command: Command` (registerSetup's own shape) and
+  // an explicit `processEnv`, so shell detection sees exactly the fixture
+  // seeded below rather than whatever $SHELL/rc files happen to exist on the
+  // machine running the suite.
+  describe('offering shell completions at the end of a run', () => {
+    const zshScriptPath = (): string => join(paths.userDataDir, 'completions', '_ailoud');
+
+    /** Reaches the closing runChecks re-verification, not the "nothing to fix" shortcut. */
+    async function healthyRunContext(): Promise<CliContext & { lines: string[] }> {
+      providers.downloadFile.mockImplementation(async (_url: string, target: string) => {
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, 'dummy-model-bytes');
+      });
+      await seedDiarizationConfig();
+      return provisioningContext(badConfig);
+    }
+
+    function healthyChecks(): readonly Check[] {
+      return [
+        failing('whisper model', { kind: 'download-model', slot: 'transcription' }),
+        failing('vad model', { kind: 'download-model', slot: 'vad' }),
+      ];
+    }
+
+    it('installs completions for the detected shells when --completions is given, without prompting', async () => {
+      const ctx = await healthyRunContext();
+      await ctx.fs.writeTextFile('/home/u/.zshrc', '');
+
+      await runProvisioning(
+        ctx,
+        { yes: true, completions: true },
+        healthyChecks(),
+        'linux',
+        'setup',
+        false,
+        new Command(),
+        { HOME: '/home/u' },
+      );
+
+      expect(clack.confirm).not.toHaveBeenCalled();
+      expect(await ctx.fs.exists(zshScriptPath())).toBe(true);
+      expect(await ctx.fs.readTextFile('/home/u/.zshrc')).toContain('ailoud');
+    });
+
+    it('installs nothing when --no-completions is given, without prompting', async () => {
+      const ctx = await healthyRunContext();
+      await ctx.fs.writeTextFile('/home/u/.zshrc', '');
+
+      await runProvisioning(
+        ctx,
+        { yes: true, completions: false },
+        healthyChecks(),
+        'linux',
+        'setup',
+        false,
+        new Command(),
+        { HOME: '/home/u' },
+      );
+
+      expect(clack.confirm).not.toHaveBeenCalled();
+      expect(await ctx.fs.exists(zshScriptPath())).toBe(false);
+    });
+
+    it('installs nothing on --yes alone, since --yes only means "do not prompt"', async () => {
+      const ctx = await healthyRunContext();
+      await ctx.fs.writeTextFile('/home/u/.zshrc', '');
+
+      await runProvisioning(
+        ctx,
+        { yes: true },
+        healthyChecks(),
+        'linux',
+        'setup',
+        false,
+        new Command(),
+        { HOME: '/home/u' },
+      );
+
+      expect(await ctx.fs.exists(zshScriptPath())).toBe(false);
+    });
+
+    it("is never reached from a call that passes no `command` -- doctor --fix's own call shape", async () => {
+      const ctx = await healthyRunContext();
+      await ctx.fs.writeTextFile('/home/u/.zshrc', '');
+
+      // No `command` argument at all: the same shape doctor.ts's call uses.
+      await runProvisioning(ctx, { yes: true, completions: true }, healthyChecks(), 'linux');
+
+      expect(await ctx.fs.exists(zshScriptPath())).toBe(false);
+    });
+
+    it('is not offered when the final re-check still finds the environment not ready', async () => {
+      const isTtyDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+      const originalCi = process.env['CI'];
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      delete process.env['CI'];
+      try {
+        // The mandatory (transcription) download fails; the VAD one succeeds
+        // -- the same fixture as "still writes the config updates that did
+        // succeed, still re-checks, and still throws on a partial failure"
+        // above, reused here to reach a failing final check.
+        providers.downloadFile.mockImplementation(async (url: string, target: string) => {
+          if (url.includes('ggml-small') || url.includes('ggml-base')) {
+            throw new Error('network down');
+          }
+          await mkdir(dirname(target), { recursive: true });
+          await writeFile(target, 'dummy-model-bytes');
+        });
+        const ctx = provisioningContext(badConfig);
+        await ctx.fs.writeTextFile('/home/u/.zshrc', '');
+        // Neither --yes nor --completions: if the completions question were
+        // reachable here, interactive + a detected shell would make it ask.
+        clack.confirm.mockResolvedValue(true); // answers the plan's own consent question
+        clack.select.mockResolvedValue('small'); // answers chooseModel's interactive picker
+
+        await expect(
+          runProvisioning(ctx, {}, healthyChecks(), 'linux', 'setup', false, new Command(), {
+            HOME: '/home/u',
+          }),
+        ).rejects.toThrow(EnvironmentError);
+
+        // Exactly the one consent call the plan itself needed: a second call
+        // would mean the completions question was asked despite the run
+        // having failed its own final check.
+        expect(clack.confirm).toHaveBeenCalledTimes(1);
+        expect(await ctx.fs.exists(zshScriptPath())).toBe(false);
+      } finally {
+        if (isTtyDescriptor === undefined) delete (process.stdin as { isTTY?: boolean }).isTTY;
+        else Object.defineProperty(process.stdin, 'isTTY', isTtyDescriptor);
+        if (originalCi === undefined) delete process.env['CI'];
+        else process.env['CI'] = originalCi;
+      }
+    });
+  });
 });
 
 describe('doctor --fix does not inherit --force', () => {
@@ -1897,6 +2089,36 @@ describe('doctor --fix does not inherit --force', () => {
     registerDoctor(program, context(), 'linux');
     const doctorCommand = program.commands.find((command) => command.name() === 'doctor');
     expect(doctorCommand?.options.some((option) => option.long === '--force')).toBe(false);
+  });
+});
+
+describe('doctor --fix does not offer shell completions', () => {
+  it('registerDoctor never registers --completions, so DoctorOptions.completions stays undefined', () => {
+    const program = new Command();
+    registerDoctor(program, context(), 'linux');
+    const doctorCommand = program.commands.find((command) => command.name() === 'doctor');
+    expect(doctorCommand?.options.some((option) => option.long === '--completions')).toBe(false);
+    expect(doctorCommand?.options.some((option) => option.long === '--no-completions')).toBe(false);
+  });
+});
+
+describe('registerSetup: --completions is a three-state flag', () => {
+  it('registers both --completions and --no-completions with no default value', () => {
+    const program = new Command();
+    registerSetup(program, context(), 'linux');
+    const setupCommand = program.commands.find((command) => command.name() === 'setup');
+    const completionsOption = setupCommand?.options.find(
+      (option) => option.long === '--completions',
+    );
+    const noCompletionsOption = setupCommand?.options.find(
+      (option) => option.long === '--no-completions',
+    );
+    expect(completionsOption).toBeDefined();
+    expect(noCompletionsOption).toBeDefined();
+    // No default value is the whole point: commander merges --completions and
+    // --no-completions onto one key, and a default here would make "neither
+    // flag given" indistinguishable from an explicit "yes".
+    expect(completionsOption?.defaultValue).toBeUndefined();
   });
 });
 

@@ -34,6 +34,16 @@ import type { AiloudConfig } from '../config.js';
 import { NOT_READY_MESSAGE, runChecks } from './doctor.js';
 import type { CliContext } from '../wiring.js';
 import type { Check } from '../ui/index.js';
+import { install } from '../completions/install.js';
+import type { ShellOutcome } from '../completions/install.js';
+import { describeTree } from '../completions/generate.js';
+import type { ShellTarget } from '../completions/shells.js';
+// setup.ts and selfCompletions.ts end up importing each other (selfCompletions
+// imports `isInteractive` from here) -- safe for the same reason doctor.ts's
+// import of `runProvisioning` is: every use on both sides happens inside a
+// function body, never at module-init time, so there is no evaluation-order
+// cycle for ESM to trip over.
+import { parseShells, placesFor, rootOf } from './selfCompletions.js';
 
 /**
  * Whether ailoud may prompt: a terminal on both ends, and not a CI runner.
@@ -536,6 +546,18 @@ export interface SetupOptions {
    * failed, exactly as before this option existed.
    */
   readonly force?: boolean;
+  /**
+   * Set by --completions, cleared by --no-completions, absent when neither
+   * was given -- registerSetup registers both flags with no default so
+   * commander preserves this three-state shape; see
+   * `resolveCompletionsShells`'s doc comment for why "absent" cannot mean
+   * "yes". `doctor --fix` also inherits this field (`DoctorOptions extends
+   * SetupOptions`), but never registers either flag and never passes a
+   * `command` to `runProvisioning`, so the completions offer is never
+   * reached from there regardless of this value -- see runProvisioning's
+   * closing block.
+   */
+  readonly completions?: boolean;
 }
 
 /**
@@ -569,6 +591,100 @@ export function isSwitchingModel(
 }
 
 /**
+ * The shells to install completions for at the very end of a successful
+ * `setup` run, or empty to install none. Called from `offerCompletions`,
+ * itself called from the very end of `runProvisioning` -- see both doc
+ * comments for where this sits in the pipeline and why.
+ *
+ * `--completions` / `--no-completions` (registerSetup's three-state option --
+ * see `SetupOptions.completions`) answer directly, with no prompt.
+ *
+ * Absent either flag, `--yes` alone answers no, without a prompt, the same
+ * rule and for the same reason as `resolveAllowShell` in mcpInstall.ts:
+ * `--yes` means "do not prompt", not "consent to everything" -- resolving
+ * this unasked question as yes would append lines to a user's shell startup
+ * file in CI on the strength of a flag that says nothing about shell
+ * configuration.
+ *
+ * This is deliberately the OPPOSITE of `--yes` on `self completions install`
+ * (see `chooseShells` in selfCompletions.ts): running that command IS the
+ * request to install, so there is no unasked question there for `--yes` to
+ * misread. The two rules must not be unified -- the asymmetry is the point,
+ * not a drift to fix.
+ *
+ * `detected` empty also answers no, without a prompt, regardless of every
+ * flag above: there is nothing useful to offer, and a question with no
+ * options is worse than staying silent.
+ */
+export async function resolveCompletionsShells(
+  options: SetupOptions,
+  interactive: boolean,
+  detected: readonly ShellTarget[],
+): Promise<readonly ShellTarget[]> {
+  if (options.completions === false || detected.length === 0) return [];
+  if (options.completions === true) return detected;
+  if (options.yes === true || !interactive) return [];
+  const answer = await confirm({
+    message: 'Install shell completions for ailoud (bash, zsh, fish)?',
+    initialValue: true,
+  });
+  if (isCancel(answer) || answer !== true) return [];
+  return detected;
+}
+
+/** One line per file `install` touched, mirroring what `self completions install` prints.
+ *
+ * Not imported from selfCompletions.ts: its own `reportFile`/`report` are
+ * private to that file (and it is under separate review right now), so this
+ * is a second, small copy rather than a shared helper.
+ */
+function reportCompletionOutcome(context: CliContext, outcome: ShellOutcome): void {
+  for (const file of outcome.files) {
+    const line = `${file.action.padEnd(9)} ${file.path}`;
+    if (file.action === 'created' || file.action === 'updated') {
+      context.ui.success(line);
+    } else {
+      context.ui.note(line);
+    }
+  }
+  if (outcome.note !== '') context.ui.warn(outcome.note);
+}
+
+/**
+ * Offers to install shell completions -- the very last thing a successful
+ * `setup` run does. Called only from the closing block of `runProvisioning`,
+ * after the final `runChecks` there has confirmed the environment is ready:
+ * a run that failed to provision must not finish by asking about a nicety.
+ *
+ * `command` is the running invocation's own command, handed down so the
+ * completion script can be rendered from the live command tree the same way
+ * `self completions install` renders it (see `rootOf`/`describeTree`).
+ * `runProvisioning` only calls this when `command` was supplied, which today
+ * is only true for `setup` itself -- `doctor --fix` shares this whole
+ * pipeline but never passes one, since "the environment doctor --fix just
+ * repaired" is not the same moment as "the machine setup just finished
+ * provisioning for the first time", and doctor --fix's own description makes
+ * no promise about shell completions.
+ */
+async function offerCompletions(
+  context: CliContext,
+  options: SetupOptions,
+  interactive: boolean,
+  command: Command,
+  processEnv: NodeJS.ProcessEnv,
+): Promise<void> {
+  const places = placesFor(context, processEnv);
+  const detected = await parseShells(context, 'auto', places, processEnv);
+  const targets = await resolveCompletionsShells(options, interactive, detected);
+  if (targets.length === 0) return;
+
+  const tree = describeTree(rootOf(command));
+  for (const target of targets) {
+    reportCompletionOutcome(context, await install(context.fs, target, tree, places));
+  }
+}
+
+/**
  * Runs the plan-and-confirm-and-execute pipeline shared by `setup` and
  * `doctor --fix`: both hand over the checks they just ran, and this derives
  * the remedies (`collectRemedies`), resolves a model, builds a plan, gets
@@ -593,6 +709,14 @@ export async function runProvisioning(
   platform: NodeJS.Platform = process.platform,
   commandName: CommandName = 'setup',
   checksAlreadyShown: boolean = false,
+  /**
+   * The running invocation's own command, forwarded only by `registerSetup`
+   * -- see `offerCompletions`'s doc comment for why its absence is what
+   * keeps `doctor --fix` from ever reaching the completions offer.
+   */
+  command?: Command,
+  /** Injected so a test can pin what shell detection sees without touching the real environment. */
+  processEnv: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
   // Before anything else, and in particular before any remedy is collected
   // or plan built: building a plan on Windows would take consent, pull down
@@ -811,6 +935,15 @@ export async function runProvisioning(
     if (finalChecks.some(blocksReadiness)) {
       throw new EnvironmentError('ailoud is still not ready: see the failing checks above.');
     }
+
+    // The very last thing a successful run does -- placed after the
+    // readiness throw above, not before, so a run that failed to provision
+    // cannot still end by asking about a nicety. See offerCompletions's doc
+    // comment for why `command` is undefined (and this a no-op) whenever the
+    // caller is `doctor --fix` rather than `setup` itself.
+    if (command !== undefined) {
+      await offerCompletions(context, options, interactive, command, processEnv);
+    }
   });
 }
 
@@ -879,15 +1012,21 @@ export function registerSetup(
       'model id for the chosen summariser (default: ask, or keep the configured one)',
     )
     .option('--force', 'reinstall even when everything checks out')
+    .option('--completions', 'install shell completions at the end, without asking')
+    .option('--no-completions', 'skip the shell-completions offer, without asking')
     .description('Install ffmpeg and whisper.cpp, and download the models ailoud needs')
-    .action(async (options: SetupOptions) => {
+    .action(async (options: SetupOptions, command: Command) => {
       await context.ui.frame('Setting up ailoud', async () => {
         // The win32 refusal lives in runProvisioning now (the shared
         // engine), not here -- see its doc comment. runChecks itself only
         // probes; it downloads nothing, so running it unconditionally
         // before that guard costs nothing on Windows either.
         const checks = await runChecks(context, platform);
-        await runProvisioning(context, options, checks, platform);
+        // `command` is this action's own Command instance, passed through so
+        // a successful run can offer shell completions off the live command
+        // tree -- see offerCompletions's doc comment for why only `setup`
+        // passes one.
+        await runProvisioning(context, options, checks, platform, 'setup', false, command);
       });
     });
 }
