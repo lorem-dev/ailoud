@@ -2,11 +2,25 @@ import { describe, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { MemFs } from '@ailoud/core/testing';
-import { contextWithTranscript } from '../commands/testContext.js';
+import { context, contextWithTranscript } from '../commands/testContext.js';
+import { buildProgram } from '../program.js';
 import { buildMcpServer } from './server.js';
 import { SERVER_INSTRUCTIONS } from './instructions.js';
 
 type Ctx = Awaited<ReturnType<typeof contextWithTranscript>>;
+
+/**
+ * Imports `path` -- writing its (fake) content into the in-memory fs first,
+ * since nothing has put it there yet -- through the real `import` command,
+ * so the resulting recording has a genuine mediaPath a later `transcribe`
+ * call can actually read. Returns the new recording's id.
+ */
+async function importFixture(ctx: ReturnType<typeof context>, path: string): Promise<string> {
+  (ctx.fs as MemFs).files.set(path, 'AUDIO');
+  await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', path]);
+  const recordings = await ctx.store.listRecordings({});
+  return recordings[recordings.length - 1]!.id;
+}
 
 /** A real client over an in-memory transport: the wiring is exercised, not mocked. */
 async function connect(context: Ctx) {
@@ -398,6 +412,83 @@ describe('MCP: one summarisation pipeline, shared with the CLI', () => {
     const { call, close } = await connect(ctx);
     const body = (await call('summarize', { recordingIds: ['ID001', 'ID002'] })).json();
     expect(body['reusedStoredReports']).toBe(2);
+    await close();
+  });
+});
+
+describe('MCP: transcribe refuses until speakers and languages are declared', () => {
+  it('refuses without a speaker count or languages, and offers a guess', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/2026-08-14-standup-ru-en.m4a');
+    const { call, close } = await connect(ctx);
+    const result = await call('transcribe', { recordingIds: [id] });
+    expect(result.isError).toBe(true);
+    const body = result.json();
+    expect(body['error']).toContain('speaker count');
+    const guess = body['guess'] as { languages: string[]; from: string };
+    expect(guess.languages).toEqual(['ru', 'en']);
+    expect(guess.from).toContain('2026-08-14-standup-ru-en.m4a');
+    expect(body['ask']).toContain('Ask the user');
+    await close();
+  });
+
+  it('refuses with a null guess when the name says nothing', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    const { call, close } = await connect(ctx);
+    const result = await call('transcribe', { recordingIds: [id] });
+    expect(result.isError).toBe(true);
+    const body = result.json();
+    // Null, never a fabrication: a guess invented from nothing gets confirmed
+    // by a user who is skimming.
+    expect(body['guess']).toBeNull();
+    await close();
+  });
+
+  it('refuses when only one of the two is given', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    const { call, close } = await connect(ctx);
+    for (const args of [{ speakers: 3 }, { languages: ['ru'] }]) {
+      const result = await call('transcribe', { recordingIds: [id], ...args });
+      expect(result.isError).toBe(true);
+    }
+    await close();
+  });
+
+  it('accepts the explicit not-knowns', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    const { call, close } = await connect(ctx);
+    const result = await call('transcribe', {
+      recordingIds: [id],
+      speakers: 'unknown',
+      languages: ['auto'],
+    });
+    expect(result.isError).toBe(false);
+    await close();
+  });
+
+  it('passes a declared speaker count to the diarizer only when diarize is on', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    const { call, close } = await connect(ctx);
+    await call('transcribe', {
+      recordingIds: [id],
+      speakers: 3,
+      languages: ['en'],
+      diarize: true,
+    });
+    expect(ctx.diarizerInstances[0]?.calls[0]?.speakers).toBe(3);
+    await close();
+  });
+
+  it('does not pass speakers to the diarizer when diarize is off', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    const { call, close } = await connect(ctx);
+    await call('transcribe', { recordingIds: [id], speakers: 3, languages: ['en'] });
+    expect(ctx.diarizerInstances).toHaveLength(0);
     await close();
   });
 });

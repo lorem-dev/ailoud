@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { DEFAULT_TEMPLATE, transcribeRecording } from '@ailoud/core';
+import { DEFAULT_TEMPLATE, guessLanguages, transcribeRecording } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecording, resolveRecordings } from '../resolveId.js';
 import { parseTags } from '../tags.js';
@@ -144,7 +144,10 @@ export function registerWriteTools(server: McpServer, context: CliContext, _deps
         "machine, more on a slow one. A long recording may outlast your client's tool timeout; " +
         'if that happens, the work is not lost, and calling again picks up what has no ' +
         'transcript yet.\n\n' +
-        'Name the recordings. There is no default selection, deliberately.',
+        'Name the recordings. There is no default selection, deliberately.\n\n' +
+        'REFUSES until speakers and languages are both given. Whisper cannot be restricted to a ' +
+        'set of languages unless told what to expect, so the first call without them comes back ' +
+        'with a guess and instructions to ask the user, instead of running.',
       inputSchema: {
         recordingIds: z.array(ID).min(1).describe('Recordings to transcribe. Prefixes accepted.'),
         languages: z
@@ -153,7 +156,17 @@ export function registerWriteTools(server: McpServer, context: CliContext, _deps
           .describe(
             'Expected languages, e.g. ["ru","en"]. Giving more than one turns on per-segment ' +
               'detection and confines it to that set, which is far more reliable than letting ' +
-              'it guess freely.',
+              'it guess freely.\n\n' +
+              "ASK THE USER, and offer your own reading of the recording's name as a starting " +
+              'point. Pass ["auto"] only when they do not know.',
+          ),
+        speakers: z
+          .union([z.number().int().positive(), z.literal('unknown')])
+          .optional()
+          .describe(
+            'How many people speak on this recording. ASK THE USER -- do not guess. Pass ' +
+              '"unknown" if they genuinely do not know; that is recorded, and is better than a ' +
+              'number nobody believes.',
           ),
         diarize: z
           .boolean()
@@ -162,11 +175,42 @@ export function registerWriteTools(server: McpServer, context: CliContext, _deps
         tags: z.array(z.string()).optional().describe('Tags to add while you are here.'),
       },
     },
-    async ({ recordingIds, languages, diarize, tags }) => {
+    async ({ recordingIds, languages, speakers, diarize, tags }) => {
+      // Refused rather than defaulted, and refused BEFORE the work starts.
+      // Declared languages are the difference between a Russian stretch
+      // transcribed as Russian and the same stretch reported as Polish and
+      // returned as phonetic nonsense -- see TranscribeOptions.declaredLanguages
+      // in @ailoud/core. A default would silently pick the worse outcome for
+      // every caller who never read the rules.
+      if (speakers === undefined || languages === undefined || languages.length === 0) {
+        const first = await resolveRecording(context.store, recordingIds[0]!);
+        const guess = guessLanguages({
+          sourcePath: first.sourcePath,
+          title: first.title,
+          tags: await context.store.listTags(first.id),
+        });
+        return fail({
+          error: 'transcribe needs the speaker count and the expected languages',
+          why:
+            'declared languages stop whisper reporting Polish for a Russian stretch, which then ' +
+            'comes back as phonetic nonsense; a known speaker count is more reliable than ' +
+            'letting the diarizer infer one',
+          guess,
+          ask:
+            'Ask the user how many people speak on this recording and in which languages. Offer ' +
+            'the guess above, plus your own reading of the name, and let them correct it. Ask ' +
+            'per recording when the recordings differ.',
+          then: 'call transcribe again with speakers and languages',
+        });
+      }
+
       const warnings: string[] = [];
       const recordings = await resolveRecordings(context.store, recordingIds);
       const parsed = parseTags(tags ?? []);
-      const declared = languages ?? [];
+      // "auto" is the explicit not-known: it satisfies the refusal above
+      // (something was declared) but means nothing was actually named, same
+      // as the CLI's --lang auto.
+      const declared = languages.length === 1 && languages[0] === 'auto' ? [] : languages;
       const multilingual = declared.length > 1;
       const done = [];
       for (const recording of recordings) {
@@ -191,6 +235,11 @@ export function registerWriteTools(server: McpServer, context: CliContext, _deps
             ...(!multilingual && declared.length === 1 ? { language: declared[0] } : {}),
             ...(multilingual ? { multilingual: true, declaredLanguages: declared } : {}),
             ...(diarize === true ? { diarize: true } : {}),
+            // Declared but unused unless diarization actually runs: recorded
+            // in the refusal's absence and otherwise ignored, matching the
+            // CLI's rule that --speakers has nothing to inform without
+            // --diarize.
+            ...(diarize === true && typeof speakers === 'number' ? { speakers } : {}),
           },
         );
         if (parsed.length > 0) await context.store.addTags(recording.id, parsed);
