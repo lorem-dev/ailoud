@@ -160,7 +160,11 @@ export class FakeStt implements TranscriptionProvider {
   readonly name = 'fake';
   readonly capabilities: TranscriptionProvider['capabilities'];
   /** Every opts object this fake was called with, in call order. */
-  readonly calls: Array<{ readonly language?: string; readonly model?: string }> = [];
+  readonly calls: Array<{
+    readonly language?: string;
+    readonly model?: string;
+    readonly onProgress?: (fraction: number) => void;
+  }> = [];
   /** Every audio path handed to transcribe(), in call order. */
   readonly transcribePaths: string[] = [];
   /** Every audio path handed to detectLanguage(), in call order. */
@@ -174,6 +178,7 @@ export class FakeStt implements TranscriptionProvider {
     segments: RawSegment[];
   }>;
   private readonly languageQueue: string[];
+  private readonly progressFractions: readonly number[];
 
   constructor(
     result:
@@ -181,9 +186,19 @@ export class FakeStt implements TranscriptionProvider {
       | ReadonlyArray<{ language: string; model: string; segments: RawSegment[] }>,
     capabilities?: Partial<TranscriptionProvider['capabilities']>,
     detectedLanguages: readonly string[] = [],
+    /**
+     * Fractions transcribe() reports through opts.onProgress, in order, on
+     * every call it makes. Empty (the default) is the original behaviour:
+     * the fake never calls onProgress, same as a real provider that cannot
+     * report progress. A test that needs to drive a caller's onProgress
+     * closure -- rather than just supply one that is never invoked -- passes
+     * a sequence here, e.g. [0.5, 1].
+     */
+    progressFractions: readonly number[] = [],
   ) {
     this.results = Array.isArray(result) ? result : [result];
     this.languageQueue = [...detectedLanguages];
+    this.progressFractions = progressFractions;
     this.capabilities = {
       maxBytes: null,
       supportsDiarization: false,
@@ -195,12 +210,22 @@ export class FakeStt implements TranscriptionProvider {
 
   async transcribe(
     audioPath: string,
-    opts: { readonly language?: string; readonly model?: string },
+    opts: {
+      readonly language?: string;
+      readonly model?: string;
+      readonly onProgress?: (fraction: number) => void;
+    },
   ): Promise<{ language: string; model: string; segments: RawSegment[] }> {
     this.transcribePaths.push(audioPath);
     const result = this.results[this.calls.length] ?? this.results.at(-1);
     this.calls.push(opts);
     if (result === undefined) throw new Error('FakeStt has no canned result to return');
+    // Mirrors a real provider: reports its own progress synchronously,
+    // before the call resolves, and does not guard the callback itself --
+    // that guarantee belongs to the caller (see report() in transcribe.ts).
+    for (const fraction of this.progressFractions) {
+      opts.onProgress?.(fraction);
+    }
     return result;
   }
 

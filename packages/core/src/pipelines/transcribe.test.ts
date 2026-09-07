@@ -27,18 +27,28 @@ const recording: Recording = {
   importedAt: '2026-01-01T00:00:00.000Z',
 };
 
-const deps = () => ({
+/**
+ * @param progressFractions Forwarded to FakeStt so a test can make the
+ * provider drive a caller's onProgress closure. Empty by default, matching
+ * every pre-existing use of deps() where the provider never calls it.
+ */
+const deps = (progressFractions: readonly number[] = []) => ({
   fs: new MemFs({ '/data/media/sh/sha-AUDIO.mp3': 'AUDIO' }),
   store: new InMemoryStore(),
   audio: new FakeAudioTool(),
-  stt: new FakeStt({
-    language: 'ru',
-    model: 'base.bin',
-    segments: [
-      { startMs: 0, endMs: 1500, text: 'Privet.' },
-      { startMs: 1500, endMs: 3200, text: 'Kak dela?' },
-    ],
-  }),
+  stt: new FakeStt(
+    {
+      language: 'ru',
+      model: 'base.bin',
+      segments: [
+        { startMs: 0, endMs: 1500, text: 'Privet.' },
+        { startMs: 1500, endMs: 3200, text: 'Kak dela?' },
+      ],
+    },
+    undefined,
+    [],
+    progressFractions,
+  ),
   clock: new FakeClock(),
   ids: new FakeIds(),
   mediaRoot: '/data/media',
@@ -273,6 +283,12 @@ interface MultilingualScenario {
   readonly languages?: readonly string[];
   readonly texts?: ReadonlyArray<readonly RawSegment[]>;
   readonly supportsLanguageDetection?: boolean;
+  /**
+   * Forwarded to FakeStt so a test can make the provider drive a caller's
+   * onProgress closure on every transcribe() call it makes (one per run).
+   * Empty by default, matching every pre-existing scenario.
+   */
+  readonly progressFractions?: readonly number[];
 }
 
 /** Deps for the multilingual path: a segmenter, a queue of detected languages, and one transcribe result per run. */
@@ -296,6 +312,7 @@ function multilingualDeps(scenario: MultilingualScenario) {
       results,
       { supportsLanguageDetection: scenario.supportsLanguageDetection ?? true },
       languages,
+      scenario.progressFractions ?? [],
     ),
     segmenter: new FakeSegmenter(spans),
     clock: new FakeClock(),
@@ -539,12 +556,15 @@ describe('transcribeRecording progress', () => {
   });
 
   it('reports the diarizing stage while it cannot be measured, then again once done', async () => {
-    // Two 'diarizing' events are expected, not one: the first announces the
+    // Exactly two 'diarizing' events, in this order: the first announces the
     // stage starting and deliberately carries no fraction (the diarizer
-    // reports nothing about its own progress), and the last is the run's
+    // reports nothing about its own progress), and the second is the run's
     // closing report, which lands on 'diarizing' precisely so the bar
-    // reaches 100% on a diarized run -- see stageScale's doc comment. Only
-    // that closing report is allowed a fraction.
+    // reaches 100% on a diarized run -- see stageScale's doc comment. Pinning
+    // both count and order (not just "some"/"every") is what actually
+    // encodes the honesty rule: [1, undefined] would satisfy a looser check
+    // but would mean the close arrived before the start, or a second
+    // measured value was invented mid-run.
     const events: ProgressEvent[] = [];
     const diarizer = new FakeDiarizer([{ startMs: 0, endMs: 3200, speaker: 'speaker_00' }]);
     await transcribeRecording(
@@ -553,9 +573,7 @@ describe('transcribeRecording progress', () => {
       { diarize: true },
     );
     const diarizing = events.filter((e) => e.stage === 'diarizing');
-    expect(diarizing.length).toBeGreaterThan(0);
-    expect(diarizing.some((e) => e.fraction === undefined)).toBe(true);
-    expect(diarizing.every((e) => e.fraction === undefined || e.fraction === 1)).toBe(true);
+    expect(diarizing.map((e) => e.fraction)).toEqual([undefined, 1]);
   });
 
   it('still produces a transcript when the progress sink throws', async () => {
@@ -575,5 +593,125 @@ describe('transcribeRecording progress', () => {
   it('still produces a transcript when no progress sink is supplied at all', async () => {
     const transcript = await transcribeRecording(deps(), recording, {});
     expect(transcript.id).toBeDefined();
+  });
+
+  it("scales the provider's own progress into the transcribing stage on the single-pass path", async () => {
+    // Unlike the other single-pass tests above, this one actually drives the
+    // onProgress closure passed to deps.stt.transcribe -- the thing the
+    // provider itself calls -- rather than only the direct report() calls
+    // transcribeRecording makes on its own. FakeStt(..., [0.5, 1]) reports
+    // those two fractions synchronously from inside transcribe().
+    const events: ProgressEvent[] = [];
+    await transcribeRecording(
+      { ...deps([0.5, 1]), onProgress: (event) => events.push(event) },
+      recording,
+      {},
+    );
+    const transcribing = events.filter((e) => e.stage === 'transcribing');
+    const fractions = transcribing.flatMap((e) => (e.fraction === undefined ? [] : [e.fraction]));
+    // scale('converting', 0), scale('transcribing', 0) precede the provider's
+    // own two reports, so at least two, and the provider's 1.0 must reach
+    // the top of the transcribing stage's share -- which is the whole run
+    // here, since there is no diarizing stage to follow it.
+    expect(fractions.length).toBeGreaterThanOrEqual(2);
+    for (const [i, fraction] of fractions.entries()) {
+      if (i > 0) expect(fraction).toBeGreaterThanOrEqual(fractions[i - 1]!);
+    }
+    expect(fractions.at(-1)).toBe(1);
+  });
+
+  it(
+    "weights the provider's progress across multilingual runs by their audio " +
+      'duration, never decreasing or exceeding one',
+    async () => {
+      // Two runs of unequal length (see the sliced-bounds test above for
+      // where 1775 -- the merge boundary -- comes from): run one is ~1775ms,
+      // run two ~1655ms of the 3430ms total. Each run's FakeStt call reports
+      // [0.5, 1] through the onProgress closure under test -- the one that
+      // computes (doneRunMs + runMs * fraction) / totalRunMs. If that
+      // arithmetic weighted by run count instead of audio duration, or reset
+      // to 0 rather than carrying doneRunMs forward, the run boundary
+      // (fractions[1] to fractions[2]) would go backwards or jump to
+      // implausible values instead of stepping forward from run one's own
+      // share to run two's.
+      const events: ProgressEvent[] = [];
+      const d = multilingualDeps({
+        spans: [
+          { startMs: 0, endMs: 1750 },
+          { startMs: 1800, endMs: 3430 },
+        ],
+        languages: ['en', 'ru'],
+        progressFractions: [0.5, 1],
+      });
+      await transcribeRecording({ ...d, onProgress: (event) => events.push(event) }, recording, {
+        multilingual: true,
+      });
+      const transcribing = events.filter((e) => e.stage === 'transcribing');
+      const fractions = transcribing.flatMap((e) => (e.fraction === undefined ? [] : [e.fraction]));
+      // Two runs x two reported fractions each, at minimum (the closing
+      // report may add one more, also 'transcribing' since diarize is off).
+      expect(fractions.length).toBeGreaterThanOrEqual(4);
+      for (const fraction of fractions) {
+        expect(fraction).toBeLessThanOrEqual(1);
+      }
+      for (const [i, fraction] of fractions.entries()) {
+        if (i > 0) expect(fraction).toBeGreaterThanOrEqual(fractions[i - 1]!);
+      }
+      // The run boundary: run two's first (0.5-of-its-own-share) report must
+      // not fall below run one's last (1.0-of-its-own-share, i.e. run one
+      // fully done) report -- proof the weighting carries doneRunMs forward
+      // rather than resetting per run.
+      expect(fractions[2]!).toBeGreaterThanOrEqual(fractions[1]!);
+      expect(fractions.at(-1)).toBe(1);
+    },
+  );
+
+  it('still produces a transcript when the sink invoked from inside the single-pass provider throws', async () => {
+    // The other "sink throws" test above only proves transcribeRecording's
+    // own direct report() calls are safe. This one proves the guarantee
+    // holds for the closure the provider itself calls mid-transcribe --
+    // FakeStt(..., [0.5, 1]) actually invokes it, from inside transcribe(),
+    // rather than leaving it unused like every deps() call before this task.
+    const transcript = await transcribeRecording(
+      {
+        ...deps([0.5, 1]),
+        onProgress: () => {
+          throw new Error('sink exploded from inside the provider');
+        },
+      },
+      recording,
+      {},
+    );
+    expect(transcript.id).toBeDefined();
+  });
+
+  it('still produces a transcript when the sink invoked from inside a multilingual run throws', async () => {
+    // The highest-risk closure in the multilingual path: it closes over
+    // doneRunMs, runMs and totalRunMs, runs inside the run loop's try/finally
+    // that removes each temporary slice, and is invoked by the provider, not
+    // by transcribeRecording directly. A throw here must neither abort the
+    // run nor skip the slice cleanup in that finally.
+    const d = multilingualDeps({
+      spans: [
+        { startMs: 0, endMs: 1750 },
+        { startMs: 1800, endMs: 3430 },
+      ],
+      languages: ['en', 'ru'],
+      progressFractions: [0.5, 1],
+    });
+    const filesBefore = d.fs.files.size;
+    const transcript = await transcribeRecording(
+      {
+        ...d,
+        onProgress: () => {
+          throw new Error('sink exploded from inside the provider');
+        },
+      },
+      recording,
+      { multilingual: true },
+    );
+    expect(transcript.id).toBeDefined();
+    // The throw did not skip a slice's finally-cleanup either.
+    expect(d.fs.files.size).toBeLessThanOrEqual(filesBefore);
   });
 });

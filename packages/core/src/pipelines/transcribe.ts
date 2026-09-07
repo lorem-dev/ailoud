@@ -486,6 +486,13 @@ async function transcribeMultilingual(
       throw new FailureError(`${deps.stt.name} found no speech in ${recording.sourcePath}`);
     }
 
+    // No fraction: the diarizer reports nothing about its own progress, and
+    // a number invented here would be indistinguishable from a measured one.
+    // Announced here, immediately before the labelling work itself, and
+    // deliberately not next to the closing report below -- moving it there
+    // would announce the stage only after it already finished.
+    if (options.diarize === true) report(deps, 'labelling');
+
     // Every run's segments are already shifted onto the recording's absolute
     // timeline (see the comment above), so one diarizer pass over the whole
     // wav -- not one per run -- lines up with all of them at once.
@@ -523,9 +530,8 @@ async function transcribeMultilingual(
 
     // Nothing progress-related between the assembled transcript and its
     // write to the store, for the same reason the single-pass path holds
-    // that boundary bare. The closing reports land right after.
+    // that boundary bare. The closing report lands right after.
     await deps.store.insertTranscript(transcript, segments);
-    if (options.diarize === true) report(deps, 'labelling');
     report(deps, options.diarize === true ? 'labelling' : 'transcribing', 1);
     return transcript;
   } finally {
