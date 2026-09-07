@@ -358,6 +358,48 @@ describe('JobReporter', () => {
     });
   });
 
+  it('advance() records how many recordings in the batch are done', async () => {
+    await withDir(async (dir) => {
+      const reporter = new JobReporter({
+        fs: new NodeFs(),
+        jobsDir: dir,
+        initial: initial(dir),
+        log: new JobLog(join(dir, 'j.log')),
+        throttleMs: 0,
+      });
+      reporter.advance(1);
+      await reporter.flush();
+      let state = await readJobState(new NodeFs(), dir, initial(dir).id);
+      expect(state?.recordings).toEqual({ total: 2, done: 1 });
+
+      reporter.advance(2);
+      await reporter.flush();
+      state = await readJobState(new NodeFs(), dir, initial(dir).id);
+      expect(state?.recordings).toEqual({ total: 2, done: 2 });
+    });
+  });
+
+  it('fail() is a no-op once the job already reached a terminal state', async () => {
+    await withDir(async (dir) => {
+      // I2: the try/catch that calls fail() now wraps withJobLock itself, so
+      // a throw from the lock's release path -- after body() already
+      // succeeded and finish() already ran -- must not turn a done job back
+      // into a failed one.
+      const reporter = new JobReporter({
+        fs: new NodeFs(),
+        jobsDir: dir,
+        initial: initial(dir),
+        log: new JobLog(join(dir, 'j.log')),
+      });
+      await reporter.finish({ ok: true });
+      await reporter.fail('lock release blew up');
+      const state = await readJobState(new NodeFs(), dir, initial(dir).id);
+      expect(state?.state).toBe('done');
+      expect(state?.error).toBeNull();
+      expect(state?.result).toEqual({ ok: true });
+    });
+  });
+
   it('records a failure as a message, with no stack', async () => {
     await withDir(async (dir) => {
       const reporter = new JobReporter({
