@@ -111,7 +111,6 @@ ailoud audio summarize [ids...] [options]
 | `--fresh`             | re-read transcripts instead of stored reports       |
 | `--no-save`           | do not store the summary                            |
 | `--max-cpu <percent>` | share of this machine to use, 1 to 100              |
-| `--no-gpu`            | do not use the GPU, even where a binary supports it |
 | `--detach`            | start the work in the background and print a job id |
 
 ## audio ls

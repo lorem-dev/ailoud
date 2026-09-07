@@ -33,9 +33,9 @@ export function parseDetectedLanguage(output: string): string {
 /**
  * Reads whisper's progress line, or returns null.
  *
- * MEASURED, not guessed, unlike the argument list below: `whisper-cli` with
- * `-pp` prints `whisper_print_progress_callback: progress =  46%` to stderr,
- * with variable padding before the number, and fires once per decoded
+ * MEASURED, not guessed: `whisper-cli` with `-pp` prints
+ * `whisper_print_progress_callback: progress =  46%` to stderr, with
+ * variable padding before the number, and fires once per decoded
  * segment rather than on fixed steps. A 57-second fixture produced three
  * lines; an hour-long recording produces hundreds.
  *

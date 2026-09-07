@@ -193,9 +193,12 @@ export async function checkVadBinary(
  * platform ('run "ailoud setup" (ailoud setup)'). The hint alone, exactly as
  * checkVadBinary uses it.
  *
- * NOT VERIFIED AGAINST A REAL BUILD: like the whisper-cli check above, this
- * assumes sherpa-onnx-offline-speaker-diarization exits 0 on "--help". No
- * such binary is available in this environment to confirm that.
+ * VERIFIED against a real build, the same way the whisper-cli check in
+ * runChecks below is: sherpa-onnx-offline-speaker-diarization v1.13.6 does
+ * exit 0 on "--help" (confirmed at the configured
+ * `~/.local/share/ailoud/sherpa/v1.13.6/bin/` path; the binary is not on
+ * PATH). This comment used to say no binary was available to check that;
+ * one is, and it agrees.
  *
  * `optional: true` on every branch: diarization is opt-in (`--diarize`), so
  * this binary being missing means one feature is unavailable, not that ailoud
@@ -522,11 +525,10 @@ export async function runChecks(
       undefined,
       { kind: 'install-ffmpeg' },
     ),
-    // NOT VERIFIED AGAINST A REAL BUILD: this assumes whisper-cli exits 0 on
-    // "--help", the same way ffmpeg and ffprobe do on "-version". No
-    // whisper-cli binary is available in this environment to confirm that;
-    // if a real build exits non-zero for "--help" instead, this check will
-    // report a working binary as failing.
+    // VERIFIED against a real build: whisper-cli (homebrew, ggml 0.22.0)
+    // does exit 0 on "--help", the same way ffmpeg and ffprobe do on
+    // "-version". This comment used to say no binary was available to
+    // check that; one is, and it agrees.
     // Reported by the configured value, not by the command's first output
     // line: whisper-cli prints backend chatter ("load_backend: loaded BLAS
     // backend from ...") on stderr and nothing on stdout, for --help and

@@ -28,7 +28,6 @@ interface SummarizeOptions {
   readonly template?: string;
   readonly context?: string;
   readonly maxCpu?: string;
-  readonly gpu?: boolean;
   readonly job?: string;
   readonly detach?: boolean;
 }
@@ -100,7 +99,6 @@ function summarizeChildArgs(ids: readonly string[], options: SummarizeOptions): 
   if (options.template !== undefined) args.push('--template', options.template);
   if (options.context !== undefined) args.push('--context', options.context);
   if (options.maxCpu !== undefined) args.push('--max-cpu', options.maxCpu);
-  if (options.gpu === false) args.push('--no-gpu');
   return args;
 }
 
@@ -126,7 +124,6 @@ export function registerSummarize(program: Command, context: CliContext): void {
       '--max-cpu <percent>',
       'share of this machine to use, 1 to 100 (default: the configured 90)',
     )
-    .option('--no-gpu', 'do not use the GPU, even where a binary supports it')
     // Hidden, and not a feature: this is how the detached child started by
     // `--detach` and by the MCP server is told which job it is. A user has
     // no reason to pass it, and `--help` listing it would invite exactly the
@@ -154,7 +151,6 @@ export function registerSummarize(program: Command, context: CliContext): void {
       // its own.
       const budget = await context.resources({
         ...(options.maxCpu === undefined ? {} : { maxCpuPercent: parseMaxCpu(options.maxCpu) }),
-        ...(options.gpu === false ? { gpu: false } : {}),
       });
 
       if (options.detach === true) {

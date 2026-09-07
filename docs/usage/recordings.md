@@ -26,7 +26,7 @@ Where a flag means different things to different verbs, it gets a row each.
 | `--force`                | transcribe            | re-transcribe recordings that already have a transcript                                            |
 | `--force`                | rm                    | delete without asking                                                                              |
 | `--max-cpu <percent>`    | transcribe, summarize | share of this machine to use, 1 to 100                                                             |
-| `--no-gpu`               | transcribe, summarize | do not use the GPU, even where a binary supports it                                                |
+| `--no-gpu`               | transcribe            | do not use the GPU, even where a binary supports it                                                |
 | `--denoise <mode>`       | transcribe            | `auto`, `on` or `off`                                                                              |
 | `--detach`               | transcribe            | start the work in the background and print its job id                                              |
 

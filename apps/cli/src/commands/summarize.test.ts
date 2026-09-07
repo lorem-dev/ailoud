@@ -503,7 +503,7 @@ describe('ailoud summarize --detach', () => {
   });
 });
 
-describe('ailoud summarize --max-cpu, --no-gpu', () => {
+describe('ailoud summarize --max-cpu', () => {
   afterEach(() => {
     vi.mocked(spawnDetachedJob).mockReset();
   });
@@ -540,20 +540,26 @@ describe('ailoud summarize --max-cpu, --no-gpu', () => {
     ]);
   });
 
-  it('--no-gpu forwards gpu: false to the summarizer', async () => {
-    const ctx = await contextWithTranscript({ clearLines: true });
-    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--no-gpu']);
-    expect(ctx.summarizerBudgets).toEqual([
-      expect.objectContaining({ gpu: false }),
-      expect.objectContaining({ gpu: false }),
-    ]);
-  });
-
   it('does not register --denoise: summarizing reads stored transcripts, not audio', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     const program = buildProgram(ctx);
     const summarizeCmd = program.commands.find((c) => c.name() === 'summarize')!;
     expect(summarizeCmd.options.find((o) => o.long === '--denoise')).toBeUndefined();
+  });
+
+  it('does not register --no-gpu: no summariser reads budget.gpu', async () => {
+    // --no-gpu was removed from summarize because it provably did nothing:
+    // llama's -ngl was deliberately dropped for want of a measurement, and
+    // the three hosted providers (claude-cli, anthropic, openai-compatible)
+    // have no GPU to disable. It stays on transcribe, where it reaches
+    // whisper's -ng.
+    const ctx = await contextWithTranscript({ clearLines: true });
+    const program = buildProgram(ctx);
+    const summarizeCmd = program.commands.find((c) => c.name() === 'summarize')!;
+    expect(summarizeCmd.options.find((o) => o.long === '--no-gpu')).toBeUndefined();
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--no-gpu']),
+    ).rejects.toThrow(/unknown option/);
   });
 
   it('validates --max-cpu before creating a job or spawning anything, under --detach', async () => {
@@ -575,7 +581,7 @@ describe('ailoud summarize --max-cpu, --no-gpu', () => {
     });
   });
 
-  it('forwards --max-cpu and --no-gpu to the detached child, unmodified', async () => {
+  it('forwards --max-cpu to the detached child, unmodified', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await withRealDataDir(ctx, async () => {
       await buildProgram(ctx).parseAsync([
@@ -585,22 +591,20 @@ describe('ailoud summarize --max-cpu, --no-gpu', () => {
         'ID001',
         '--max-cpu',
         '50',
-        '--no-gpu',
         '--detach',
       ]);
       expect(spawnDetachedJob).toHaveBeenCalledTimes(1);
       const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
-      expect(commandArgs).toEqual(['summarize', 'ID001', '--max-cpu', '50', '--no-gpu']);
+      expect(commandArgs).toEqual(['summarize', 'ID001', '--max-cpu', '50']);
     });
   });
 
-  it('forwards neither to the detached child when nothing was asked for', async () => {
+  it('forwards nothing to the detached child when nothing was asked for', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await withRealDataDir(ctx, async () => {
       await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--detach']);
       const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
       expect(commandArgs).not.toContain('--max-cpu');
-      expect(commandArgs).not.toContain('--no-gpu');
     });
   });
 });
