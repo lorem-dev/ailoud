@@ -26,6 +26,7 @@ export type { InstallSherpaOptions } from './provision/sherpaInstall.js';
 
 export { NodeFs } from './system/nodeFs.js';
 export { SystemClock, UlidIds } from './system/systemClock.js';
+export { cpuTopology, parsePerformanceCores } from './system/cpuTopology.js';
 
 export { FfmpegAudioTool } from './audio/ffmpeg.js';
 
