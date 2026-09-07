@@ -129,6 +129,20 @@ describe('multilingualStages', () => {
   it('never gives a stage a zero weight, so no stage is unreachable', () => {
     const stages = multilingualStages({ unitCount: 0, audioSeconds: 0, diarize: true });
     for (const stage of stages) expect(stage.weight).toBeGreaterThan(0);
+  });
+
+  it('ends on transcribing when diarization is off', () => {
+    const stages = multilingualStages({ unitCount: 4, audioSeconds: 600, diarize: false });
     expect(stageScale(stages)('transcribing', 1)).toBe(1);
+  });
+
+  it('ends on labelling when diarization is on, because labels come after the words', () => {
+    // withSpeakers runs after the transcription loop in transcribeMultilingual:
+    // segments must exist before a speaker can be attributed to them. So
+    // `transcribing` finishing is NOT the run finishing.
+    const stages = multilingualStages({ unitCount: 4, audioSeconds: 600, diarize: true });
+    const scale = stageScale(stages);
+    expect(scale('labelling', 1)).toBe(1);
+    expect(scale('transcribing', 1)).toBeLessThan(1);
   });
 });

@@ -126,7 +126,7 @@ export function multilingualStages(input: {
     { name: 'converting', weight: 2 },
     { name: 'segmenting', weight: 8 },
     { name: 'detecting', weight: detecting },
-    ...(input.diarize ? [{ name: 'labelling', weight: 2 }] : []),
     { name: 'transcribing', weight: transcribing },
+    ...(input.diarize ? [{ name: 'labelling', weight: 2 }] : []),
   ];
 }
