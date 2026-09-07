@@ -2,14 +2,20 @@ import { join } from 'node:path';
 import type { Command } from 'commander';
 import { Option } from 'commander';
 import { DEFAULT_TEMPLATE, FailureError, UsageError } from '@ailoud/core';
+import type { Recording, SummaryTemplate } from '@ailoud/core';
 import { page, shouldPage } from '@ailoud/providers';
 import type { CliContext } from '../wiring.js';
 import { resolveRecordings } from '../resolveId.js';
 import { collectTag, parseTags } from '../tags.js';
 import { loadTemplate, loadTemplates, templatesDir } from '../templateStore.js';
 import { runSummary } from '../summarizeRun.js';
-import { withJobLock } from '../jobs/lock.js';
+import { JobLog } from '../jobs/log.js';
+import { JobReporter } from '../jobs/reporter.js';
+import { createJob } from '../jobs/store.js';
+import { jobBusyMessage, jobLockHolder, withJobLock } from '../jobs/lock.js';
 import { loadJob } from '../jobs/loadJob.js';
+import { jobStatePath } from '../jobs/state.js';
+import { spawnDetachedJob } from '../jobs/spawn.js';
 
 export { transcriptBudget } from '../summarizeRun.js';
 
@@ -21,6 +27,76 @@ interface SummarizeOptions {
   readonly template?: string;
   readonly context?: string;
   readonly job?: string;
+  readonly detach?: boolean;
+}
+
+interface ResolvedSummarizeRun {
+  readonly tags: readonly string[];
+  readonly template: SummaryTemplate;
+  readonly recordings: readonly Recording[];
+}
+
+/**
+ * Validates and resolves everything summarize needs before any work starts:
+ * the id/tag selection, the template, and which recordings are in scope.
+ *
+ * Shared between the normal run and `--detach`, so a bad selection or an
+ * unknown template costs a usage error right here, at the prompt -- never
+ * after a transcript has been chunked and sent to a model.
+ */
+async function resolveSummarizeRun(
+  context: CliContext,
+  ids: readonly string[],
+  options: SummarizeOptions,
+): Promise<ResolvedSummarizeRun> {
+  const tags = parseTags(options.tag ?? []);
+  if (ids.length === 0 && tags.length === 0) {
+    // Summarising the entire library by accident would be an expensive
+    // mistake -- minutes of local inference, or real money on a hosted
+    // model -- so there is no default selection here, unlike transcribe.
+    throw new UsageError('summarize needs recording ids or --tag; it has no default.');
+  }
+  if (ids.length > 0 && tags.length > 0) {
+    throw new UsageError('summarize takes ids or --tag, not both.');
+  }
+  // Resolved here, before anything is read or spawned: a mistyped template
+  // should fail in milliseconds, not after a transcript has been chunked.
+  // From disk, so an edited template takes effect and a template the user
+  // wrote is a peer of the shipped ones.
+  const dir = templatesDir(context.paths.configFile);
+  const wanted = options.template ?? DEFAULT_TEMPLATE;
+  const template = await loadTemplate(context.fs, dir, wanted);
+  if (template === undefined) {
+    const available = (await loadTemplates(context.fs, dir)).map((t) => t.name).join(', ');
+    throw new UsageError(`unknown --template "${wanted}"; choose one of: ${available}`);
+  }
+  const recordings =
+    ids.length > 0
+      ? await resolveRecordings(context.store, ids)
+      : await context.store.listRecordings({ tags });
+  if (recordings.length === 0) {
+    throw new FailureError(`No recordings carry ${tags.map((t) => `"${t}"`).join(' and ')}.`);
+  }
+  return { tags, template, recordings };
+}
+
+/**
+ * Serializes the detached child's argv from the already-parsed, already-
+ * validated `ids` and `options` -- never from `process.argv`. See
+ * transcribeChildArgs's own comment in transcribe.ts for why: raw argv can
+ * both lose a legitimate value that collides with the literal string
+ * `"--detach"` (a `--context` note, say) and cannot be trusted to still be
+ * `[node, script, ...args]` under every wrapper this CLI runs behind.
+ */
+function summarizeChildArgs(ids: readonly string[], options: SummarizeOptions): string[] {
+  const args: string[] = ['summarize', ...ids];
+  for (const tag of options.tag ?? []) args.push('--tag', tag);
+  if (options.lang !== undefined) args.push('--lang', options.lang);
+  if (options.fresh === true) args.push('--fresh');
+  if (options.save === false) args.push('--no-save');
+  if (options.template !== undefined) args.push('--template', options.template);
+  if (options.context !== undefined) args.push('--context', options.context);
+  return args;
 }
 
 export function registerSummarize(program: Command, context: CliContext): void {
@@ -51,44 +127,64 @@ export function registerSummarize(program: Command, context: CliContext): void {
         'report into an existing job state file instead of the terminal',
       ).hideHelp(),
     )
+    .option('--detach', 'start the work in the background and print its job id')
     .description('Summarise one or several recordings with a language model')
     .action(async (ids: string[], options: SummarizeOptions) => {
+      // The two ends of one mechanism: --job is how a detached child reports
+      // in, --detach is how one gets started. Naming both says two
+      // contradictory things about who is driving this run.
+      if (options.detach === true && options.job !== undefined) {
+        throw new UsageError('--detach cannot be combined with --job.');
+      }
+
+      if (options.detach === true) {
+        // Every validation the normal run would do, run here, before the job
+        // file exists or anything is spawned -- see resolveSummarizeRun's
+        // own comment.
+        const resolved = await resolveSummarizeRun(context, ids, options);
+        const holder = await jobLockHolder(context.paths.dataDir);
+        if (holder !== null) {
+          throw new FailureError(jobBusyMessage(holder));
+        }
+        const job = await createJob(
+          {
+            fs: context.fs,
+            ids: context.ids,
+            clock: context.clock,
+            jobsDir: context.paths.jobsDir,
+          },
+          { kind: 'summarize', recordings: resolved.recordings.length, declared: null },
+        );
+        try {
+          await spawnDetachedJob(
+            { fs: context.fs, jobsDir: context.paths.jobsDir },
+            summarizeChildArgs(ids, options),
+            job,
+          );
+        } catch (error) {
+          // The id below must always resolve: if the child never started,
+          // the job file must say so rather than "running" forever.
+          const reporter = new JobReporter({
+            fs: context.fs,
+            jobsDir: context.paths.jobsDir,
+            initial: job,
+            log: new JobLog(job.log),
+          });
+          await reporter.fail(error instanceof Error ? error.message : String(error));
+          throw error;
+        }
+        context.ui.success(
+          `started job ${job.id} -- progress in ${jobStatePath(context.paths.jobsDir, job.id)}`,
+        );
+        return;
+      }
+
       const job = await loadJob(context, options.job);
 
       const body = async (): Promise<unknown> => {
-        const tags = parseTags(options.tag ?? []);
-        if (ids.length === 0 && tags.length === 0) {
-          // Summarising the entire library by accident would be an expensive
-          // mistake -- minutes of local inference, or real money on a hosted
-          // model -- so there is no default selection here, unlike transcribe.
-          throw new UsageError('summarize needs recording ids or --tag; it has no default.');
-        }
-        if (ids.length > 0 && tags.length > 0) {
-          throw new UsageError('summarize takes ids or --tag, not both.');
-        }
-        // Resolved here, before anything is read or spawned: a mistyped template
-        // should fail in milliseconds, not after a transcript has been chunked.
-        // From disk, so an edited template takes effect and a template the user
-        // wrote is a peer of the shipped ones.
-        const dir = templatesDir(context.paths.configFile);
-        const wanted = options.template ?? DEFAULT_TEMPLATE;
-        const template = await loadTemplate(context.fs, dir, wanted);
-        if (template === undefined) {
-          const available = (await loadTemplates(context.fs, dir)).map((t) => t.name).join(', ');
-          throw new UsageError(`unknown --template "${wanted}"; choose one of: ${available}`);
-        }
+        const { template, recordings } = await resolveSummarizeRun(context, ids, options);
 
         return context.ui.frame('Summarising', async () => {
-          const recordings =
-            ids.length > 0
-              ? await resolveRecordings(context.store, ids)
-              : await context.store.listRecordings({ tags });
-          if (recordings.length === 0) {
-            throw new FailureError(
-              `No recordings carry ${tags.map((t) => `"${t}"`).join(' and ')}.`,
-            );
-          }
-
           // The transcripts are written out for the length of the run and no
           // longer. They exist as files because a long one goes to the model in
           // portions and because the prompt reaches a spawned binary through a

@@ -117,6 +117,15 @@ export class JobReporter {
       percent: 100,
       finishedAt: new Date(this.now()).toISOString(),
       result,
+      // A done job carrying a leftover error would say two contradictory
+      // things about itself. `initial` can already have one set -- a
+      // `--job` id created by a process that has since exited (a detached
+      // launcher, always) reads as a dead job under withLiveness the moment
+      // anyone checks on it, error message and all, even though the work
+      // genuinely finished. Explicit rather than relying on the object this
+      // spreads from never having one: that would be true today only by
+      // accident of which callers exist.
+      error: null,
     };
     await this.writeNow();
   }

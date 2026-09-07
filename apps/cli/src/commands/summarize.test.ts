@@ -1,11 +1,15 @@
-import { describe, expect, it } from 'vitest';
-import { UsageError } from '@ailoud/core';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { FailureError, UsageError } from '@ailoud/core';
 import type { Summarizer } from '@ailoud/core';
 import { buildProgram } from '../program.js';
 import { contextWithTranscript, withRealDataDir } from './testContext.js';
 import type { MemFs } from '@ailoud/core/testing';
 import { transcriptBudget } from './summarize.js';
-import { createJob, getJob } from '../jobs/store.js';
+import { createJob, getJob, listJobs } from '../jobs/store.js';
+import { withJobLock } from '../jobs/lock.js';
+import { spawnDetachedJob } from '../jobs/spawn.js';
+
+vi.mock('../jobs/spawn.js', () => ({ spawnDetachedJob: vi.fn() }));
 
 const summarizer = (contextTokens: number): Summarizer => ({
   name: 'fake',
@@ -337,6 +341,133 @@ describe('ailoud summarize --job', () => {
       const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
       expect(state?.state).toBe('failed');
       expect(state?.error).toBeTruthy();
+    });
+  });
+});
+
+describe('ailoud summarize --detach', () => {
+  afterEach(() => {
+    vi.mocked(spawnDetachedJob).mockReset();
+  });
+
+  it('is not hidden from --help, unlike --job', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    const program = buildProgram(ctx);
+    const summarizeCmd = program.commands.find((c) => c.name() === 'summarize')!;
+    const detachOption = summarizeCmd.options.find((o) => o.long === '--detach');
+    expect(detachOption?.hidden).toBeFalsy();
+  });
+
+  it('rejects --detach together with --job before doing anything', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await expect(
+      buildProgram(ctx).parseAsync([
+        'node',
+        'ailoud',
+        'summarize',
+        'ID001',
+        '--detach',
+        '--job',
+        'X',
+      ]),
+    ).rejects.toThrow(UsageError);
+    expect(spawnDetachedJob).not.toHaveBeenCalled();
+  });
+
+  it('validates an unknown --template before creating a job or spawning anything', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      await expect(
+        buildProgram(ctx).parseAsync([
+          'node',
+          'ailoud',
+          'summarize',
+          'ID001',
+          '--template',
+          'retrospective',
+          '--detach',
+        ]),
+      ).rejects.toThrow(/unknown --template "retrospective"/);
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+    });
+  });
+
+  it('validates the id/--tag selection before creating a job or spawning anything', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      await expect(
+        buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', '--detach']),
+      ).rejects.toThrow(/needs recording ids or --tag/);
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+    });
+  });
+
+  it('refuses when another job already holds the lock, without creating a job', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      await withJobLock(ctx.paths.dataDir, async () => {
+        await expect(
+          buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--detach']),
+        ).rejects.toThrow(FailureError);
+      });
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+    });
+  });
+
+  it('creates a running job, spawns the build args without --detach, and returns at once', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      ctx.lines.length = 0;
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--detach']);
+      expect(spawnDetachedJob).toHaveBeenCalledTimes(1);
+      const [, commandArgs, job] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).toEqual(['summarize', 'ID001']);
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
+      expect(state?.state).toBe('running');
+      expect(ctx.lines.join('\n')).toContain(job.id);
+    });
+  });
+
+  it('preserves a --context value that is itself the literal string "--detach"', async () => {
+    // The child args used to be built by filtering process.argv for the
+    // string '--detach', which stripped every occurrence -- including one
+    // that was actually the value of --context, not the flag -- corrupting
+    // the child's invocation. Building from the parsed options instead
+    // means only the real flag is ever left out.
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync([
+        'node',
+        'ailoud',
+        'summarize',
+        'ID001',
+        '--context',
+        '--detach',
+        '--detach',
+      ]);
+      expect(spawnDetachedJob).toHaveBeenCalledTimes(1);
+      const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).toEqual(['summarize', 'ID001', '--context', '--detach']);
+    });
+  });
+
+  it('marks the job failed and rethrows when spawning itself throws', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      vi.mocked(spawnDetachedJob).mockImplementation(() => {
+        throw new Error('spawn boom');
+      });
+      const before = new Set((await listJobs(ctx.fs, ctx.paths.jobsDir)).map((j) => j.id));
+      await expect(
+        buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--detach']),
+      ).rejects.toThrow(/spawn boom/);
+      const after = await listJobs(ctx.fs, ctx.paths.jobsDir);
+      const created = after.find((job) => !before.has(job.id));
+      expect(created?.state).toBe('failed');
+      expect(created?.error).toContain('spawn boom');
     });
   });
 });

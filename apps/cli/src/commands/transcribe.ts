@@ -1,11 +1,23 @@
 import type { Command } from 'commander';
 import { Option } from 'commander';
-import { summarizeLanguages, transcribeRecording, UsageError, weightedOverall } from '@ailoud/core';
+import {
+  FailureError,
+  summarizeLanguages,
+  transcribeRecording,
+  UsageError,
+  weightedOverall,
+} from '@ailoud/core';
+import type { Recording } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecordings } from '../resolveId.js';
 import { collectTag, parseTags } from '../tags.js';
-import { withJobLock } from '../jobs/lock.js';
+import { JobLog } from '../jobs/log.js';
+import { JobReporter } from '../jobs/reporter.js';
+import { createJob } from '../jobs/store.js';
+import { jobBusyMessage, jobLockHolder, withJobLock } from '../jobs/lock.js';
 import { loadJob } from '../jobs/loadJob.js';
+import { jobStatePath } from '../jobs/state.js';
+import { spawnDetachedJob } from '../jobs/spawn.js';
 
 interface TranscribeOptions {
   readonly lang?: string;
@@ -16,6 +28,7 @@ interface TranscribeOptions {
   readonly speakers?: string;
   readonly tag?: string[];
   readonly job?: string;
+  readonly detach?: boolean;
 }
 
 /**
@@ -71,6 +84,85 @@ function parseSpeakerCount(raw: string): number {
   return value;
 }
 
+interface ResolvedTranscribeRun {
+  readonly multilingual: boolean;
+  readonly languages: readonly string[];
+  readonly speakers: number | undefined;
+  readonly tags: readonly string[];
+  readonly recordings: readonly Recording[];
+}
+
+/**
+ * Validates and resolves everything transcribe needs before any work starts:
+ * the language set, the speaker count, the tags, and which recordings are in
+ * scope.
+ *
+ * Shared between the normal run and `--detach`, so a bad `--lang`, a bad
+ * `--speakers`, an unparseable tag, or an unresolvable recording id costs a
+ * usage error right here, at the prompt -- never an hour later in a job
+ * nobody is watching.
+ */
+async function resolveTranscribeRun(
+  context: CliContext,
+  ids: readonly string[],
+  options: TranscribeOptions,
+): Promise<ResolvedTranscribeRun> {
+  if (options.force === true && ids.length === 0) {
+    throw new UsageError(
+      '--force needs explicit recording ids: it would otherwise re-transcribe the whole library.',
+    );
+  }
+  const languages = parseLanguages(options.lang);
+  // Two or more languages IS the statement that the recording switches
+  // between them, so requiring --multilingual as well would be asking the
+  // user to say the same thing twice.
+  const multilingual = options.multilingual === true || languages.length >= 2;
+  if (options.speakers !== undefined && options.diarize !== true) {
+    // A flag that silently does nothing is worse than one that complains:
+    // without --diarize, --speakers has nothing to inform.
+    throw new UsageError('--speakers needs --diarize: it has no effect without it.');
+  }
+  const speakers = options.speakers === undefined ? undefined : parseSpeakerCount(options.speakers);
+  // Parsed before any transcription starts: a bad tag should cost a usage
+  // error, not an hour of whisper followed by one.
+  const tags = parseTags(options.tag ?? []);
+  // Given ids, each may be a prefix; resolveRecordings refuses the whole set
+  // unless every one picks out exactly one recording. Given none, the
+  // default selector still means "everything not yet transcribed".
+  const recordings =
+    ids.length > 0
+      ? await resolveRecordings(context.store, ids)
+      : await context.store.listRecordings({ withoutTranscript: true });
+  return { multilingual, languages, speakers, tags, recordings };
+}
+
+/**
+ * Serializes the detached child's argv from the already-parsed, already-
+ * validated `ids` and `options` -- never from `process.argv`.
+ *
+ * An earlier version of this filtered `process.argv.slice(2)` for the
+ * literal string `'--detach'`. That breaks two ways: it silently drops any
+ * OTHER argument that happens to equal `"--detach"` too -- `--tag --detach`
+ * loses its tag value, not just the flag, since commander hands option
+ * values through untouched and never rejects one that looks like a flag
+ * name; and it trusts `process.argv` to still be exactly `[node, script,
+ * ...args]`, which is true for `node dist/bin/ailoud.js ...` but is not a
+ * promise any wrapper has to keep -- "pnpm ailoud ..." is how this project
+ * runs the CLI in development. Rebuilding from the typed values commander
+ * already parsed sidesteps both: nothing here ever inspects raw argv.
+ */
+function transcribeChildArgs(ids: readonly string[], options: TranscribeOptions): string[] {
+  const args: string[] = ['transcribe', ...ids];
+  if (options.lang !== undefined) args.push('--lang', options.lang);
+  if (options.model !== undefined) args.push('--model', options.model);
+  if (options.force === true) args.push('--force');
+  if (options.multilingual === true) args.push('--multilingual');
+  if (options.diarize === true) args.push('--diarize');
+  if (options.speakers !== undefined) args.push('--speakers', options.speakers);
+  for (const tag of options.tag ?? []) args.push('--tag', tag);
+  return args;
+}
+
 export function registerTranscribe(program: Command, context: CliContext): void {
   program
     .command('transcribe')
@@ -102,39 +194,68 @@ export function registerTranscribe(program: Command, context: CliContext): void 
         'report into an existing job state file instead of the terminal',
       ).hideHelp(),
     )
+    .option('--detach', 'start the work in the background and print its job id')
     .description('Turn recordings into transcripts')
     .action(async (ids: string[], options: TranscribeOptions) => {
+      // The two ends of one mechanism: --job is how a detached child reports
+      // in, --detach is how one gets started. Naming both says two
+      // contradictory things about who is driving this run.
+      if (options.detach === true && options.job !== undefined) {
+        throw new UsageError('--detach cannot be combined with --job.');
+      }
+
+      if (options.detach === true) {
+        // Every validation the normal run would do, run here, before the job
+        // file exists or anything is spawned -- see resolveTranscribeRun's
+        // own comment.
+        const resolved = await resolveTranscribeRun(context, ids, options);
+        const holder = await jobLockHolder(context.paths.dataDir);
+        if (holder !== null) {
+          throw new FailureError(jobBusyMessage(holder));
+        }
+        const job = await createJob(
+          {
+            fs: context.fs,
+            ids: context.ids,
+            clock: context.clock,
+            jobsDir: context.paths.jobsDir,
+          },
+          {
+            kind: 'transcribe',
+            recordings: resolved.recordings.length,
+            declared: { speakers: resolved.speakers ?? 'unknown', languages: resolved.languages },
+          },
+        );
+        try {
+          await spawnDetachedJob(
+            { fs: context.fs, jobsDir: context.paths.jobsDir },
+            transcribeChildArgs(ids, options),
+            job,
+          );
+        } catch (error) {
+          // The id below must always resolve: if the child never started,
+          // the job file must say so rather than "running" forever.
+          const reporter = new JobReporter({
+            fs: context.fs,
+            jobsDir: context.paths.jobsDir,
+            initial: job,
+            log: new JobLog(job.log),
+          });
+          await reporter.fail(error instanceof Error ? error.message : String(error));
+          throw error;
+        }
+        context.ui.success(
+          `started job ${job.id} -- progress in ${jobStatePath(context.paths.jobsDir, job.id)}`,
+        );
+        return;
+      }
+
       const job = await loadJob(context, options.job);
 
       const body = async (): Promise<unknown> =>
         context.ui.frame('Transcribing', async () => {
-          if (options.force === true && ids.length === 0) {
-            throw new UsageError(
-              '--force needs explicit recording ids: it would otherwise re-transcribe the whole library.',
-            );
-          }
-          const languages = parseLanguages(options.lang);
-          // Two or more languages IS the statement that the recording switches
-          // between them, so requiring --multilingual as well would be asking
-          // the user to say the same thing twice.
-          const multilingual = options.multilingual === true || languages.length >= 2;
-          if (options.speakers !== undefined && options.diarize !== true) {
-            // A flag that silently does nothing is worse than one that
-            // complains: without --diarize, --speakers has nothing to inform.
-            throw new UsageError('--speakers needs --diarize: it has no effect without it.');
-          }
-          const speakers =
-            options.speakers === undefined ? undefined : parseSpeakerCount(options.speakers);
-          // Parsed before any transcription starts: a bad tag should cost a
-          // usage error, not an hour of whisper followed by one.
-          const tags = parseTags(options.tag ?? []);
-          // Given ids, each may be a prefix; resolveRecordings refuses the whole
-          // set unless every one picks out exactly one recording. Given none,
-          // the default selector still means "everything not yet transcribed".
-          const recordings =
-            ids.length > 0
-              ? await resolveRecordings(context.store, ids)
-              : await context.store.listRecordings({ withoutTranscript: true });
+          const { multilingual, languages, speakers, tags, recordings } =
+            await resolveTranscribeRun(context, ids, options);
 
           if (recordings.length === 0) {
             // Only reachable via the default selector: with explicit ids, an
