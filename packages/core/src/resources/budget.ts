@@ -54,12 +54,41 @@ export interface ResourceBudget {
 export const DEFAULT_MAX_CPU_PERCENT = 90;
 
 /**
- * How many threads the capped engines must stay clear of, counted down from
- * the base. At `base - 1` the measured curve is already worse than at
- * `base - 2`, and at `base` it collapses. Measured against the diarizer and
- * the VAD segmenter both; see `ResourceBudget.cappedThreads`.
+ * The absolute ceiling for the capped engines, regardless of machine size.
+ *
+ * An earlier revision capped `cappedThreads` relative to the base
+ * (`max(1, base - 2)`) instead of with this absolute number. That was a wrong
+ * generalisation from one machine, and it failed in both directions:
+ *
+ * MEASURED on 607 s of speech, sherpa-onnx diarizer, 8 performance cores:
+ *
+ *   1 thread  120.0 s      6 threads  45.2 s   <- fastest
+ *   2 threads  72.6 s      7 threads  56.5 s
+ *   4 threads  50.3 s      8 threads  66-122 s
+ *                         10 threads 105.6 s
+ *
+ * MEASURED on 607 s of speech, whisper-vad-speech-segments, same machine:
+ *
+ *   1 thread  5.62 s      6 threads  2.17 s   <- fastest
+ *   2 threads  3.38 s      7 threads  3.01 s
+ *   4 threads  2.38 s      8 threads  3.88 s
+ *
+ * Both curves bottom out at 6 and climb on both sides of it. `base - 2` only
+ * ever produced 6 on this one 8-performance-core machine by coincidence: on a
+ * 16-core machine it does not bind at all (14), and on a 64-core Linux server
+ * it would have handed an engine measured fastest at 6 a full 58 threads --
+ * worse than the 4 both engines defaulted to before this feature existed, so
+ * a regression rather than a missed optimisation. Below eight cores it bound
+ * too hard, handing a 2-core machine one thread where two is measurably
+ * faster (3.38 s against 5.62 s).
+ *
+ * 6 is the only optimum either engine has ever measured, measured
+ * independently for both, by two different mechanisms (oversubscribed ONNX
+ * sessions for the diarizer, thread-coordination overhead for the VAD).
+ * Raising this number is a measurement, not a judgement: neither engine has
+ * been profiled above eight threads on any machine but this one.
  */
-const CAPPED_HEADROOM = 2;
+const CAPPED_MAX_THREADS = 6;
 
 function clamp(value: number, low: number, high: number): number {
   if (value < low) return low;
@@ -90,7 +119,7 @@ export function resourceBudget(
   // zero-thread flag would make every engine refuse to start.
   const base = Math.max(1, Math.round(topology.performance ?? topology.logical));
   const threads = clamp(Math.round((base * percent) / 100), 1, base);
-  const cappedThreads = Math.min(threads, Math.max(1, base - CAPPED_HEADROOM));
+  const cappedThreads = Math.min(threads, CAPPED_MAX_THREADS);
 
   return { threads, cappedThreads, gpu: options.gpu ?? true };
 }

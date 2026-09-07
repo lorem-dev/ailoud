@@ -50,7 +50,7 @@ interface LocalResourceBudget {
   readonly cappedThreads: number;
 }
 
-const CAPPED_HEADROOM = 2;
+const CAPPED_MAX_THREADS = 6;
 const DEFAULT_MAX_CPU_PERCENT = 90;
 
 function localCpuTopology(): LocalCpuTopology {
@@ -89,7 +89,7 @@ function localResourceBudget(
       : DEFAULT_MAX_CPU_PERCENT;
   const base = Math.max(1, Math.round(topology.performance ?? topology.logical));
   const threads = clamp(Math.round((base * percent) / 100), 1, base);
-  const cappedThreads = Math.min(threads, Math.max(1, base - CAPPED_HEADROOM));
+  const cappedThreads = Math.min(threads, CAPPED_MAX_THREADS);
   return { threads, cappedThreads };
 }
 

@@ -8,9 +8,12 @@ describe('resourceBudget', () => {
     [10, 8, 100, 8, 6],
     [10, 8, 50, 4, 4],
     [10, 8, 10, 1, 1],
-    [10, null, 90, 9, 8],
-    [2, null, 100, 2, 1],
+    [10, null, 90, 9, 6],
+    [16, null, 90, 14, 6],
+    [64, null, 90, 58, 6],
+    [2, null, 100, 2, 2],
     [1, null, 90, 1, 1],
+    [4, null, 0, 4, 4],
   ])(
     'gives %i logical / %s performance at %i%% -> %i threads, %i for the capped engines',
     (logical, performance, maxCpuPercent, threads, cappedThreads) => {
@@ -29,6 +32,25 @@ describe('resourceBudget', () => {
       const budget = resourceBudget({ logical: 10, performance: 8 }, { maxCpuPercent: percent });
       expect(budget.cappedThreads).toBeLessThanOrEqual(6);
       expect(budget.cappedThreads).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('never lets cappedThreads exceed 6, on any plausible machine shape', () => {
+    // The defect this locks against: an earlier revision capped cappedThreads
+    // relative to the machine's size (`base - 2`), which stopped binding at
+    // all above ~16 logical cores -- exactly the shape most non-Apple-Silicon
+    // servers have, since `performance` is null everywhere except darwin. The
+    // table-driven test above only ever swept one topology (10/8), which is
+    // exactly why that defect survived review.
+    const logicalCounts = [1, 2, 4, 8, 10, 16, 32, 64, 128];
+    for (const logical of logicalCounts) {
+      for (const performance of [null, Math.max(1, Math.round(logical * 0.75))]) {
+        for (let percent = 1; percent <= 100; percent += 1) {
+          const budget = resourceBudget({ logical, performance }, { maxCpuPercent: percent });
+          expect(budget.cappedThreads).toBeLessThanOrEqual(6);
+          expect(budget.cappedThreads).toBeGreaterThanOrEqual(1);
+        }
+      }
     }
   });
 
