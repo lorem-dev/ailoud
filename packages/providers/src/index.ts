@@ -30,6 +30,7 @@ export { cpuTopology, parsePerformanceCores } from './system/cpuTopology.js';
 export { parseBackends, probeBackends } from './system/accelerator.js';
 
 export { FfmpegAudioTool } from './audio/ffmpeg.js';
+export { astatsArgs, denoiseArgs, parseNoiseProfile } from './audio/noise.js';
 
 export { WhisperCppProvider, parseWhisperJson } from './stt/whisperCpp.js';
 export type { WhisperCppOptions } from './stt/whisperCpp.js';
