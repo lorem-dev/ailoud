@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { parseSpeakerTurns, SherpaDiarizer } from './sherpaDiarizer.js';
 
 // Real output shape, captured from sherpa-onnx v1.13.6 on a two-speaker file.
@@ -109,5 +109,38 @@ describe('SherpaDiarizer', () => {
       runner: async () => ({ code: 2, stdout: '', stderr: 'bad model' }),
     });
     await expect(d.turns('a.wav')).rejects.toThrow(/bad model/);
+  });
+});
+
+describe('resource flags', () => {
+  async function argsFor(threads: number): Promise<string[]> {
+    const runner = vi.fn().mockResolvedValue({ code: 0, stdout: '', stderr: '' });
+    const diarizer = new SherpaDiarizer({
+      binary: 'sherpa',
+      segmentationModel: '/seg.onnx',
+      embeddingModel: '/emb.onnx',
+      threshold: 0.6,
+      threads,
+      runner,
+    });
+    await diarizer.turns('/a.wav');
+    return runner.mock.calls[0]![1] as string[];
+  }
+
+  it('gives both passes the same thread count', async () => {
+    const args = await argsFor(6);
+    expect(args).toContain('--segmentation.num-threads=6');
+    expect(args).toContain('--embedding.num-threads=6');
+  });
+
+  it('never passes a provider flag', async () => {
+    // MEASURED: --segmentation.provider and --embedding.provider both exist
+    // and both work, and coreml is about twenty percent SLOWER than cpu on
+    // this project's reference machine (56.8 s against 45.2 s over 607 s of
+    // speech). cuda could not be measured at all -- there is no NVIDIA
+    // machine here. Shipping either would break the rule that a flag's
+    // benefit must be measured, not assumed.
+    const args = await argsFor(6);
+    expect(args.join(' ')).not.toContain('provider');
   });
 });

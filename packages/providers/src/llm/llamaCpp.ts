@@ -19,7 +19,11 @@ export interface LlamaCppOptions {
   readonly contextTokens: number;
   /** Hard cap on the answer, so a model that starts looping cannot run forever. */
   readonly maxOutputTokens: number;
-  readonly threads?: number;
+  /**
+   * Threads for generation. Required rather than optional: leaving it out
+   * left llama-cli on its own default of 4 whatever the machine had.
+   */
+  readonly threads: number;
   readonly runner?: typeof defaultRunner;
 }
 
@@ -87,7 +91,8 @@ export class LlamaCppSummarizer implements Summarizer {
         // waiting for input that is never coming.
         '-no-cnv',
         '--single-turn',
-        ...(this.options.threads === undefined ? [] : ['-t', String(this.options.threads)]),
+        '-t',
+        String(this.options.threads),
         // -f rather than -p: a prompt carrying a transcript does not fit in an
         // argument. ARG_MAX is about a megabyte on macOS, less once the
         // environment is counted, and the spawn then fails with E2BIG -- a
