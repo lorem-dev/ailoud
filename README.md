@@ -101,6 +101,7 @@ call; deleting needs a second call carrying a confirmation token. See
 | `audio import\|transcribe\|annotate\|search\|ls\|show\|rm` | the library and everything over it        |
 | `audio summarize`                                          | writes a summary and saves it as a report |
 | `report ls\|show\|rm`                                      | saved reports                             |
+| `job ls\|show\|rm`                                         | background jobs started with `--detach`   |
 | `template ls\|new`                                         | what shape a summary of a kind takes      |
 | `mcp` and `mcp install\|uninstall\|update`                 | serve the library to an agent             |
 | `doctor`, `setup`                                          | check and provision the machine           |

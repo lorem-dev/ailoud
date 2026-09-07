@@ -25,6 +25,7 @@ Where a flag means different things to different verbs, it gets a row each.
 | `--json`                 | ls               | print one JSON array of rows instead of a table                                                    |
 | `--force`                | transcribe       | re-transcribe recordings that already have a transcript                                            |
 | `--force`                | rm               | delete without asking                                                                              |
+| `--detach`               | transcribe       | start the work in the background and print its job id                                              |
 
 ## Import
 
