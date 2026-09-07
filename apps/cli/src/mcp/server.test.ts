@@ -483,12 +483,78 @@ describe('MCP: transcribe refuses until speakers and languages are declared', ()
     await close();
   });
 
-  it('does not pass speakers to the diarizer when diarize is off', async () => {
+  it('does not pass a non-numeric speaker count to the diarizer, even with diarize on', async () => {
+    // Distinct from the sibling test above: this one holds diarize === true
+    // fixed and varies only whether speakers is a number, so it actually
+    // exercises the `typeof speakers === 'number'` half of the guard rather
+    // than the `diarize === true` half, which the pre-existing
+    // `...(diarize === true ? { diarizer: ... } : {})` gate already covers
+    // on its own.
     const ctx = context();
     const id = await importFixture(ctx, '/in/rec0007.wav');
     const { call, close } = await connect(ctx);
-    await call('transcribe', { recordingIds: [id], speakers: 3, languages: ['en'] });
-    expect(ctx.diarizerInstances).toHaveLength(0);
+    await call('transcribe', {
+      recordingIds: [id],
+      speakers: 'unknown',
+      languages: ['en'],
+      diarize: true,
+    });
+    expect(ctx.diarizerInstances).toHaveLength(1);
+    expect(ctx.diarizerInstances[0]?.calls[0]?.speakers).toBeUndefined();
+    await close();
+  });
+
+  it('refuses "auto" mixed with a real language', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    const { call, close } = await connect(ctx);
+    const result = await call('transcribe', {
+      recordingIds: [id],
+      speakers: 'unknown',
+      languages: ['auto', 'en'],
+    });
+    expect(result.isError).toBe(true);
+    expect(result.raw).toContain('auto');
+    await close();
+  });
+
+  it('refuses "auto" mixed with a real language regardless of order', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    const { call, close } = await connect(ctx);
+    const result = await call('transcribe', {
+      recordingIds: [id],
+      speakers: 'unknown',
+      languages: ['en', 'auto'],
+    });
+    expect(result.isError).toBe(true);
+    expect(result.raw).toContain('auto');
+    await close();
+  });
+
+  it('refuses a language entry that is not a two- or three-letter code', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    const { call, close } = await connect(ctx);
+    const result = await call('transcribe', {
+      recordingIds: [id],
+      speakers: 'unknown',
+      languages: ['english'],
+    });
+    expect(result.isError).toBe(true);
+    await close();
+  });
+
+  it('refuses a language declared twice', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    const { call, close } = await connect(ctx);
+    const result = await call('transcribe', {
+      recordingIds: [id],
+      speakers: 'unknown',
+      languages: ['en', 'en'],
+    });
+    expect(result.isError).toBe(true);
     await close();
   });
 });

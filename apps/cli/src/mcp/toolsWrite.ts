@@ -20,6 +20,61 @@ const ID = z
   .string()
   .describe('A recording id, or any unambiguous prefix of at least two characters.');
 
+/**
+ * Mirrors parseLanguages's guarantees (apps/cli/src/commands/transcribe.ts) on
+ * the array shape this tool receives, given a non-empty `languages`.
+ *
+ * This is not cosmetic parity: the result reaches resolveDeclaredLanguages
+ * (@ailoud/core) exactly the way the CLI's does, and that function does not
+ * reject a code it cannot use. When no detected span falls inside the
+ * declared set, its fallback branch stamps declared[0] onto every span,
+ * silently writing whatever was passed as though it were a real language
+ * code. "auto" mixed with a real code guarantees that fallback fires --
+ * whisper never detects a span as "auto" -- but a mis-typed code, a
+ * duplicate, or a case mismatch against the lower-case codes providers
+ * return can trigger the exact same corruption. All are refused here, before
+ * any recording is resolved, for the same reason the CLI validates before
+ * starting: the alternative is an hour of transcription whose segments carry
+ * a language that was never real.
+ *
+ * Lower-cases before comparing, same as parseLanguages, so `["RU"]` is
+ * treated as `["ru"]` rather than silently missing every detected span whose
+ * language a provider reports in lower case.
+ *
+ * Returns the normalised list to declare (empty for a lone "auto"), or a
+ * refusal reason to hand to `fail`.
+ */
+function validateLanguages(
+  languages: readonly string[],
+): { readonly declared: readonly string[] } | { readonly refusal: Record<string, string> } {
+  const lowered = languages.map((code) => code.toLowerCase());
+  if (lowered.length > 1 && lowered.includes('auto')) {
+    return {
+      refusal: {
+        error: `"auto" cannot be mixed with a real language, got [${languages.join(', ')}]`,
+        why:
+          '"auto" means detect everything, so naming a language alongside it says two ' +
+          'contradictory things',
+      },
+    };
+  }
+  if (lowered.length === 1 && lowered[0] === 'auto') return { declared: [] };
+  for (const code of lowered) {
+    if (!/^[a-z]{2,3}$/.test(code)) {
+      return {
+        refusal: {
+          error: `"${code}" is not a two- or three-letter language code, in [${languages.join(', ')}]`,
+        },
+      };
+    }
+  }
+  const duplicate = lowered.find((code, index) => lowered.indexOf(code) !== index);
+  if (duplicate !== undefined) {
+    return { refusal: { error: `"${duplicate}" is listed twice, in [${languages.join(', ')}]` } };
+  }
+  return { declared: lowered };
+}
+
 export function registerWriteTools(server: McpServer, context: CliContext, _deps: McpDeps): void {
   server.registerTool(
     'annotate',
@@ -204,13 +259,13 @@ export function registerWriteTools(server: McpServer, context: CliContext, _deps
         });
       }
 
+      const validated = validateLanguages(languages);
+      if ('refusal' in validated) return fail(validated.refusal);
+      const declared = validated.declared;
+
       const warnings: string[] = [];
       const recordings = await resolveRecordings(context.store, recordingIds);
       const parsed = parseTags(tags ?? []);
-      // "auto" is the explicit not-known: it satisfies the refusal above
-      // (something was declared) but means nothing was actually named, same
-      // as the CLI's --lang auto.
-      const declared = languages.length === 1 && languages[0] === 'auto' ? [] : languages;
       const multilingual = declared.length > 1;
       const done = [];
       for (const recording of recordings) {
