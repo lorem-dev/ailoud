@@ -43,7 +43,7 @@ import type { ShellTarget } from '../completions/shells.js';
 // import of `runProvisioning` is: every use on both sides happens inside a
 // function body, never at module-init time, so there is no evaluation-order
 // cycle for ESM to trip over.
-import { parseShells, placesFor, rootOf } from './selfCompletions.js';
+import { parseShells, placesFor, report, rootOf } from './selfCompletions.js';
 
 /**
  * Whether ailoud may prompt: a terminal on both ends, and not a CI runner.
@@ -632,24 +632,6 @@ export async function resolveCompletionsShells(
   return detected;
 }
 
-/** One line per file `install` touched, mirroring what `self completions install` prints.
- *
- * Not imported from selfCompletions.ts: its own `reportFile`/`report` are
- * private to that file (and it is under separate review right now), so this
- * is a second, small copy rather than a shared helper.
- */
-function reportCompletionOutcome(context: CliContext, outcome: ShellOutcome): void {
-  for (const file of outcome.files) {
-    const line = `${file.action.padEnd(9)} ${file.path}`;
-    if (file.action === 'created' || file.action === 'updated') {
-      context.ui.success(line);
-    } else {
-      context.ui.note(line);
-    }
-  }
-  if (outcome.note !== '') context.ui.warn(outcome.note);
-}
-
 /**
  * Offers to install shell completions -- the very last thing a successful
  * `setup` run does. Called only from the closing block of `runProvisioning`,
@@ -679,9 +661,29 @@ async function offerCompletions(
   if (targets.length === 0) return;
 
   const tree = describeTree(rootOf(command));
+  const outcomes: ShellOutcome[] = [];
   for (const target of targets) {
-    reportCompletionOutcome(context, await install(context.fs, target, tree, places));
+    try {
+      outcomes.push(await install(context.fs, target, tree, places));
+    } catch (error) {
+      // Completions are a convenience layered on top of everything this run
+      // just provisioned -- ffmpeg, whisper.cpp, and possibly a
+      // multi-gigabyte model -- not the provisioning itself. `syncCompletions`
+      // in self.ts enforces the identical rule on the other path into this
+      // code (self update -> refreshCompletions), with the same reasoning: an
+      // unwritable shell startup file (read-only .zshrc, a full disk) must not
+      // turn an otherwise fully successful run into a reported failure.
+      // Caught per shell rather than around the whole loop, unlike
+      // syncCompletions's single try/catch -- one unwritable rc file must not
+      // also skip bash and fish, which are independent writes that would
+      // otherwise have succeeded.
+      context.ui.warn(
+        `could not install completions for ${target.label}: ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
+  report(context, outcomes);
 }
 
 /**

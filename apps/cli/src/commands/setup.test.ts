@@ -2038,6 +2038,54 @@ describe('runProvisioning', () => {
       expect(await ctx.fs.exists(zshScriptPath())).toBe(false);
     });
 
+    it('reports a failed completions install as a warning instead of failing an otherwise successful run', async () => {
+      // The finding this guards against: `install()` used to be called with
+      // no try/catch, so an unwritable .zshrc (read-only, disk full) would
+      // propagate out of the whole withProvisioningLock callback and turn a
+      // fully successful, ready-environment `setup` run into a reported
+      // failure over an optional nicety -- the exact outcome syncCompletions
+      // in self.ts already exists to prevent on the other path into this code.
+      const ctx = await healthyRunContext();
+      await ctx.fs.writeTextFile('/home/u/.zshrc', '');
+      const originalWriteTextFile = ctx.fs.writeTextFile.bind(ctx.fs);
+      vi.spyOn(ctx.fs, 'writeTextFile').mockImplementation(
+        async (path: string, content: string) => {
+          // The completion script write, not the .zshrc write: it happens first
+          // inside install(), so failing it is enough to make the whole
+          // per-shell install throw without needing to know install()'s
+          // internal write order.
+          if (path.includes('/completions/')) {
+            throw new Error('ENOSPC: no space left on device');
+          }
+          return originalWriteTextFile(path, content);
+        },
+      );
+
+      // Must resolve, not reject: a failed completions install is a nicety
+      // failing on top of a successful setup, not a reason to report the run
+      // itself as failed.
+      await runProvisioning(
+        ctx,
+        { yes: true, completions: true },
+        healthyChecks(),
+        'linux',
+        'setup',
+        false,
+        new Command(),
+        { HOME: '/home/u' },
+      );
+
+      expect(
+        ctx.lines.some(
+          (line) =>
+            line.startsWith('warning: could not install completions for Zsh') &&
+            line.includes('ENOSPC'),
+        ),
+      ).toBe(true);
+      // The failed write must not have left a half-written script behind.
+      expect(await ctx.fs.exists(zshScriptPath())).toBe(false);
+    });
+
     it('is not offered when the final re-check still finds the environment not ready', async () => {
       const isTtyDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
       const originalCi = process.env['CI'];

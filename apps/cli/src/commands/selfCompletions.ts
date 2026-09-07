@@ -125,8 +125,15 @@ async function chooseShells(
   return askShells(context, places, env);
 }
 
-/** One line per file touched, so the user can see exactly what changed. */
-function reportFile(context: CliContext, file: FileOutcome): void {
+/**
+ * One line per file touched, so the user can see exactly what changed.
+ *
+ * Exported for setup.ts (`offerCompletions`), which renders the same
+ * `install()` outcomes at the end of a provisioning run: a wording or format
+ * change to what `self completions install` prints must reach that path too,
+ * not silently diverge from it.
+ */
+export function reportFile(context: CliContext, file: FileOutcome): void {
   const line = `${file.action.padEnd(9)} ${file.path}`;
   if (file.action === 'created' || file.action === 'updated') {
     context.ui.success(line);
@@ -135,7 +142,8 @@ function reportFile(context: CliContext, file: FileOutcome): void {
   }
 }
 
-function report(context: CliContext, outcomes: readonly ShellOutcome[]): void {
+/** See reportFile's doc comment: exported for the same reason. */
+export function report(context: CliContext, outcomes: readonly ShellOutcome[]): void {
   for (const outcome of outcomes) {
     for (const file of outcome.files) reportFile(context, file);
     // The advisory, when a shell has one, belongs beside the files it is
