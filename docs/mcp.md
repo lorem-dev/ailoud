@@ -268,6 +268,20 @@ Poll every minute or two; polling faster does not make the work finish sooner.
 With no `jobId`, `job_status` lists what is running plus the five most recent
 finished jobs.
 
+A finished transcription that diarized speakers reports the labels nobody has
+named yet, so an agent can offer to name them while the transcript is in front
+of it:
+
+```
+job_status(jobId: "01M1Y5F04PS6VQ0FCP8HAS2JZ9")
+-> { "state": "done", "unnamedSpeakers": [
+       { "recordingId": "01M1...", "labels": ["speaker_00", "speaker_01"] }],
+     "nextStep": "... record it with `annotate` (speakerNames) ..." }
+```
+
+Only a person knows which label is which. A name given once survives
+re-transcription and is used by every later summary.
+
 An id `job_status` does not recognise comes back on the same `isError` channel
 a thrown refusal uses, but the payload itself distinguishes it from a job that
 ran and failed -- `error` names the id as unrecognised rather than describing

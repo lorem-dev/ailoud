@@ -73,6 +73,12 @@ Six rules, in the order they matter:
    transcribed; a finished summarize job carries the report id to read with
    \`get_report\`.
 
+   When a finished transcribe job reports \`unnamedSpeakers\`, ask the user who
+   those speakers are and record the answer with \`annotate\`. Only a person
+   knows which label is which, the transcript itself usually says enough to
+   guess and offer, and a name given once survives re-transcription and is
+   used by every later summary.
+
    How fast that is depends on the machine, not on anything you pass. A
    build with a GPU backend transcribes about ten times faster than one
    without, and on a GPU machine the thread count barely changes anything.

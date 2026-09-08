@@ -32,4 +32,9 @@ describe('performance guidance', () => {
     expect(SERVER_INSTRUCTIONS).toContain('Six rules');
     expect(SERVER_INSTRUCTIONS).not.toMatch(/^7\./m);
   });
+
+  it('tells the agent to ask who the numbered speakers are', () => {
+    expect(SERVER_INSTRUCTIONS).toContain('unnamedSpeakers');
+    expect(SERVER_INSTRUCTIONS).toContain('annotate');
+  });
 });

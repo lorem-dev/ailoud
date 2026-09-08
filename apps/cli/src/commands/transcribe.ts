@@ -338,6 +338,8 @@ export function registerTranscribe(program: Command, context: CliContext): void 
             transcriptId: string;
             language: string;
             segments: number;
+            /** Diarizer labels this run produced; empty without --diarize. */
+            speakers: string[];
           }> = [];
           // Collected here, not just handed to context.ui.warn: there is no
           // terminal to read under a detached job (stdio is 'ignore'), and a
@@ -429,6 +431,18 @@ export function registerTranscribe(program: Command, context: CliContext): void 
               transcriptId: transcript.id,
               language: transcript.language,
               segments: segments.length,
+              // Recorded here because the segments are already in memory.
+              // `job_status` needs to know whether this run produced speaker
+              // labels, and reading them back would mean loading every
+              // segment of an hour-long transcript on a call whose whole
+              // point is being cheap enough to poll.
+              speakers: [
+                ...new Set(
+                  segments
+                    .map((segment) => segment.speaker)
+                    .filter((label): label is string => label !== null),
+                ),
+              ].sort(),
             });
           }
           return { transcribed, ...(warnings.length === 0 ? {} : { warnings }) };

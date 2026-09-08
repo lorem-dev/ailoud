@@ -538,7 +538,18 @@ describe('ailoud transcribe --job', () => {
       // recording (import, above), 'ID002' is the job itself (createJob,
       // above), and the pipeline's own ids.next() calls start after that.
       expect(state?.result).toEqual({
-        transcribed: [{ recordingId: 'ID001', transcriptId: 'ID003', language: 'ru', segments: 1 }],
+        transcribed: [
+          {
+            recordingId: 'ID001',
+            transcriptId: 'ID003',
+            language: 'ru',
+            segments: 1,
+            // Empty because the fake transcriber attributes nothing: this
+            // run had no diarization. The field is what `job_status` reads
+            // to decide whether to ask the user for speaker names.
+            speakers: [],
+          },
+        ],
       });
     });
   });

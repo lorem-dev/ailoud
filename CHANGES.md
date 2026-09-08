@@ -70,7 +70,8 @@
 - The MCP `transcribe` and `summarize` tools return a job id and a `job_status`
   tool to poll, instead of blocking until the work is done, and `transcribe`
   refuses until the speaker count and expected languages are declared,
-  suggesting languages from the recording's name.
+  suggesting languages from the recording's name. A finished transcription
+  reports the speakers still to be named, so an agent offers to name them.
 
 ### Fixed
 

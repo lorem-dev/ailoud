@@ -770,4 +770,164 @@ describe('MCP: job_status', () => {
     expect(jobs.filter((job) => job.state !== 'running')).toHaveLength(5);
     await close();
   });
+
+  /**
+   * Only a person knows which `speaker_00` is Ann, and an agent holding a
+   * fresh transcript is the one party able to ask. These cases pin that the
+   * prompt to do so appears exactly when it is actionable -- never as
+   * standing advice on a job that cannot use it.
+   */
+  describe('the speaker follow-up', () => {
+    const doneTranscribe = async (
+      ctx: ReturnType<typeof context>,
+      transcribed: readonly unknown[],
+    ) => {
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'transcribe', recordings: 1, declared: null },
+      );
+      await writeJobState(ctx.fs, ctx.paths.jobsDir, {
+        ...job,
+        state: 'done',
+        finishedAt: ctx.clock.nowIso(),
+        result: { transcribed },
+      });
+      return job.id;
+    };
+
+    it('asks for names when a finished job left labels unnamed', async () => {
+      const ctx = context();
+      const id = await importFixture(ctx, '/in/rec0100.wav');
+      const jobId = await doneTranscribe(ctx, [
+        { recordingId: id, speakers: ['speaker_00', 'speaker_01'] },
+      ]);
+      const { call, close } = await connect(ctx);
+      const body = (await call('job_status', { jobId })).json();
+      expect(body['unnamedSpeakers']).toEqual([
+        { recordingId: id, labels: ['speaker_00', 'speaker_01'] },
+      ]);
+      expect(String(body['nextStep'])).toContain('annotate');
+      await close();
+    });
+
+    it('says nothing about names once every label has one', async () => {
+      const ctx = context();
+      const id = await importFixture(ctx, '/in/rec0101.wav');
+      await ctx.store.setSpeakerName(id, 'speaker_00', 'Ann');
+      await ctx.store.setSpeakerName(id, 'speaker_01', 'Bo');
+      const jobId = await doneTranscribe(ctx, [
+        { recordingId: id, speakers: ['speaker_00', 'speaker_01'] },
+      ]);
+      const { call, close } = await connect(ctx);
+      const body = (await call('job_status', { jobId })).json();
+      expect(body['unnamedSpeakers']).toBeUndefined();
+      expect(body['nextStep']).toBeUndefined();
+      await close();
+    });
+
+    it('asks only about the labels still missing a name', async () => {
+      const ctx = context();
+      const id = await importFixture(ctx, '/in/rec0102.wav');
+      await ctx.store.setSpeakerName(id, 'speaker_00', 'Ann');
+      const jobId = await doneTranscribe(ctx, [
+        { recordingId: id, speakers: ['speaker_00', 'speaker_01'] },
+      ]);
+      const { call, close } = await connect(ctx);
+      const body = (await call('job_status', { jobId })).json();
+      expect(body['unnamedSpeakers']).toEqual([{ recordingId: id, labels: ['speaker_01'] }]);
+      await close();
+    });
+
+    it('says nothing when the run produced no labels at all', async () => {
+      // A transcription without --diarize. There is nothing to name, so a
+      // prompt to name it would be noise on every poll.
+      const ctx = context();
+      const id = await importFixture(ctx, '/in/rec0103.wav');
+      const jobId = await doneTranscribe(ctx, [{ recordingId: id, speakers: [] }]);
+      const { call, close } = await connect(ctx);
+      const body = (await call('job_status', { jobId })).json();
+      expect(body['unnamedSpeakers']).toBeUndefined();
+      await close();
+    });
+
+    it('looks nothing up for a recording that has no labels', async () => {
+      // `job_status` is advertised as cheap enough to poll every few
+      // minutes, which is why the labels travel in the job's own result
+      // rather than being read back. Asserting the outcome alone cannot see
+      // a lookup creeping back in: with no labels the answer is empty either
+      // way. This asserts the cost.
+      const ctx = context();
+      const id = await importFixture(ctx, '/in/rec0106.wav');
+      const jobId = await doneTranscribe(ctx, [{ recordingId: id, speakers: [] }]);
+      const lookups = vi.spyOn(ctx.store, 'listSpeakerNames');
+      const { call, close } = await connect(ctx);
+      await call('job_status', { jobId });
+      expect(lookups).not.toHaveBeenCalled();
+      lookups.mockRestore();
+      await close();
+    });
+
+    it('says nothing while the job is still running', async () => {
+      const ctx = context();
+      const id = await importFixture(ctx, '/in/rec0104.wav');
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'transcribe', recordings: 1, declared: null },
+      );
+      await writeJobState(ctx.fs, ctx.paths.jobsDir, {
+        ...job,
+        result: { transcribed: [{ recordingId: id, speakers: ['speaker_00'] }] },
+      });
+      const { call, close } = await connect(ctx);
+      const body = (await call('job_status', { jobId: job.id })).json();
+      expect(body['state']).toBe('running');
+      expect(body['unnamedSpeakers']).toBeUndefined();
+      await close();
+    });
+
+    it('says nothing for a summarize job, whatever its result holds', async () => {
+      const ctx = context();
+      const id = await importFixture(ctx, '/in/rec0105.wav');
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'summarize', recordings: 1, declared: null },
+      );
+      await writeJobState(ctx.fs, ctx.paths.jobsDir, {
+        ...job,
+        state: 'done',
+        finishedAt: ctx.clock.nowIso(),
+        result: { transcribed: [{ recordingId: id, speakers: ['speaker_00'] }] },
+      });
+      const { call, close } = await connect(ctx);
+      const body = (await call('job_status', { jobId: job.id })).json();
+      expect(body['unnamedSpeakers']).toBeUndefined();
+      await close();
+    });
+
+    it('survives a result that is not the shape it expects', async () => {
+      // The result field is `unknown` by design. A job written by an older
+      // version, or a hand-edited state file, must not turn a poll into an
+      // error.
+      const ctx = context();
+      const jobId = await doneTranscribe(ctx, []);
+      const { call, close } = await connect(ctx);
+      for (const result of [null, 'a string', { transcribed: 'not an array' }, { other: 1 }]) {
+        const job = await createJob(
+          { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+          { kind: 'transcribe', recordings: 1, declared: null },
+        );
+        await writeJobState(ctx.fs, ctx.paths.jobsDir, {
+          ...job,
+          state: 'done',
+          finishedAt: ctx.clock.nowIso(),
+          result,
+        });
+        const body = (await call('job_status', { jobId: job.id })).json();
+        expect(body['state']).toBe('done');
+        expect(body['unnamedSpeakers']).toBeUndefined();
+      }
+      expect(jobId).toBeTruthy();
+      await close();
+    });
+  });
 });

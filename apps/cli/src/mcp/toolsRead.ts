@@ -14,6 +14,7 @@ import type { CliContext } from '../wiring.js';
 import { resolveRecording, resolveSummary } from '../resolveId.js';
 import { loadTemplates, templatesDir } from '../templateStore.js';
 import { getJob, listJobs } from '../jobs/store.js';
+import type { JobState } from '../jobs/state.js';
 import type { McpDeps } from './deps.js';
 import { safePathComponent } from './safePath.js';
 import { fail, ok } from './reply.js';
@@ -31,6 +32,70 @@ const TAGS = z
     'Tags. Several NARROW rather than widen: ["release","backend"] means recordings carrying ' +
       'both. Lowercase words.',
   );
+
+/** One finished recording, as a transcribe job records it in its result. */
+interface TranscribedEntry {
+  readonly recordingId: string;
+  readonly speakers: readonly string[];
+}
+
+function transcribedEntries(result: unknown): readonly TranscribedEntry[] {
+  if (typeof result !== 'object' || result === null) return [];
+  const list = (result as { transcribed?: unknown }).transcribed;
+  if (!Array.isArray(list)) return [];
+  return list.filter(
+    (entry): entry is TranscribedEntry =>
+      typeof entry === 'object' &&
+      entry !== null &&
+      typeof (entry as TranscribedEntry).recordingId === 'string' &&
+      Array.isArray((entry as TranscribedEntry).speakers),
+  );
+}
+
+/**
+ * What to do next, when a finished transcription left speakers unnamed.
+ *
+ * Diarization gives every speaker a label like `speaker_00`, and only a
+ * person can say which of them is Ann. Nothing else in the system knows, and
+ * an agent that has just been handed a transcript is the one party in a
+ * position to ask -- so this is the moment to say so, rather than leaving
+ * every later summary attributing decisions to a number.
+ *
+ * Data-driven, not advice: it appears only for a `transcribe` job that has
+ * actually finished and produced labels that no name covers yet. A recording
+ * transcribed without `--diarize` has no labels and gets nothing, and so
+ * does one whose speakers are already named.
+ *
+ * Costs one small query per recording and no segment reads -- the labels
+ * come from the job's own result. `job_status` is advertised as cheap enough
+ * to poll, and that has to stay true.
+ */
+async function speakerFollowUp(
+  context: CliContext,
+  job: JobState,
+): Promise<{
+  unnamedSpeakers?: readonly { recordingId: string; labels: readonly string[] }[];
+  nextStep?: string;
+}> {
+  if (job.kind !== 'transcribe' || job.state !== 'done') return {};
+  const pending: { recordingId: string; labels: readonly string[] }[] = [];
+  for (const entry of transcribedEntries(job.result)) {
+    if (entry.speakers.length === 0) continue;
+    const named = new Set(
+      (await context.store.listSpeakerNames(entry.recordingId)).map((name) => name.label),
+    );
+    const labels = entry.speakers.filter((label) => !named.has(label));
+    if (labels.length > 0) pending.push({ recordingId: entry.recordingId, labels });
+  }
+  if (pending.length === 0) return {};
+  return {
+    unnamedSpeakers: pending,
+    nextStep:
+      'This recording has speakers the diarizer could only number. Ask the user who they are ' +
+      'and record it with `annotate` (speakerNames), naming them from the transcript: names ' +
+      'survive re-transcription and every later summary uses them.',
+  };
+}
 
 export function registerReadTools(server: McpServer, context: CliContext, deps: McpDeps): void {
   server.registerTool(
@@ -423,7 +488,7 @@ export function registerReadTools(server: McpServer, context: CliContext, deps: 
         // will report a failure that never happened.
         return fail({ error: `no such job: ${jobId}`, hint: 'call job_status with no id to list' });
       }
-      return ok(job);
+      return ok({ ...job, ...(await speakerFollowUp(context, job)) });
     },
   );
 }

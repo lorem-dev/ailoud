@@ -26,6 +26,10 @@ describe('rulesBlock', () => {
 
   it('tells the agent to poll rather than wait', () => {
     expect(rulesBlock()).toContain('job_status');
+    // The prompt to name speakers is the one thing an agent cannot infer:
+    // only a person knows which label is which.
+    expect(rulesBlock()).toContain('unnamedSpeakers');
+    expect(rulesBlock()).toContain('annotate');
   });
 
   it('tells the agent to prefer MCP tools, since only they enforce the check', () => {
