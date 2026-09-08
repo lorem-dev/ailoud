@@ -40,6 +40,8 @@
 
 ## Development
 
+## Version 1.2.1
+
 ### Fixed
 
 - The update notice no longer announces the version you are already running:
