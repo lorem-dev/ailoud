@@ -110,6 +110,14 @@ function parseDetachId(output: string): string {
 
 interface JobState {
   readonly state: 'running' | 'done' | 'failed';
+  /**
+   * Read only to say how far a job got when it fails to finish in time. A
+   * deliberately partial view of the real state document, as the rest of
+   * this spec's copies are: the suite drives the built binary as a black box
+   * and does not import the app's types.
+   */
+  readonly percent?: number;
+  readonly stage?: string;
 }
 
 /** Reads the job state file from the sandbox's data directory, or null before it exists. */
@@ -127,14 +135,38 @@ function delay(ms: number): Promise<void> {
 }
 
 /** Polls the job state file until it reaches a terminal state, or the deadline passes. */
+/**
+ * Waits for a detached job to stop running.
+ *
+ * Five minutes, not one. A minute was enough while the default model was
+ * `small`; it stopped being enough the day the default became
+ * `large-v3-turbo-q5_0`, and this is where CI said so. On a CPU-only runner
+ * with four cores, jest running suites in parallel means several real
+ * whisper processes share those cores, and a 574 MB model has to be loaded
+ * before any of them decodes anything. The jest timeout above this is ten
+ * minutes, so five leaves room to fail as a timeout rather than as a
+ * killed worker.
+ *
+ * The message on giving up names how far the job got. The bare "expected
+ * done, received running" this used to produce says nothing about whether
+ * the job was progressing slowly or wedged, which is the first thing anyone
+ * reading a CI log needs to know.
+ */
 async function waitForTerminal(sandbox: Sandbox, jobId: string): Promise<JobState> {
-  const deadline = Date.now() + 60_000;
+  const budgetMs = 300_000;
+  const deadline = Date.now() + budgetMs;
   let state = await readJobState(sandbox, jobId);
   while ((state === null || state.state === 'running') && Date.now() < deadline) {
     await delay(200);
     state = await readJobState(sandbox, jobId);
   }
   if (state === null) throw new Error(`job ${jobId} never wrote a state file`);
+  if (state.state === 'running') {
+    throw new Error(
+      `job ${jobId} was still running after ${budgetMs / 1000}s: ` +
+        `${state.percent ?? '?'}% at stage "${state.stage ?? '?'}"`,
+    );
+  }
   return state;
 }
 
