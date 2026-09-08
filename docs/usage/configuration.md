@@ -23,7 +23,7 @@ stt:
   provider: whisper-cpp
   whisperCpp:
     binary: whisper-cli
-    model: ~/.local/share/ailoud/models/ggml-small.bin
+    model: ~/.local/share/ailoud/models/ggml-large-v3-turbo-q5_0.bin
     vadBinary: whisper-vad-speech-segments
     vadModel: ~/.local/share/ailoud/models/ggml-silero-v5.1.2.bin
   diarization:
@@ -88,6 +88,28 @@ whisper.cpp built with `WHISPER_COREML=1` and a model converted to CoreML,
 which the packaged builds do not include. See
 [whisper.cpp's CoreML instructions](https://github.com/ggml-org/whisper.cpp#core-ml-support)
 to build it yourself, then point `stt.whisperCpp.binary` at the result.
+
+### Transcription model
+
+`setup` installs `large-v3-turbo-q5_0` (547 MB). Measured on Russian speech,
+where the models differ most:
+
+| Model       | Read speech | Conversation | At 10 dB noise | rtf, GPU | rtf, CPU |
+| ----------- | ----------- | ------------ | -------------- | -------- | -------- |
+| `small`     | 7.5%        | 32.0%        | 12.6%          | 0.042    | 0.451    |
+| the default | 2.1%        | 23.6%        | 3.5%           | 0.070    | 0.449    |
+
+Word error rate, then seconds of compute per second of audio.
+
+- Without a GPU the default is free: quantised weights halve the memory
+  traffic, and memory bandwidth is what limits CPU decoding.
+- Bigger is not better. `medium` is larger, slower AND less accurate than
+  `large-v3-turbo`; `large-v3-turbo` in f16 is three times the download of
+  the default for an accuracy difference too small to measure.
+- `large-v3` is the only model measurably better, and only on hard audio
+  (about 2 points), for 2.9 GB and roughly twice the decode time.
+- English is a poor guide to this choice: every model from `small` up scores
+  within about a point on clean English narration.
 
 ## Language model
 
@@ -165,7 +187,7 @@ Keys are read from the environment only. They are never written to
 `config.yaml` and never logged. A variable that is set but empty counts as
 unset.
 
-## Choosing a model
+## Choosing a language model
 
 `setup` asks the provider which models your key can use:
 

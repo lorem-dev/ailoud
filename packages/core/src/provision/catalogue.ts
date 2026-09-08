@@ -55,7 +55,40 @@ export const TRANSCRIPTION_MODELS: readonly ModelChoice[] = [
     file: 'ggml-small.bin',
     url: `${HF_WHISPER}/ggml-small.bin`,
     bytes: 487_601_967,
-    summary: 'the default -- what multilingual mode was tuned against',
+    summary: 'lighter -- what multilingual mode was tuned against',
+  },
+  {
+    /**
+     * The default. A 5-bit quantisation of large-v3-turbo, chosen over both
+     * `small` (which it replaced) and its own f16 build.
+     *
+     * MEASURED 2026-09-08 on three corpora -- a 24 kbit/s Russian conference
+     * recording, FLEURS ru_ru, LibriSpeech test-clean -- with word error rates
+     * compared by a bootstrap over clips:
+     *
+     *   Russian read speech   `small` 7.5%   this 2.1%
+     *   Russian conversation  `small` 32.0%  this 23.6%
+     *   Russian at 10 dB SNR  `small` 12.6%  this 3.5%
+     *   English read speech   `small` 2.4%   this 1.6%
+     *
+     * The quantisation is what makes it affordable. Against the f16 build of
+     * the same model the difference is statistically indistinguishable on all
+     * three corpora, while this file is a third the size. It matters most
+     * where there is no GPU: on eight CPU threads this decodes at 0.449 times
+     * real time against `small`'s 0.451 and f16 turbo's 0.846, because 5-bit
+     * weights halve the memory traffic and memory bandwidth is what limits
+     * CPU decoding. So the better model costs nothing at all on a CPU-only
+     * machine, and 1.7x `small`'s decode time on a GPU.
+     *
+     * Do not "upgrade" this entry to the f16 build. That trades 1.1 GB of
+     * download and twice the CPU decode time for an accuracy difference no
+     * measurement here could separate from zero.
+     */
+    name: 'large-v3-turbo-q5_0',
+    file: 'ggml-large-v3-turbo-q5_0.bin',
+    url: `${HF_WHISPER}/ggml-large-v3-turbo-q5_0.bin`,
+    bytes: 574_041_195,
+    summary: 'the default -- most accurate for its size',
   },
   {
     name: 'medium',
@@ -125,7 +158,16 @@ export const EMBEDDING_MODEL: ModelChoice = {
   summary: 'speaker embedding, needed by --diarize',
 };
 
-export const DEFAULT_MODEL_NAME = 'small';
+/**
+ * What `setup` installs when nobody says otherwise. See the entry's own
+ * comment above for the measurements that chose it over `small`.
+ *
+ * An existing installation is never migrated by this constant: a healthy
+ * configured model is left alone, and `resolveModelName` prefers whatever is
+ * already installed over this default precisely so that changing it here
+ * cannot silently replace a model someone chose on purpose.
+ */
+export const DEFAULT_MODEL_NAME = 'large-v3-turbo-q5_0';
 
 export function findModel(name: string): ModelChoice | undefined {
   return TRANSCRIPTION_MODELS.find((model) => model.name === name);

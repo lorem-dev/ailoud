@@ -6,6 +6,7 @@ import type { Mock } from 'vitest';
 import type { Action } from '@ailoud/core';
 import { MemFs } from '@ailoud/core/testing';
 import {
+  DEFAULT_MODEL_NAME,
   EMBEDDING_MODEL,
   EnvironmentError,
   SEGMENTATION_MODEL,
@@ -76,8 +77,8 @@ describe('resolveModelName', () => {
     expect(await resolveModelName({ model: 'tiny', interactive: false })).toBe('tiny');
   });
 
-  it('defaults to small when non-interactive and no --model', async () => {
-    expect(await resolveModelName({ interactive: false })).toBe('small');
+  it('defaults to the catalogue default when non-interactive and no --model', async () => {
+    expect(await resolveModelName({ interactive: false })).toBe(DEFAULT_MODEL_NAME);
   });
 
   it('rejects an unknown --model by name', async () => {
@@ -89,7 +90,7 @@ describe('resolveModelName', () => {
       UsageError,
     );
     await expect(resolveModelName({ model: 'huge', interactive: false })).rejects.toThrow(
-      /tiny, base, small, medium, large-v3-turbo/,
+      /tiny, base, small, large-v3-turbo-q5_0, medium, large-v3-turbo/,
     );
   });
 
@@ -132,8 +133,8 @@ describe('resolveModelName', () => {
     expect(selectImpl).toHaveBeenCalledWith(expect.objectContaining({ initialValue: 'medium' }));
   });
 
-  it('falls back to small when there is no defaultModel either', async () => {
-    expect(await resolveModelName({ interactive: false })).toBe('small');
+  it('falls back to the catalogue default when there is no defaultModel either', async () => {
+    expect(await resolveModelName({ interactive: false })).toBe(DEFAULT_MODEL_NAME);
   });
 });
 
@@ -145,7 +146,7 @@ describe('chooseModel', () => {
       interactive: true,
       selectImpl,
     });
-    expect(name).toBe('small');
+    expect(name).toBe(DEFAULT_MODEL_NAME);
     expect(selectImpl).not.toHaveBeenCalled();
   });
 
@@ -156,7 +157,7 @@ describe('chooseModel', () => {
       interactive: true,
       selectImpl,
     });
-    expect(name).toBe('small');
+    expect(name).toBe(DEFAULT_MODEL_NAME);
     expect(selectImpl).not.toHaveBeenCalled();
   });
 
@@ -1378,7 +1379,10 @@ describe('runProvisioning', () => {
     // "the run as a whole failed". The whisper model is genuinely required,
     // so it is what this case turns on.
     providers.downloadFile.mockImplementation(async (url: string, target: string) => {
-      if (url.includes('ggml-small') || url.includes('ggml-base')) {
+      // Derived from the catalogue, not spelled out: naming the file meant
+      // that changing DEFAULT_MODEL_NAME made this mock fail nothing at all,
+      // and the case passed by resolving instead of rejecting.
+      if (url.includes(findModel(DEFAULT_MODEL_NAME)!.file) || url.includes('ggml-base')) {
         throw new Error('network down');
       }
       await mkdir(dirname(target), { recursive: true });

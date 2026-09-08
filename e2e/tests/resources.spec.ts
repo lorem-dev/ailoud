@@ -16,6 +16,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { availableParallelism } from 'node:os';
 import { delimiter, join } from 'node:path';
 import type { Sandbox } from '../src/cli';
+import { installedWhisperModel } from '../src/models';
 import { makeSandbox } from '../src/cli';
 import { wordErrorRate } from '../src/wer';
 
@@ -588,7 +589,7 @@ const NOISY_WAV = join(FIXTURES_DIR, 'noisy-short.wav');
  * which exports anything for the other to import.
  */
 const REAL_HOME = process.env['HOME'] ?? '';
-const WHISPER_MODEL = join(REAL_HOME, '.local', 'share', 'ailoud', 'models', 'ggml-small.bin');
+const WHISPER_MODEL = installedWhisperModel(REAL_HOME);
 
 /** Below this, a transcript is close enough to the reference to prove the right audio reached the right model. */
 const WER_THRESHOLD = 0.2;

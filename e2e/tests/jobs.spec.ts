@@ -4,6 +4,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Sandbox } from '../src/cli';
+import { installedWhisperModel } from '../src/models';
 import { makeSandbox } from '../src/cli';
 
 const REPO_ROOT = join(__dirname, '..', '..');
@@ -12,7 +13,7 @@ const FIXTURES_DIR = join(REPO_ROOT, 'fixtures');
 const LONG_WAV = join(FIXTURES_DIR, 'three-speakers-en.wav');
 
 const REAL_HOME = process.env['HOME'] ?? '';
-const WHISPER_MODEL = join(REAL_HOME, '.local', 'share', 'ailoud', 'models', 'ggml-small.bin');
+const WHISPER_MODEL = installedWhisperModel(REAL_HOME);
 
 /** Parse the job id from transcribe --detach output. */
 function parseDetachId(output: string): string {

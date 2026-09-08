@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Sandbox } from '../src/cli';
 import { makeSandbox } from '../src/cli';
+import { installedVadModel, installedWhisperModel } from '../src/models';
 import { wordErrorRate } from '../src/wer';
 
 const REPO_ROOT = join(__dirname, '..', '..');
@@ -40,15 +41,17 @@ const GIT_STATUS_TIMEOUT_MS = 10_000;
  * fixture model -- whisper.cpp models are hundreds of megabytes -- so this
  * points at the same manual-install location the maintainer's own
  * `~/.config/ailoud/config.yaml` uses: a `models/` directory under the real,
- * unsandboxed XDG data dir. `process.env.HOME` here is deliberately the
- * *outer* test-runner process's HOME, not a sandbox's -- `makeSandbox()`
- * only overrides the child process's environment, never this file's own.
+ * unsandboxed XDG data dir. WHICH model is not named here; see
+ * `installedWhisperModel`, which asks that directory what `setup` left.
+ * `process.env.HOME` here is deliberately the *outer* test-runner process's
+ * HOME, not a sandbox's -- `makeSandbox()` only overrides the child
+ * process's environment, never this file's own.
  * `VAD_MODEL` is only needed by the `--multilingual` specs; the others
  * configure `WHISPER_MODEL` alone.
  */
 const REAL_HOME = process.env['HOME'] ?? '';
-const WHISPER_MODEL = join(REAL_HOME, '.local', 'share', 'ailoud', 'models', 'ggml-small.bin');
-const VAD_MODEL = join(REAL_HOME, '.local', 'share', 'ailoud', 'models', 'ggml-silero-v5.1.2.bin');
+const WHISPER_MODEL = installedWhisperModel(REAL_HOME);
+const VAD_MODEL = installedVadModel(REAL_HOME);
 
 /** A distinctive word from the English clause of fixtures/mixed-short.txt. */
 const MIXED_EN_WORD = 'tomorrow';
