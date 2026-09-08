@@ -277,6 +277,13 @@ describe('ailoud end-to-end', () => {
     // intact and leaves the phonetic drifters out rather than baking today's
     // misspellings in as expectations -- that would turn a guard into a
     // snapshot of a model version.
+    // Two of these are stems, and the transcript has its hyphens removed
+    // before matching, because the comment above means what it says and the
+    // list had quietly become a snapshot of `small`'s spellings. The current
+    // default writes "тайм-аут" -- the dictionary form -- and "деплай", one
+    // vowel off. Neither is the word being replaced by an unrelated one,
+    // which is the only thing this guard is for. A stem still fails on a
+    // replacement: nothing unrelated to deployment starts with "депл".
     const LOANWORDS = [
       'дедлайн',
       'релиз',
@@ -284,7 +291,7 @@ describe('ailoud end-to-end', () => {
       'реквест',
       'митинг',
       'юзер',
-      'деплой',
+      'депл',
       'лог',
       'таймаут',
       'рефакторинг',
@@ -300,7 +307,7 @@ describe('ailoud end-to-end', () => {
 
     const shown = await sandbox.run(['show', id, '--format', 'json']);
     expect(shown.code).toBe(0);
-    const transcript = transcriptTextFromShowJson(shown.stdout).toLowerCase();
+    const transcript = transcriptTextFromShowJson(shown.stdout).toLowerCase().replace(/-/g, '');
 
     const missing = LOANWORDS.filter((word) => !transcript.includes(word));
     if (missing.length > 0) {
