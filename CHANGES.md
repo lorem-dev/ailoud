@@ -42,9 +42,9 @@
 
 ### Fixed
 
-- The update notice no longer announces the version you are already running.
-  A cached answer is now re-checked against the running version, so `self
-update` is not followed by "a newer version is available (1.2.0 -> 1.2.0)".
+- The update notice no longer announces the version you are already running:
+  a cached answer is re-checked against the running version, so `self update`
+  is not followed by "a newer version is available (1.2.0 -> 1.2.0)".
 
 ## Version 1.2.0
 
