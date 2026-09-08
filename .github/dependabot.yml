@@ -9,6 +9,11 @@
 # want: a known advisory beats an unaudited release, which is the same
 # exception `scripts/dependency-age-exceptions.json` records for a human.
 #
+# Both ecosystems target `develop`, not `main`. A dependency bump is ordinary
+# work, and ordinary work enters through `develop` -- see Branching in
+# CONTRIBUTING.md. Opening these against `main` put them on the release branch
+# and left the back-merge to carry them the wrong way round.
+#
 # See .agents/skills/check-dependencies/SKILL.md for the reasoning, and
 # AGENTS.md for how a dependency change reaches a release.
 
@@ -18,6 +23,7 @@ updates:
   - package-ecosystem: npm
     # The workspace root: one pnpm-lock.yaml covers all four manifests.
     directory: /
+    target-branch: develop
     schedule:
       interval: weekly
       day: monday
@@ -46,6 +52,7 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
+    target-branch: develop
     schedule:
       interval: weekly
       day: monday
