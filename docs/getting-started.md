@@ -40,7 +40,7 @@ For an unattended run:
 ailoud setup --yes --llm local
 ```
 
-Downloads `small` by default. `--model medium` switches later, and `--force`
+Downloads `large-v3-turbo-q5_0` by default. `--model small` switches later, and `--force`
 reinstalls everything even on a machine that already checks out fine -- see
 the [CLI reference](usage/cli.md#setup) for both.
 

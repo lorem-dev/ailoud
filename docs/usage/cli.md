@@ -213,13 +213,20 @@ ailoud setup [--yes] [--model <name>] [--force] [--llm <choice>] [--llm-model <i
 
 `--llm` is one of `local`, `claude-cli`, `claude-api`, `openai`, `skip`.
 
+With no `--model`, `setup` installs `large-v3-turbo-q5_0` (574 MB). The names
+it offers are `tiny`, `base`, `small`, `large-v3-turbo-q5_0` and `large-v3`;
+`medium` and the f16 `large-v3-turbo` are no longer offered but still install
+when named, and an installed one is left alone. Which to pick, with the
+measurements, is in
+[Transcription model](configuration.md#transcription-model).
+
 `setup --model <name>` switches the transcription model even when the
 configured one is already healthy -- naming a different model is enough,
 `--force` is not required. (`doctor --fix --model <name>` does not: it only
 names what a genuinely missing model downloads as, same as before.) The old
 model file is never deleted; `setup` prints its path so you can remove it by
 hand. With no `--model` at all, `--force` reinstalls whatever is already
-configured -- it never downgrades to the default `small`. If the configured
+configured -- it never replaces it with the default. If the configured
 file matches no catalogue name (e.g. a whisper.cpp build of your own), it is
 left alone instead, with a note saying so; pass `--model <name>` to move to a
 catalogue model.

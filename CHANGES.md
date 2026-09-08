@@ -33,12 +33,7 @@
     - Name the command or option in backticks, so it is greppable.
     - Wrap at 80 columns. ASCII only (see AGENTS.md).
 
-  Sections: `## Development` collects unreleased entries. `bump-version`
-  promotes it to `## Version <v>` and `release-notes.mjs` extracts that section
-  for the GitHub release, so the heading format matters.
--->
-
-## Development
+  Sections: `## Development
 
 ### Added
 
@@ -46,45 +41,36 @@
   runs it without asking each time. `--allow-shell` answers without a prompt.
 - `ailoud setup --force` reinstalls everything ailoud needs, even when every
   check already passes, useful for a corrupted install.
-- Switching the transcription model now prints where the previous model file
-  was left, since ailoud never deletes it.
-- `self completions` adds `install`, `uninstall`, `update` and `print`
-  subcommands for bash, zsh and fish.
-- `self sync` now refreshes installed shell completions alongside a
-  project's rules block.
-- `setup` offers to install shell completions at the end of a successful
-  run; skip with `--no-completions`.
+- `self completions` installs, uninstalls, updates and prints completions for
+  bash, zsh and fish. `setup` offers to install them after a successful run
+  (skip with `--no-completions`), and `self sync` keeps installed ones current.
 - `transcribe` and `summarize` take `--detach`, running in the background and
-  printing a job id; `job ls|show|rm` follow them.
-- Transcription reports an approximate percentage while it runs, on the spinner
-  and in a job's state file.
+  printing a job id; `job ls|show|rm` follow them. Both report an approximate
+  percentage while they run, on the spinner and in the job's state file.
 - `--max-cpu` and `resources.maxCpuPercent` cap how much of the machine each
   engine takes; `--no-gpu` opts out (transcribe only). Segmentation and
-  diarization get a lower, measured share.
-- `doctor` reports the CPU split, the GPU backends each binary loaded, and
-  the thread counts derived from them.
+  diarization get a lower, measured share, and `doctor` reports the CPU split,
+  the GPU backends each binary loaded, and the thread counts derived from them.
 - `--denoise on` cleans audio before transcription, and `auto` cleans only
   what measures as noisy. Both are off by default: benchmarked over six
   corpora, denoising never improved a transcript and sometimes cost accuracy.
 
 ### Changed
 
-- `setup` installs `large-v3-turbo-q5_0` (547 MB) instead of `small` (488 MB).
-  Measured on Russian speech it makes roughly a third of `small`'s errors, and
-  on a machine without a GPU it is no slower. An installed model is never
-  replaced by this: `setup --model large-v3-turbo-q5_0` moves an existing one.
-- `setup` no longer offers `medium` or the f16 `large-v3-turbo`: each is
-  beaten on accuracy, size and speed by a smaller model. Both still install
-  when named, `setup --model medium`, and an installed one is left alone.
-  `large-v3` is offered instead, for when a hard recording is worth 2.9 GB.
+- `setup` installs `large-v3-turbo-q5_0` (574 MB) instead of `small`, and no
+  longer offers `medium` or the f16 `large-v3-turbo`, each of which is beaten
+  on accuracy, size and speed by a smaller model. `large-v3` (3.1 GB) is
+  offered for a hard recording worth it. Retired models still install when
+  named, and an installed model is never replaced without being asked for.
+- `setup --model <name>` now switches the transcription model even on a
+  healthy machine, instead of being ignored, and prints where the previous
+  model file was left, since ailoud never deletes it.
 - New rules blocks now go to `.claude/CLAUDE.md`; blocks already in a
   project's own rules files stay there and are all kept current.
-- `setup --model <name>` now switches the transcription model even on a
-  healthy machine, instead of being ignored.
 - The MCP `transcribe` and `summarize` tools return a job id and a `job_status`
-  tool to poll, instead of blocking until the work is done.
-- The MCP `transcribe` tool refuses until the speaker count and expected
-  languages are declared, and suggests languages from the recording's name.
+  tool to poll, instead of blocking until the work is done, and `transcribe`
+  refuses until the speaker count and expected languages are declared,
+  suggesting languages from the recording's name.
 
 ### Fixed
 

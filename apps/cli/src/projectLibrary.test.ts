@@ -60,7 +60,7 @@ describe('resolvePaths', () => {
 
   it('keeps the config per-user even with a project library', () => {
     // The config names installed binaries and model files. Making it local
-    // would mean re-downloading a 488 MB model per repository.
+    // would mean re-downloading a 574 MB model per repository.
     const paths = resolvePaths(
       { ...HOME, XDG_CONFIG_HOME: '/cfg', XDG_DATA_HOME: '/data' },
       { cwd: '/work/repo', exists: has('/work/repo/.ailoud') },

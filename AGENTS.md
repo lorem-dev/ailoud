@@ -227,7 +227,7 @@ whole transcripts into its context.
 A project keeps its own library in `.ailoud/`, found by walking up from the
 working directory the way git finds `.git`. The config stays per-user: it names
 installed binaries and model files, and making it local would mean
-re-downloading a 488 MB model per repository.
+re-downloading a 574 MB model per repository.
 
 ---
 

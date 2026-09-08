@@ -202,7 +202,7 @@ export interface ResolvePathsOptions {
  *
  * The CONFIG stays per-user either way. It names installed binaries, model
  * files and an LLM provider, none of which is a property of a project, and
- * making it local would mean re-downloading a 488 MB model per repository.
+ * making it local would mean re-downloading a 574 MB model per repository.
  */
 export function resolvePaths(
   env: Record<string, string | undefined>,

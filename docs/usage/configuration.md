@@ -91,7 +91,7 @@ to build it yourself, then point `stt.whisperCpp.binary` at the result.
 
 ### Transcription model
 
-`setup` installs `large-v3-turbo-q5_0` (547 MB). Measured on Russian speech,
+`setup` installs `large-v3-turbo-q5_0` (574 MB). Measured on Russian speech,
 where the models differ most:
 
 | Model       | Read speech | Conversation | At 10 dB noise | rtf, GPU | rtf, CPU |
@@ -108,7 +108,7 @@ Word error rate, then seconds of compute per second of audio.
   smaller. Both still install if you name one: `setup --model medium`.
 - `large-v3` is offered as the deliberate maximum. It is measurably better
   than the default only on hard audio (about 2 points), was 2 points worse on
-  far-field meeting audio, and costs 2.9 GB and roughly twice the decode
+  far-field meeting audio, and costs 3.1 GB and roughly twice the decode
   time.
 - English is a poor guide to this choice: every model from `small` up scores
   within about a point on clean English narration.
@@ -117,9 +117,10 @@ Word error rate, then seconds of compute per second of audio.
 
 `audio.denoise` is `off`, and the measurements say to leave it there. Across
 six corpora, eight models and noise from clean down to 0 dB signal-to-noise,
-denoising never improved a transcript and several times made one worse. On
-far-field meeting audio, the one condition where `auto` switches itself on, it
-changed the error rate by nothing at all for the default model.
+denoising never improved a transcript and several times made one worse -- by
+up to 24 points of word error rate on `base`, and by 4.6 points on `large-v3`.
+On far-field meeting audio, the one condition where `auto` switches itself on,
+it changed the error rate by nothing at all for the default model.
 
 whisper is already robust to steady background noise; the filter chain takes
 speech with it. On a small model it can drop whole passages and still return a

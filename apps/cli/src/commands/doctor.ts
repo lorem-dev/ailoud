@@ -682,7 +682,7 @@ export function registerDoctor(
     .option('--yes', 'confirm the fix plan without prompting')
     .option(
       '--model <name>',
-      'transcription model to download if one is needed (default: the configured one, else small)',
+      'transcription model to download if one is needed (default: the configured one)',
     )
     .option('--llm <choice>', 'summariser to set up: local, claude-cli, claude-api, openai, skip')
     .option(

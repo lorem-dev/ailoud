@@ -8,7 +8,7 @@
 #   - `e2e` runs the specs that need no external tools -- `mcp install`,
 #     `uninstall` and `update`, which only read and write configuration. On
 #     every push and pull request, because it costs seconds.
-#   - `e2e-tools` provisions ffmpeg, whisper.cpp and a 488 MB model with
+#   - `e2e-tools` provisions ffmpeg, whisper.cpp and a 574 MB model with
 #     `ailoud setup`, then runs the whole suite. On pushes only: paying that
 #     download on every pull request would not be worth the wall clock, and
 #     the models are cached between runs so the usual cost is the install, not
@@ -110,7 +110,7 @@ jobs:
   e2e-tools:
     name: End-to-end (provisioned)
     runs-on: ubuntu-latest
-    # Not on pull requests: it downloads a 488 MB model on a cache miss.
+    # Not on pull requests: it downloads a 574 MB model on a cache miss.
     if: github.event_name == 'push'
     timeout-minutes: 45
 

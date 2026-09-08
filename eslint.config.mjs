@@ -18,6 +18,10 @@ export default tseslint.config(
       '**/node_modules/**',
       // mkdocs build output: third-party minified JS, not ours to lint.
       'site/**',
+      // Git-ignored scratch (see .gitignore): throwaway measurement scripts
+      // that are not part of the project and hold nothing worth linting. A
+      // stray one there failed `pnpm lint` for the whole repository.
+      'tmp/**',
     ],
   },
   {

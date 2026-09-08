@@ -7,6 +7,7 @@ import {
   DEFAULT_MODEL_NAME,
   EnvironmentError,
   TRANSCRIPTION_MODELS,
+  VAD_MODEL,
   findModelFile,
   UsageError,
   findModel,
@@ -1023,10 +1024,14 @@ export function windowsManualSteps(commandName: CommandName): readonly string[] 
     `  2. whisper.cpp -- take the Windows assets of release ${WHISPER_TAG} from`,
     '     https://github.com/ggml-org/whisper.cpp/releases and extract the tree,',
     '     keeping it intact.',
-    '  3. A transcription model -- ggml-large-v3-turbo-q5_0.bin (or another',
-    '     entry from the catalogue) from',
+    // Both file names come from the catalogue rather than being typed here.
+    // The transcription one was typed here once and went stale the day the
+    // default changed, telling a Windows user to download a file `setup` no
+    // longer installs.
+    `  3. A transcription model -- ${findModel(DEFAULT_MODEL_NAME)?.file ?? 'a catalogue entry'}`,
+    '     (or another entry from the catalogue) from',
     '     https://huggingface.co/ggerganov/whisper.cpp',
-    '  4. The VAD model, only needed by --multilingual -- ggml-silero-v5.1.2.bin',
+    `  4. The VAD model, only needed by --multilingual -- ${VAD_MODEL.file}`,
     '     from https://huggingface.co/ggml-org/whisper-vad',
     '  5. The diarizer, only needed by --diarize -- sherpa-onnx publishes no',
     '     Windows asset in the pinned release, so build sherpa-onnx from source to',
@@ -1055,7 +1060,10 @@ export function registerSetup(
     .option('--yes', 'confirm the plan without prompting')
     .option(
       '--model <name>',
-      'switch to this transcription model (default: the configured one, else small)',
+      // Interpolated, not spelled out: this description named `small` until the
+      // default changed under it, and `ailoud setup --help` then contradicted
+      // the tool for as long as nobody noticed.
+      `switch to this transcription model (default: the configured one, else ${DEFAULT_MODEL_NAME})`,
     )
     .option('--llm <choice>', 'summariser to set up: local, claude-cli, claude-api, openai, skip')
     .option(
