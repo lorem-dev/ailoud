@@ -11,6 +11,9 @@ coverage/
 .DS_Store
 .idea/
 *.swp
+# Scratch: benchmark corpora, model files, measurement output. Nothing here is
+# an input to the build, and some of it runs to gigabytes.
+tmp/
 # `.claude/*`, not `.claude/`: git cannot re-include a file whose parent
 # directory is excluded by a pattern ending in a slash, so the negation below
 # was silently doing nothing.
