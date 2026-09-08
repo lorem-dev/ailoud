@@ -1,17 +1,19 @@
 # After anything lands on main, bring develop up to it.
 #
-# The merge happens HERE, not in a pull request a person merges. It used to be
-# a PR, and that failed in a way worth remembering: the first one was merged
-# with "squash", so develop received main's CONTENT as one ordinary commit but
-# none of its history. Git then had no idea develop already held those changes,
-# and every later back-merge tried to re-apply 236 commits whose content was
-# already there -- 67 conflicting files, on a merge that should have been a
-# formality. A back-merge needs no review and no human decision, so it no
-# longer waits for one.
+# A pull request that merges ITSELF. `develop` is protected -- pushes to it are
+# refused with "Changes must be made through a pull request" -- so the PR is not
+# optional. What is optional is the person, and the person was the problem: the
+# first back-merge PR was merged with "squash", which copied main's content into
+# develop as one ordinary commit and dropped its history. Git then had no way to
+# know develop already held those changes, so every later back-merge tried to
+# re-apply 236 commits whose content was already there: 67 conflicting files on
+# a merge that should have been a formality.
 #
-# A pull request is still opened, but only when the merge genuinely cannot be
-# done unattended: a real conflict, or a protected branch that refuses the
-# push. Those are the cases where a person is actually needed.
+# So the workflow opens the PR and turns on auto-merge with the MERGE method.
+# GitHub merges it once the required checks pass, nobody chooses a method, and
+# a squash cannot happen by accident. Auto-merge has to be enabled on the
+# repository for this (`allow_auto_merge`); if it is off, the run says so and
+# leaves the PR for a person, who must merge it with a merge commit.
 #
 # While the project is pre-release the flow is inverted from the eventual one:
 # work happens on main, and develop follows it. Once releases start, features
@@ -25,7 +27,9 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  # Read is enough: nothing here pushes. The merge is GitHub'''s, done on the
+  # pull request once its checks pass.
+  contents: read
   pull-requests: write
 
 concurrency:
@@ -54,53 +58,12 @@ jobs:
           if git merge-base --is-ancestor origin/main origin/develop; then
             echo "action=none" >> "$GITHUB_OUTPUT"
             echo "develop already contains main; nothing to do."
-          elif git merge-base --is-ancestor origin/develop origin/main; then
-            # The healthy case: develop has nothing of its own, so this is a
-            # pointer move with no merge commit and no possible conflict.
-            echo "action=fast-forward" >> "$GITHUB_OUTPUT"
           else
-            echo "action=merge" >> "$GITHUB_OUTPUT"
+            echo "action=pr" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Fast-forward develop to main
-        id: ff
-        if: steps.check.outputs.action == 'fast-forward'
-        run: |
-          set -uo pipefail
-          if git push origin "origin/main:refs/heads/develop"; then
-            echo "pushed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "pushed=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::could not fast-forward develop, probably branch protection; opening a pull request instead."
-          fi
-
-      - name: Merge main into develop
-        id: merge
-        if: steps.check.outputs.action == 'merge'
-        run: |
-          set -uo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -B develop origin/develop
-          # --no-ff so the merge is always recorded as one. A back-merge that
-          # leaves no merge commit is exactly the failure this workflow exists
-          # to avoid.
-          if ! git merge --no-ff origin/main -m "chore: back-merge main into develop"; then
-            git merge --abort || true
-            echo "pushed=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::main and develop conflict; opening a pull request for a person to resolve."
-            exit 0
-          fi
-          if git push origin develop; then
-            echo "pushed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "pushed=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::could not push the merge, probably branch protection; opening a pull request instead."
-          fi
-
-      - name: Open or update a back-merge PR, when the merge could not be done here
-        if: |
-          steps.ff.outputs.pushed == 'false' || steps.merge.outputs.pushed == 'false'
+      - name: Open the back-merge PR and let it merge itself
+        if: steps.check.outputs.action == 'pr'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WORKFLOW_NAME: ${{ github.workflow }}
@@ -110,15 +73,10 @@ jobs:
           MAIN_SHA="$(git rev-parse --short origin/main)"
           MAIN_SUBJECT="$(git log -1 --format='%s' origin/main)"
 
-          EXISTING="$(gh pr list --head main --base develop --state open --json number --jq '.[0].number')"
-          if [ -n "$EXISTING" ]; then
-            echo "PR #$EXISTING already open for main -> develop; it will auto-update with the new push."
-            exit 0
-          fi
-
+          NUMBER="$(gh pr list --head main --base develop --state open --json number --jq '.[0].number')"
           BODY_FILE="$(mktemp)"
           cat > "$BODY_FILE" <<EOF
-          Automated back-merge of \`main\` into \`develop\`, opened because it could not be done unattended -- either the two branches conflict, or a branch rule refused the push.
+          Automated back-merge of \`main\` into \`develop\`. Auto-merge is on, so this merges itself once the required checks pass.
 
           Latest commit on main: \`${MAIN_SHA}\` - ${MAIN_SUBJECT}
 
@@ -127,8 +85,20 @@ jobs:
           **Merge this with a MERGE COMMIT, not a squash.** A squash copies main's content without its history, so git stops knowing that develop already contains it and every later back-merge conflicts on files nobody touched. That is what happened once already; see the comment at the top of \`.github/workflows/backmerge.yml\`.
           EOF
 
-          gh pr create \
-            --base develop \
-            --head main \
-            --title "chore: back-merge main into develop" \
-            --body-file "$BODY_FILE"
+          if [ -z "$NUMBER" ]; then
+            gh pr create \
+              --base develop \
+              --head main \
+              --title "chore: back-merge main into develop" \
+              --body-file "$BODY_FILE"
+            NUMBER="$(gh pr list --head main --base develop --state open --json number --jq '.[0].number')"
+          else
+            echo "PR #$NUMBER is already open; it tracks main and needs no new one."
+          fi
+
+          # --merge, never --squash: a squashed back-merge is what broke this
+          # once. If auto-merge is disabled on the repository this fails, and
+          # saying so is better than a PR that sits open looking healthy.
+          if ! gh pr merge "$NUMBER" --auto --merge; then
+            echo "::warning::could not enable auto-merge on PR #$NUMBER. Enable allow_auto_merge on the repository, or merge it by hand WITH A MERGE COMMIT."
+          fi
