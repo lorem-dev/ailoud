@@ -264,12 +264,19 @@ describe('ailoud background jobs', () => {
     expect(importMatch).not.toBeNull();
     const recordingId = importMatch![1]!;
 
-    // Start the first background transcription
+    // Start the first background transcription. `--max-cpu 1` gives it a
+    // single thread, which on 57 seconds of audio leaves it working for long
+    // enough that the second attempt below lands while it is still holding
+    // the lock. Without it this raced: the job could finish between the poll
+    // that confirms it is running and the command that expects a refusal,
+    // and then there was nothing to refuse.
     const firstDetachResult = await sandbox.run([
       'transcribe',
       recordingId,
       '--lang',
       'en',
+      '--max-cpu',
+      '1',
       '--detach',
     ]);
     expect(firstDetachResult.code).toBe(0);
@@ -294,7 +301,20 @@ describe('ailoud background jobs', () => {
       'en',
       '--detach',
     ]);
-    expect(secondDetachResult.code).not.toBe(0);
+    // On failure, say what the first job was doing. "expected not 0" alone
+    // cannot distinguish the three ways this goes wrong -- the job finished
+    // early, it died, or the lock was not honoured -- and that distinction is
+    // the whole question. This spec failed once in CI with none of it
+    // recorded.
+    if (secondDetachResult.code === 0) {
+      const holder = await readJobState(sandbox, firstJobId);
+      throw new Error(
+        `a second job was accepted while ${firstJobId} held the lock. ` +
+          `That job is now ${holder === null ? 'absent' : holder.state}` +
+          `${holder?.percent === undefined ? '' : ` at ${holder.percent}%`}. ` +
+          `Second command said: ${JSON.stringify(secondDetachResult.stdout.trim())}`,
+      );
+    }
     // The error should name the holder (first job id)
     expect(secondDetachResult.stderr.toLowerCase()).toMatch(/job|running|lock|holder|refused/i);
   });
