@@ -1,8 +1,17 @@
-# After anything lands on main, keep develop in sync by opening (or refreshing)
-# a pull request that merges main back into develop.
+# After anything lands on main, bring develop up to it.
 #
-# A PR rather than a direct push, so the merge is visible and CI runs on it.
-# Conflicts are resolved on the PR.
+# The merge happens HERE, not in a pull request a person merges. It used to be
+# a PR, and that failed in a way worth remembering: the first one was merged
+# with "squash", so develop received main's CONTENT as one ordinary commit but
+# none of its history. Git then had no idea develop already held those changes,
+# and every later back-merge tried to re-apply 236 commits whose content was
+# already there -- 67 conflicting files, on a merge that should have been a
+# formality. A back-merge needs no review and no human decision, so it no
+# longer waits for one.
+#
+# A pull request is still opened, but only when the merge genuinely cannot be
+# done unattended: a real conflict, or a protected branch that refuses the
+# push. Those are the cases where a person is actually needed.
 #
 # While the project is pre-release the flow is inverted from the eventual one:
 # work happens on main, and develop follows it. Once releases start, features
@@ -16,7 +25,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 concurrency:
@@ -24,38 +33,80 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  open-backmerge-pr:
+  back-merge:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Skip if develop already contains main
+      - name: Decide what is needed
         id: check
         run: |
           set -uo pipefail
           # Said plainly rather than dying on `fatal: Not a valid object name`,
           # which is what the first run did before develop existed.
           if ! git rev-parse --verify --quiet origin/develop >/dev/null; then
-            echo "needs_pr=false" >> "$GITHUB_OUTPUT"
+            echo "action=none" >> "$GITHUB_OUTPUT"
             echo "::notice::there is no develop branch, so there is nothing to back-merge into."
             exit 0
           fi
           if git merge-base --is-ancestor origin/main origin/develop; then
-            echo "needs_pr=false" >> "$GITHUB_OUTPUT"
+            echo "action=none" >> "$GITHUB_OUTPUT"
             echo "develop already contains main; nothing to do."
+          elif git merge-base --is-ancestor origin/develop origin/main; then
+            # The healthy case: develop has nothing of its own, so this is a
+            # pointer move with no merge commit and no possible conflict.
+            echo "action=fast-forward" >> "$GITHUB_OUTPUT"
           else
-            echo "needs_pr=true" >> "$GITHUB_OUTPUT"
+            echo "action=merge" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Open or update back-merge PR
-        if: steps.check.outputs.needs_pr == 'true'
+      - name: Fast-forward develop to main
+        id: ff
+        if: steps.check.outputs.action == 'fast-forward'
+        run: |
+          set -uo pipefail
+          if git push origin "origin/main:refs/heads/develop"; then
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::could not fast-forward develop, probably branch protection; opening a pull request instead."
+          fi
+
+      - name: Merge main into develop
+        id: merge
+        if: steps.check.outputs.action == 'merge'
+        run: |
+          set -uo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B develop origin/develop
+          # --no-ff so the merge is always recorded as one. A back-merge that
+          # leaves no merge commit is exactly the failure this workflow exists
+          # to avoid.
+          if ! git merge --no-ff origin/main -m "chore: back-merge main into develop"; then
+            git merge --abort || true
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::main and develop conflict; opening a pull request for a person to resolve."
+            exit 0
+          fi
+          if git push origin develop; then
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::could not push the merge, probably branch protection; opening a pull request instead."
+          fi
+
+      - name: Open or update a back-merge PR, when the merge could not be done here
+        if: |
+          steps.ff.outputs.pushed == 'false' || steps.merge.outputs.pushed == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WORKFLOW_NAME: ${{ github.workflow }}
           RUN_ID: ${{ github.run_id }}
         run: |
+          set -uo pipefail
           MAIN_SHA="$(git rev-parse --short origin/main)"
           MAIN_SUBJECT="$(git log -1 --format='%s' origin/main)"
 
@@ -67,13 +118,13 @@ jobs:
 
           BODY_FILE="$(mktemp)"
           cat > "$BODY_FILE" <<EOF
-          Automated back-merge of \`main\` into \`develop\`.
+          Automated back-merge of \`main\` into \`develop\`, opened because it could not be done unattended -- either the two branches conflict, or a branch rule refused the push.
 
           Latest commit on main: \`${MAIN_SHA}\` - ${MAIN_SUBJECT}
 
           Triggered by push to \`main\` in workflow \`${WORKFLOW_NAME}\` run \`${RUN_ID}\`.
 
-          Merge this PR (or enable auto-merge on it) to keep \`develop\` in sync with the latest release commit on \`main\`. Resolve any conflicts manually before merging.
+          **Merge this with a MERGE COMMIT, not a squash.** A squash copies main's content without its history, so git stops knowing that develop already contains it and every later back-merge conflicts on files nobody touched. That is what happened once already; see the comment at the top of \`.github/workflows/backmerge.yml\`.
           EOF
 
           gh pr create \
