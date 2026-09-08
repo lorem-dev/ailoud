@@ -56,6 +56,36 @@ interface JobState {
 }
 
 /** Read the job state file from the sandbox's data directory. */
+/**
+ * Waits until a job's lock file exists, which is a different moment from the
+ * job reporting itself as running.
+ *
+ * `createJob` writes `state: 'running'` in the LAUNCHER, before the child
+ * process exists; the child is what calls `withJobLock`. Between the launcher
+ * exiting and the child taking the lock there is a window with no lock file at
+ * all, and `jobLockHolder` -- the up-front refusal `--detach` gives -- is
+ * documented as advisory precisely because of it (see exclusiveLock.ts). A
+ * test that polls the job STATE and then expects a refusal is asking for a
+ * guarantee the design does not make: CI caught exactly that, with the first
+ * job "running at 0%" while a second launcher was accepted.
+ *
+ * Polling the lock instead tests the refusal in the only state where it is
+ * meant to hold.
+ */
+async function waitForJobLock(sandbox: Sandbox): Promise<void> {
+  const lock = join(sandbox.dataDir, 'jobs.lock');
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    try {
+      await readFile(lock, 'utf8');
+      return;
+    } catch {
+      await delay(100);
+    }
+  }
+  throw new Error(`no job lock appeared at ${lock} within 60s`);
+}
+
 async function readJobState(sandbox: Sandbox, jobId: string): Promise<JobState | null> {
   const jobsDir = join(sandbox.dataDir, 'jobs');
   const statePath = join(jobsDir, `${jobId}.json`);
@@ -283,15 +313,12 @@ describe('ailoud background jobs', () => {
     const firstJobId = parseDetachId(firstDetachResult.stdout);
     createdJobIds.push(firstJobId);
 
-    // Confirm the first job is actually running
-    let state = await readJobState(sandbox, firstJobId);
-    let attempts = 0;
-    while ((state === null || state.state !== 'running') && attempts < 20) {
-      await delay(500);
-      state = await readJobState(sandbox, firstJobId);
-      attempts += 1;
-    }
-    expect(state!.state).toBe('running');
+    // Wait for the LOCK, not for the state file to say "running": the state
+    // file says that from the moment the launcher writes it, before the child
+    // that takes the lock has even started. See waitForJobLock.
+    await waitForJobLock(sandbox);
+    const state = await readJobState(sandbox, firstJobId);
+    expect(state?.state).toBe('running');
 
     // Attempt to start a second transcription -- should be refused
     const secondDetachResult = await sandbox.run([
