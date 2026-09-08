@@ -17,7 +17,7 @@ resources:
   gpu: true
 
 audio:
-  denoise: auto
+  denoise: off
 
 stt:
   provider: whisper-cpp
@@ -45,7 +45,7 @@ llm:
 | ------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
 | `resources.maxCpuPercent` | `90`    | Share of the machine's fast cores an engine may use, 1 to 100.                                    |
 | `resources.gpu`           | `true`  | Use the GPU where a binary supports it.                                                           |
-| `audio.denoise`           | `auto`  | `auto` measures the audio and cleans only noisy recordings. `on` always cleans, `off` never does. |
+| `audio.denoise`           | `off`   | `on` cleans the audio before transcription, `auto` cleans only what measures as noisy. See below. |
 | `stt.diarization.threads` | `null`  | Follow `maxCpuPercent`. A number overrides it.                                                    |
 | `llm.llamaCpp.threads`    | `null`  | Follow `maxCpuPercent`. A number overrides it.                                                    |
 
@@ -110,6 +110,22 @@ Word error rate, then seconds of compute per second of audio.
   (about 2 points), for 2.9 GB and roughly twice the decode time.
 - English is a poor guide to this choice: every model from `small` up scores
   within about a point on clean English narration.
+
+### Denoising
+
+`audio.denoise` is `off`, and the measurements say to leave it there. Across
+six corpora, eight models and noise from clean down to 0 dB signal-to-noise,
+denoising never improved a transcript and several times made one worse. On
+far-field meeting audio, the one condition where `auto` switches itself on, it
+changed the error rate by nothing at all for the default model.
+
+whisper is already robust to steady background noise; the filter chain takes
+speech with it. On a small model it can drop whole passages and still return a
+fluent, correctly punctuated sentence, so nothing in the output says a third of
+it is missing.
+
+`--denoise on` is still there for a recording you have listened to and know
+needs it.
 
 ## Language model
 

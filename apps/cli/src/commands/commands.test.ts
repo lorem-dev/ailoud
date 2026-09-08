@@ -351,11 +351,15 @@ describe('ailoud transcribe --max-cpu, --no-gpu, --denoise', () => {
     },
   );
 
-  it('defaults to "auto" (the schema default) when --denoise is not given', async () => {
+  it('defaults to "off" (the schema default) when --denoise is not given', async () => {
+    // Asserted against the mode the adapter was ASKED for, not against the
+    // config: this is the wiring between the two, and it is what silently
+    // broke when the flag was added to summarize where nothing consumed it.
     const ctx = context();
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe']);
-    expect((ctx.audio as FakeAudioTool).denoiseModes).toContain('auto');
+    expect((ctx.audio as FakeAudioTool).denoiseModes).toContain('off');
+    expect((ctx.audio as FakeAudioTool).denoiseModes).not.toContain('auto');
   });
 
   it('validates --max-cpu and --denoise before creating a job or spawning anything, under --detach', async () => {

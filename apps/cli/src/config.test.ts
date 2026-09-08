@@ -113,7 +113,7 @@ describe('parseConfig', () => {
         gpu: true,
       },
       audio: {
-        denoise: 'auto',
+        denoise: 'off',
       },
       update: {
         check: true,
@@ -230,10 +230,10 @@ describe('parseConfig', () => {
 });
 
 describe('resource and audio configuration', () => {
-  it('defaults to 90 percent, the gpu on, and denoising on auto', () => {
+  it('defaults to 90 percent, the gpu on, and denoising off', () => {
     const config = parseConfig('');
     expect(config.resources).toEqual({ maxCpuPercent: 90, gpu: true });
-    expect(config.audio).toEqual({ denoise: 'auto' });
+    expect(config.audio).toEqual({ denoise: 'off' });
   });
 
   it('fills in the rest of a partially written resources block', () => {

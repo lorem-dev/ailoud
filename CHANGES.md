@@ -63,8 +63,9 @@
   diarization get a lower, measured share.
 - `doctor` reports the CPU split, the GPU backends each binary loaded, and
   the thread counts derived from them.
-- `--denoise` and `audio.denoise` clean noisy audio before transcription.
-  The default `auto` measures each recording and leaves clean ones untouched.
+- `--denoise on` cleans audio before transcription, and `auto` cleans only
+  what measures as noisy. Both are off by default: benchmarked over six
+  corpora, denoising never improved a transcript and sometimes cost accuracy.
 
 ### Changed
 

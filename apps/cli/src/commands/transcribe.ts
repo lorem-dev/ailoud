@@ -216,7 +216,7 @@ export function registerTranscribe(program: Command, context: CliContext): void 
       'share of this machine to use, 1 to 100 (default: the configured 90)',
     )
     .option('--no-gpu', 'do not use the GPU, even where a binary supports it')
-    .option('--denoise <mode>', 'auto, on or off (default: the configured auto)')
+    .option('--denoise <mode>', 'auto, on or off (default: the configured off)')
     .option('--tag <tag>', 'group these recordings under a tag; repeatable', collectTag)
     // Hidden, and not a feature: this is how the detached child started by
     // `--detach` and by the MCP server is told which job it is. A user has

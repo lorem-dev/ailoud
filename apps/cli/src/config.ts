@@ -101,12 +101,19 @@ export const ConfigSchema = z.object({
   audio: z
     .object({
       /**
-       * `auto` measures the converted wav and denoises only when its
-       * signal-to-noise ratio is below the measured threshold. Five of this
-       * project's eight fixtures have no measurable noise floor at all and
-       * are never touched.
+       * Off by default, on measurement. `auto` measures the converted wav and
+       * denoises when its signal-to-noise ratio is below the threshold in
+       * core/audio/noise.ts -- and a benchmark of that behaviour over six
+       * corpora found no case where denoising improved a transcript, and
+       * several where it hurt. The numbers and the reasoning are in that
+       * file's own comment; the short version is that whisper is already
+       * robust to the noise this chain removes, and the chain takes real
+       * speech with it.
+       *
+       * The modes are kept because `on` is a legitimate thing to ask for on a
+       * recording somebody has listened to. Only the default changed.
        */
-      denoise: z.enum(DENOISE_MODES).default('auto'),
+      denoise: z.enum(DENOISE_MODES).default('off'),
     })
     .prefault({}),
   update: z
