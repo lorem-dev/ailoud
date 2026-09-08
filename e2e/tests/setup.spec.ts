@@ -35,8 +35,6 @@ describe('ailoud setup --model', () => {
     // The whole list, verbatim and in order: it is user-facing copy, and the
     // order is the one the interactive picker shows (ascending by download
     // size). A catalogue change should have to come past this assertion.
-    expect(result.stderr).toContain(
-      'tiny, base, small, large-v3-turbo-q5_0, medium, large-v3-turbo',
-    );
+    expect(result.stderr).toContain('tiny, base, small, large-v3-turbo-q5_0, large-v3');
   });
 });

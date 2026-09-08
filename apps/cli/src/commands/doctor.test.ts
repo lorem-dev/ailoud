@@ -1066,7 +1066,7 @@ describe('a corrupt database: every entry point must refuse', () => {
  * The Windows guard lives in runProvisioning (the shared engine) now, not
  * in registerSetup, precisely so `doctor --fix` inherits it too. Before
  * this fix, `ailoud doctor --fix --yes` on win32 built a plan, took consent,
- * downloaded the transcription model and the VAD model (up to 1.6 GB), and
+ * downloaded the transcription model and the VAD model (up to 3.1 GB), and
  * only then failed both installs and exited non-zero. registerDoctor is
  * called directly (not through buildProgram) so `platform` can be pinned to
  * 'win32' without a real Windows box, mirroring the equivalent

@@ -101,6 +101,8 @@ export {
   EMBEDDING_MODEL,
   DEFAULT_MODEL_NAME,
   findModel,
+  findModelFile,
+  RETIRED_MODELS,
 } from './provision/catalogue.js';
 
 export type { Action, PlanOptions } from './provision/plan.js';

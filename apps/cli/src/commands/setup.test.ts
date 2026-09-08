@@ -90,7 +90,7 @@ describe('resolveModelName', () => {
       UsageError,
     );
     await expect(resolveModelName({ model: 'huge', interactive: false })).rejects.toThrow(
-      /tiny, base, small, large-v3-turbo-q5_0, medium, large-v3-turbo/,
+      /tiny, base, small, large-v3-turbo-q5_0, large-v3/,
     );
   });
 
@@ -709,6 +709,10 @@ describe('isSwitchingModel', () => {
 });
 
 describe('configuredModelName', () => {
+  // `medium` is deliberately the example here: it is RETIRED, so these cases
+  // also pin the guarantee that a retired model installed on a machine is
+  // still recognised as itself. Narrow this to the offered list and
+  // `setup --force` starts silently replacing a healthy `medium`.
   it('names the catalogue entry matching the configured path', () => {
     expect(configuredModelName('/data/models/ggml-medium.bin')).toBe('medium');
   });

@@ -73,6 +73,10 @@
   Measured on Russian speech it makes roughly a third of `small`'s errors, and
   on a machine without a GPU it is no slower. An installed model is never
   replaced by this: `setup --model large-v3-turbo-q5_0` moves an existing one.
+- `setup` no longer offers `medium` or the f16 `large-v3-turbo`: each is
+  beaten on accuracy, size and speed by a smaller model. Both still install
+  when named, `setup --model medium`, and an installed one is left alone.
+  `large-v3` is offered instead, for when a hard recording is worth 2.9 GB.
 - New rules blocks now go to `.claude/CLAUDE.md`; blocks already in a
   project's own rules files stay there and are all kept current.
 - `setup --model <name>` now switches the transcription model even on a

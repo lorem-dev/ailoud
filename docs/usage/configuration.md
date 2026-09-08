@@ -103,11 +103,13 @@ Word error rate, then seconds of compute per second of audio.
 
 - Without a GPU the default is free: quantised weights halve the memory
   traffic, and memory bandwidth is what limits CPU decoding.
-- Bigger is not better. `medium` is larger, slower AND less accurate than
-  `large-v3-turbo`; `large-v3-turbo` in f16 is three times the download of
-  the default for an accuracy difference too small to measure.
-- `large-v3` is the only model measurably better, and only on hard audio
-  (about 2 points), for 2.9 GB and roughly twice the decode time.
+- Bigger is not better. `medium` and the f16 build of `large-v3-turbo` were
+  both dropped from what `setup` offers, because each is beaten by something
+  smaller. Both still install if you name one: `setup --model medium`.
+- `large-v3` is offered as the deliberate maximum. It is measurably better
+  than the default only on hard audio (about 2 points), was 2 points worse on
+  far-field meeting audio, and costs 2.9 GB and roughly twice the decode
+  time.
 - English is a poor guide to this choice: every model from `small` up scores
   within about a point on clean English narration.
 

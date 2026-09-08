@@ -91,18 +91,61 @@ export const TRANSCRIPTION_MODELS: readonly ModelChoice[] = [
     summary: 'the default -- most accurate for its size',
   },
   {
+    /**
+     * The deliberate maximum. Measurably better than the default only on hard
+     * audio -- about 2 points on the supplied conference recording -- and
+     * indistinguishable from it on clean Russian, on spontaneous Russian and
+     * on far-field meeting audio, where it was in fact 2 points WORSE. It also
+     * decodes at 0.203 against the default's 0.112, so it is the right answer
+     * for a difficult recording somebody cares about and the wrong one for a
+     * library.
+     */
+    name: 'large-v3',
+    file: 'ggml-large-v3.bin',
+    url: `${HF_WHISPER}/ggml-large-v3.bin`,
+    bytes: 3_095_033_483,
+    summary: 'heaviest -- a little better on hard audio',
+  },
+];
+
+/**
+ * Models an earlier version offered and this one does not.
+ *
+ * MEASURED 2026-09-08 (see the default's comment above for the corpora): each
+ * is dominated by something smaller. `medium` is larger, slower AND less
+ * accurate than large-v3-turbo on every corpus tried; `large-v3-turbo` in f16
+ * is 2.8x the default's download and, without a GPU, 1.9x its decode time,
+ * for an accuracy difference no comparison could separate from zero.
+ *
+ * Still resolvable rather than deleted, for two reasons that both bite
+ * existing installations:
+ *
+ *   - `ailoud setup --model medium` keeps working. Somebody's script says
+ *     that, and the model itself is fine -- it is merely a poor choice.
+ *   - `findModelFile` still recognises an installed one AS itself. Without
+ *     that, `setup --force` on a machine running `medium` would see a
+ *     stranger's file where its own catalogue name should be, fall through to
+ *     DEFAULT_MODEL_NAME, and silently replace a healthy model the user chose
+ *     on purpose. That exact silent switch was found and fixed once already.
+ *
+ * They are absent from TRANSCRIPTION_MODELS, so the interactive picker and
+ * the "choose one of" message offer only the list above. Nothing here should
+ * be recommended to anyone.
+ */
+export const RETIRED_MODELS: readonly ModelChoice[] = [
+  {
     name: 'medium',
     file: 'ggml-medium.bin',
     url: `${HF_WHISPER}/ggml-medium.bin`,
     bytes: 1_533_763_059,
-    summary: 'slower, more accurate',
+    summary: 'retired -- large-v3-turbo-q5_0 is smaller, faster and better',
   },
   {
     name: 'large-v3-turbo',
     file: 'ggml-large-v3-turbo.bin',
     url: `${HF_WHISPER}/ggml-large-v3-turbo.bin`,
     bytes: 1_624_555_275,
-    summary: 'most accurate, heaviest',
+    summary: 'retired -- the q5_0 build of it is a third the size, and no worse',
   },
 ];
 
@@ -169,8 +212,32 @@ export const EMBEDDING_MODEL: ModelChoice = {
  */
 export const DEFAULT_MODEL_NAME = 'large-v3-turbo-q5_0';
 
+/**
+ * A model by catalogue name, retired ones included.
+ *
+ * Resolving covers more than offering: a name this returns is one `--model`
+ * accepts and `setup` can install. The offered list is TRANSCRIPTION_MODELS,
+ * and only that list belongs in a picker or a "choose one of" message.
+ */
 export function findModel(name: string): ModelChoice | undefined {
-  return TRANSCRIPTION_MODELS.find((model) => model.name === name);
+  return (
+    TRANSCRIPTION_MODELS.find((model) => model.name === name) ??
+    RETIRED_MODELS.find((model) => model.name === name)
+  );
+}
+
+/**
+ * A model by the file name it is stored under, retired ones included.
+ *
+ * This is how an installed model is recognised as itself. Answering
+ * `undefined` for a model that is merely no longer offered would make
+ * `setup --force` treat a healthy install as unrecognised and replace it.
+ */
+export function findModelFile(file: string): ModelChoice | undefined {
+  return (
+    TRANSCRIPTION_MODELS.find((model) => model.file === file) ??
+    RETIRED_MODELS.find((model) => model.file === file)
+  );
 }
 
 /**

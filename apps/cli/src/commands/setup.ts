@@ -7,6 +7,7 @@ import {
   DEFAULT_MODEL_NAME,
   EnvironmentError,
   TRANSCRIPTION_MODELS,
+  findModelFile,
   UsageError,
   findModel,
   planDownloadBytes,
@@ -172,8 +173,10 @@ export async function chooseModel(options: ChooseModelOptions): Promise<string> 
  */
 export function configuredModelName(configuredModel: string | null): string | undefined {
   if (configuredModel === null) return undefined;
-  const base = basename(configuredModel);
-  return TRANSCRIPTION_MODELS.find((model) => model.file === base)?.name;
+  // findModelFile, not a search of the offered list: a model that is merely
+  // retired is still installed and still that model. Missing it here would
+  // make `setup --force` fall through to DEFAULT_MODEL_NAME and replace it.
+  return findModelFile(basename(configuredModel))?.name;
 }
 
 export interface ConsentOptions {
@@ -197,7 +200,7 @@ export interface ConsentOptions {
 }
 
 /**
- * Consent for installing software and downloading up to 1.5 GB.
+ * Consent for installing software and downloading up to 3.1 GB.
  *
  * Asked once for the whole plan, not once per action: a per-action prompt
  * teaches people to hit `y` without reading, which is worse than not asking.
@@ -767,7 +770,7 @@ export async function runProvisioning(
 ): Promise<void> {
   // Before anything else, and in particular before any remedy is collected
   // or plan built: building a plan on Windows would take consent, pull down
-  // up to 1.6 GB of models, then fail both installs and exit non-zero
+  // up to 3.1 GB of models, then fail both installs and exit non-zero
   // anyway. This used to live only in registerSetup, so `doctor --fix` on
   // Windows built the plan and paid for the download before failing --
   // exactly the drift the shared engine exists to prevent. Living here
@@ -955,7 +958,7 @@ export async function runProvisioning(
     // A download always targets `<dataDir>/models/<file>` (see
     // provisionRunner.ts's download-model branch), never the path that was
     // configured before -- so the previous .bin is still sitting wherever it
-    // was, up to 1.6 GB ailoud has no garbage collection for and will not
+    // was, up to 3.1 GB ailoud has no garbage collection for and will not
     // delete unasked. Named once, here, rather than silently orphaned.
     // `configuredModel` is the path from BEFORE this run (captured at the top
     // of this function); compared as resolved paths, not basenames, because a
