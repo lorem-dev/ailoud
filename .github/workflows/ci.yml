@@ -59,7 +59,24 @@ jobs:
         # the tool rather than skipping the test: a suite that goes green by
         # not running is worse than one that is honestly red, and this is the
         # adapter whose whole job is talking to ffmpeg.
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+        #
+        # Bounded and retried, because apt occasionally stalls rather than
+        # fails. MEASURED over ten runs: nine took 17 to 35 seconds, one took
+        # 720. Nothing here makes the good case faster -- half a minute is
+        # already most of a job that otherwise runs in ninety seconds -- but a
+        # dead mirror now costs two attempts and a clear message instead of
+        # twelve minutes of a spinner.
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3; do
+            if timeout 120 sudo apt-get update -qq &&
+              timeout 240 sudo apt-get install -y -qq ffmpeg; then
+              exit 0
+            fi
+            echo "::warning::apt attempt ${attempt} did not finish in time; retrying"
+          done
+          echo "::error::ffmpeg could not be installed in three attempts"
+          exit 1
 
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
@@ -162,7 +179,24 @@ jobs:
         # refuses to run `sudo apt-get` with no terminal to answer a password
         # prompt on -- it reports the exact command instead of hanging. There
         # is no terminal on a runner, so the sudo step is ours to do.
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+        #
+        # Bounded and retried, because apt occasionally stalls rather than
+        # fails. MEASURED over ten runs: nine took 17 to 35 seconds, one took
+        # 720. Nothing here makes the good case faster -- half a minute is
+        # already most of a job that otherwise runs in ninety seconds -- but a
+        # dead mirror now costs two attempts and a clear message instead of
+        # twelve minutes of a spinner.
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3; do
+            if timeout 120 sudo apt-get update -qq &&
+              timeout 240 sudo apt-get install -y -qq ffmpeg; then
+              exit 0
+            fi
+            echo "::warning::apt attempt ${attempt} did not finish in time; retrying"
+          done
+          echo "::error::ffmpeg could not be installed in three attempts"
+          exit 1
 
       - name: Provision whisper.cpp and the models
         # Everything that needs no sudo: the whisper release and the model
