@@ -348,12 +348,23 @@ describe('resource flags', () => {
     expect(diarizerArgv).toContain(`--embedding.num-threads=${budget.cappedThreads}`);
   });
 
-  it('never gives the diarizer the full ceiling on a hybrid cpu', async () => {
-    // The regression this feature exists to avoid: at the ceiling this engine
-    // is slower than at four threads. Pure computation -- no engine spawned.
+  it('never gives a capped engine more than the measured optimum', async () => {
+    // The regression this field exists to prevent: both capped engines were
+    // measured fastest at 6 threads and much slower above it, so the cap is an
+    // absolute ceiling rather than a fraction of the machine. Pure
+    // computation -- no engine spawned.
+    //
+    // Stated as the invariant rather than as "capped is smaller than the
+    // ceiling": on a machine with 6 or fewer usable cores the two are equal
+    // and nothing is being capped, which is correct. An earlier version of
+    // this test guarded on `threads > 2`, calibrated for a `base - 2` rule
+    // that no longer exists, and would have failed on any 4-core runner.
     const budget = localResourceBudget(localCpuTopology(), { maxCpuPercent: 100 });
-    if (budget.threads > 2) {
-      expect(budget.cappedThreads).toBeLessThan(budget.threads);
+    expect(budget.cappedThreads).toBeLessThanOrEqual(CAPPED_MAX_THREADS);
+    expect(budget.cappedThreads).toBeLessThanOrEqual(budget.threads);
+    expect(budget.cappedThreads).toBeGreaterThanOrEqual(1);
+    if (budget.threads > CAPPED_MAX_THREADS) {
+      expect(budget.cappedThreads).toBe(CAPPED_MAX_THREADS);
     }
   });
 
