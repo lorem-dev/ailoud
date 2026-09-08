@@ -89,7 +89,7 @@ describe('applyConfigUpdates', () => {
     // broken node and the edited node are different), but toString() refuses
     // to serialize a document carrying parse errors. Before this was
     // rewrapped, the user got a bare "Document with errors cannot be
-    // stringified" -- after downloading up to 1.6 GB, with no filename and
+    // stringified" -- after downloading up to 3.1 GB, with no filename and
     // no hint at what to fix.
     const source = 'stt:\n  whisperCpp:\n    binary: w\nother: [1, 2\n';
     let thrown: unknown;

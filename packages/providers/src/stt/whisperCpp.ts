@@ -4,13 +4,13 @@ import type { RawSegment, TranscriptionProvider } from '@ailoud/core';
 import { FailureError } from '@ailoud/core';
 import { run as defaultRunner } from '../process/run.js';
 
-// NOT VERIFIED AGAINST A REAL BUILD: this JSON shape ("-oj" output: a
-// top-level "result.language" and a "transcription" array of segments with
-// "offsets.from"/"offsets.to" and "text") is written against whisper.cpp's
-// documented output, with no whisper-cli binary available in this
-// environment to confirm it against a real run. See buildWhisperArgs below
-// for the sibling warning on the argument list; both get confirmed by the
-// end-to-end suite once it runs against a real binary.
+// VERIFIED against a real build: this JSON shape ("-oj" output: a top-level
+// "result.language" and a "transcription" array of segments with
+// "offsets.from"/"offsets.to" and "text") was confirmed by running
+// homebrew's whisper-cli over fixtures/en-short.wav and parsing the result
+// through parseWhisperJson below, which returned the fixture's reference
+// sentence and its language. This comment used to warn that no binary was
+// available to check it; one is, and it agrees.
 interface WhisperJson {
   result?: { language?: string };
   transcription?: Array<{ offsets?: { from?: number; to?: number }; text?: string }>;
@@ -28,6 +28,28 @@ export function parseDetectedLanguage(output: string): string {
     );
   }
   return match[1].toLowerCase();
+}
+
+/**
+ * Reads whisper's progress line, or returns null.
+ *
+ * MEASURED, not guessed: `whisper-cli` with `-pp` prints
+ * `whisper_print_progress_callback: progress =  46%` to stderr, with
+ * variable padding before the number, and fires once per decoded
+ * segment rather than on fixed steps. A 57-second fixture produced three
+ * lines; an hour-long recording produces hundreds.
+ *
+ * Returns null rather than throwing for anything it does not recognise --
+ * including a percentage outside 0..100. This runs on all ~104 stderr lines
+ * of every run, and a parser that throws here would abort a transcription
+ * over a cosmetic feature.
+ */
+export function parseProgressPercent(line: string): number | null {
+  const match = /progress\s*=\s*(\d{1,3})%/.exec(line);
+  if (match?.[1] === undefined) return null;
+  const percent = Number(match[1]);
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) return null;
+  return percent;
 }
 
 /**
@@ -60,26 +82,69 @@ export function parseWhisperJson(raw: string): { language: string; segments: Raw
 /**
  * Builds the whisper-cli argument array for one transcription run.
  *
- * NOT VERIFIED AGAINST A REAL BUILD: these flags (-m model path, -f input
- * file, -l language or "auto", -oj JSON output, -of output base path) are
- * written against whisper.cpp's documented command-line interface. No
- * whisper-cli binary is available in this environment to confirm them
- * against an actual build. The end-to-end suite runs against a real binary
- * and is where this argument list gets confirmed; if a flag turns out to
- * differ there, fix it here in this one place.
+ * VERIFIED against a real build, every flag: `-m`, `-f`, `-l`, `-t`, `-ng`,
+ * `-oj`, `-pp` and `-of` were all read out of `whisper-cli --help` on a
+ * homebrew ggml 0.22.0 build, and this whole list was then run over
+ * fixtures/en-short.wav and produced the fixture's reference transcript.
+ * This comment used to say the opposite -- that no binary was available and
+ * the end-to-end suite would have to confirm it later. It has been confirmed.
+ *
+ * Keep it that way. An argument list that has only been read in
+ * documentation is one a unit test with a mocked runner will happily pass
+ * while the real binary refuses to start: that is exactly how the sibling
+ * noise scan in ../audio/noise.ts shipped without its output target, green
+ * tests and all.
  */
 function buildWhisperArgs(
   modelPath: string,
   audioPath: string,
   language: string | undefined,
   outputBase: string,
+  threads: number,
+  gpu: boolean,
 ): string[] {
-  return ['-m', modelPath, '-f', audioPath, '-l', language ?? 'auto', '-oj', '-of', outputBase];
+  return [
+    '-m',
+    modelPath,
+    '-f',
+    audioPath,
+    '-l',
+    language ?? 'auto',
+    '-t',
+    String(threads),
+    // -p (processors) is deliberately left at the binary's own 1. It decodes
+    // N independent chunks in parallel and loses context at every boundary,
+    // which trades accuracy for speed -- not the trade this feature is for.
+    ...(gpu ? [] : ['-ng']),
+    '-oj',
+    '-pp',
+    '-of',
+    outputBase,
+  ];
 }
 
 export interface WhisperCppOptions {
   readonly binary: string;
   readonly modelPath: string;
+  /**
+   * Threads for the CPU side of the run. Required, with no fallback: the
+   * binary's own default is 4 whatever the machine has, and an adapter
+   * quietly accepting that is how this went unnoticed. The number belongs to
+   * the resource budget (core/resources/budget.ts), not here.
+   *
+   * Worth knowing before tuning it: on a build with a GPU backend this
+   * barely matters. MEASURED on an M1 Pro, 607 s of speech: 16.56 s at -t 4,
+   * 16.33 s at 6, 16.23 s at 8 -- two percent across the range, because the
+   * encoder runs on Metal. On a CPU-only build the same flag is worth several
+   * times the runtime, which is why it is still passed.
+   */
+  readonly threads: number;
+  /**
+   * False adds `-ng`. True adds nothing at all: a homebrew whisper-cli
+   * already loads Metal on its own (measured), so using the GPU is the
+   * default behaviour and this flag exists only to turn it off.
+   */
+  readonly gpu: boolean;
   readonly runner?: typeof defaultRunner;
   readonly readFile?: (path: string) => Promise<string>;
 }
@@ -103,7 +168,11 @@ export class WhisperCppProvider implements TranscriptionProvider {
 
   async transcribe(
     audioPath: string,
-    opts: { readonly language?: string; readonly model?: string },
+    opts: {
+      readonly language?: string;
+      readonly model?: string;
+      readonly onProgress?: (fraction: number) => void;
+    },
   ): Promise<{ language: string; model: string; segments: RawSegment[] }> {
     // whisper-cli writes <outputBase>.json rather than printing to stdout.
     // Derived from the filename component only (node:path), not a bare regex
@@ -111,17 +180,40 @@ export class WhisperCppProvider implements TranscriptionProvider {
     // a dot inside a directory name too, so an extension-less file inside a
     // directory like "ailoud-1.2" would collapse to a sibling path outside that
     // directory and silently collide with another recording's output.
-    // NOT VERIFIED AGAINST A REAL BUILD: that whisper-cli writes exactly
-    // "<outputBase>.json" (not, say, "<outputBase>.json.txt" or a name that
-    // depends on other flags) is likewise taken from documentation, not
-    // confirmed against a real run; see the warning on buildWhisperArgs.
+    // VERIFIED: whisper-cli writes exactly "<outputBase>.json" -- a real run
+    // over fixtures/en-short.wav with this argument list was read back from
+    // that path successfully. See buildWhisperArgs above.
     const outputBase = join(dirname(audioPath), basename(audioPath, extname(audioPath)));
     const modelPath = opts.model ?? this.options.modelPath;
-    const args = buildWhisperArgs(modelPath, audioPath, opts.language, outputBase);
+    const args = buildWhisperArgs(
+      modelPath,
+      audioPath,
+      opts.language,
+      outputBase,
+      this.options.threads,
+      this.options.gpu,
+    );
 
     // Six hours, not the run helper's half-hour default: a long recording on
     // CPU-only whisper is genuinely slow, and the default would kill real work.
-    const result = await this.runner(this.options.binary, args, { timeoutMs: 6 * 60 * 60_000 });
+    const result = await this.runner(this.options.binary, args, {
+      timeoutMs: 6 * 60 * 60_000,
+      ...(opts.onProgress === undefined
+        ? {}
+        : {
+            onStderrLine: (line) => {
+              const percent = parseProgressPercent(line);
+              if (percent === null) return;
+              // run() already swallows a throwing sink; this try is here so
+              // the guarantee holds for any future caller of the parser too.
+              try {
+                opts.onProgress?.(percent / 100);
+              } catch {
+                // An observer does not get to fail a transcription.
+              }
+            },
+          }),
+    });
 
     if (result.code !== 0) {
       throw new FailureError(`whisper failed: ${result.stderr.trim() || `exit ${result.code}`}`);
@@ -149,7 +241,16 @@ export class WhisperCppProvider implements TranscriptionProvider {
     const modelPath = opts.model ?? this.options.modelPath;
     const result = await this.runner(
       this.options.binary,
-      ['-m', modelPath, '-f', audioPath, '-dl'],
+      [
+        '-m',
+        modelPath,
+        '-f',
+        audioPath,
+        '-t',
+        String(this.options.threads),
+        ...(this.options.gpu ? [] : ['-ng']),
+        '-dl',
+      ],
       { timeoutMs: 10 * 60_000 },
     );
     if (result.code !== 0) {

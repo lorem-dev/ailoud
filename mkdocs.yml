@@ -43,14 +43,15 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - MCP: mcp.md
   - Usage:
       - Recordings: usage/recordings.md
       - Search: usage/search.md
       - Summaries: usage/summaries.md
       - Templates: usage/templates.md
       - Configuration: usage/configuration.md
+      - Updating: usage/updating.md
       - CLI Reference: usage/cli.md
-  - MCP: mcp.md
   - Development:
       - Architecture: development/architecture.md
       - Development: development/development.md

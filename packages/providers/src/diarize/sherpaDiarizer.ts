@@ -37,10 +37,21 @@ export interface SherpaDiarizerOptions {
   readonly threshold: number;
   /**
    * Threads for each of the binary's two passes. Required, with no fallback
-   * here: the binary's own default is 1, which is half the speed the design
-   * measured, and the number belongs to config (`stt.diarization.threads`,
-   * where its default and reasoning live) rather than to this adapter, which
-   * has no business deciding how much of the user's machine to take.
+   * here: the binary's own default is 1, and the number belongs to the
+   * resource budget (core/resources/budget.ts), not to this adapter.
+   *
+   * This engine has an optimum rather than a maximum, which is why the budget
+   * gives it a capped share instead of the full ceiling. MEASURED on 607 s of
+   * speech, 8 performance cores:
+   *
+   *   1 thread  120.0 s      6 threads  45.2 s   <- fastest
+   *   2 threads  72.6 s      7 threads  56.5 s
+   *   4 threads  50.3 s      8 threads  66-122 s
+   *                         10 threads 105.6 s
+   *
+   * The binary holds two ONNX sessions, each with its own intra-op pool, so N
+   * threads per pass oversubscribes a machine with N performance cores. Do not
+   * "fix" the cap up to the ceiling: at 8 threads this is slower than at 1.
    */
   readonly threads: number;
   readonly runner?: typeof defaultRunner;

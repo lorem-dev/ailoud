@@ -39,6 +39,11 @@ export function parseVadSegments(output: string): SpeechSpan[] {
 export interface WhisperVadOptions {
   readonly binary: string;
   readonly vadModelPath: string;
+  /**
+   * Threads for the segmentation pass. Required, like whisper-cli's: this
+   * binary also defaults to 4 whatever the machine has.
+   */
+  readonly threads: number;
   readonly runner?: typeof defaultRunner;
 }
 
@@ -50,9 +55,25 @@ export class WhisperVadSegmenter implements SpeechSegmenter {
   }
 
   public async segments(audioPath: string): Promise<SpeechSpan[]> {
+    // No GPU flag passed, and not because this binary lacks one: it has
+    // `-ug, --use-gpu [false]`, spelled opt-in rather than whisper-cli's
+    // opt-out `-ng`/`--no-gpu` -- which is why grepping its --help for the
+    // opt-out spelling finds nothing and looks like proof of absence. MEASURED
+    // that `-ug` aborts: `exit=134` (SIGABRT), `ggml_abort`, zero segments on
+    // stdout. So `resources.gpu` has no effect on segmentation in either
+    // direction, on purpose: the flag exists, but passing it would hard-crash
+    // every multilingual transcription on this machine.
     const result = await this.runner(
       this.options.binary,
-      ['-f', audioPath, '-vm', this.options.vadModelPath, '-np'],
+      [
+        '-f',
+        audioPath,
+        '-vm',
+        this.options.vadModelPath,
+        '-t',
+        String(this.options.threads),
+        '-np',
+      ],
       { timeoutMs: VAD_TIMEOUT_MS },
     );
     if (result.code !== 0) {

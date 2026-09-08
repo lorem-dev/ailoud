@@ -16,10 +16,10 @@ ailoud audio summarize ID001 --template one-on-one
 ## Start here
 
 - [Getting Started](getting-started.md) -- install it, transcribe your first file.
+- [MCP](mcp.md) -- let an agent use your library.
 - [Recordings](usage/recordings.md) -- import, transcribe, tag, annotate.
 - [Search](usage/search.md) -- find where something was said.
 - [Summaries](usage/summaries.md) -- make reports and read them back.
-- [MCP](mcp.md) -- let an agent use your library.
 
 ## What it is good at
 

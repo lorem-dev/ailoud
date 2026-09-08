@@ -1,0 +1,194 @@
+import { basename, delimiter, dirname, join } from 'node:path';
+import type { Fs } from '@ailoud/core';
+import { SHELLS, type Shell } from './generate.js';
+
+export interface ShellTarget {
+  readonly shell: Shell;
+  readonly label: string;
+  /** Where the generated script goes. */
+  scriptPath(home: string, configHome: string, userDataDir: string): string;
+  /**
+   * The startup file to wire the script into, or null when the shell needs
+   * none. fish autoloads its completions directory, so it needs none.
+   */
+  rcPath(home: string): string | null;
+  /** The line(s) that go inside the marker block, sourcing the script. */
+  rcBlockBody(scriptPath: string): readonly string[];
+  /** Paths whose existence suggests this shell is in use. */
+  detectPaths(home: string, configHome: string): readonly string[];
+  /**
+   * Whether this shell's startup file will actually be read.
+   *
+   * An interactive LOGIN bash on macOS reads `~/.bash_profile` and never
+   * `~/.bashrc`, so a block written to `.bashrc` alone is a file the shell
+   * never opens -- an install that reports success and does nothing. Rather
+   * than edit a second startup file (two files edited for one shell is harder
+   * to undo than it is to explain), the caller is told, and decides.
+   *
+   * Null when there is nothing to say. Non-null is a sentence for the user.
+   */
+  warnAbout?(fs: Fs, home: string): Promise<string | null>;
+}
+
+/**
+ * Whether `content` already wires `.bashrc` into a login shell's startup, in
+ * any of the ways people actually write that line.
+ *
+ * Comment lines are skipped before the substring test: a `.bash_profile`
+ * whose only mention is `# used to source .bashrc, stopped` is not wiring
+ * anything in, and reading it as "already handled" would leave the user with
+ * no warning and completions that silently never load. This still only
+ * strips whole-line `#` comments, not a trailing `# ...` after real content
+ * or bash's other comment forms -- deliberately not a bash parser, just
+ * enough to not be fooled by the one shape a disabled line actually takes.
+ */
+function mentionsBashrc(content: string): boolean {
+  return content
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('#'))
+    .some((line) => line.includes('.bashrc'));
+}
+
+async function bashWarnAbout(fs: Fs, home: string): Promise<string | null> {
+  const profile = join(home, '.bash_profile');
+  if (!(await fs.exists(profile))) return null;
+  const content = await fs.readTextFile(profile);
+  if (mentionsBashrc(content)) return null;
+  return (
+    '~/.bash_profile exists and does not source ~/.bashrc, so an interactive login ' +
+    'bash (the default on macOS Terminal) will not read the completions block just ' +
+    'written to ~/.bashrc. Add "[ -f ~/.bashrc ] && source ~/.bashrc" to ~/.bash_profile, ' +
+    'or open a non-login shell to pick up the change.'
+  );
+}
+
+/**
+ * The shells ailoud can wire completions into.
+ *
+ * Every path and startup-file name here was read from a working install of
+ * that shell rather than from memory: guessing one writes a script nothing
+ * sources, which looks exactly like a successful install and is only
+ * discovered when Tab does nothing.
+ */
+export const SHELL_TARGETS: readonly ShellTarget[] = [
+  {
+    shell: 'bash',
+    label: 'Bash',
+    scriptPath: (_home, _configHome, userDataDir) =>
+      join(userDataDir, 'completions', 'ailoud.bash'),
+    rcPath: (home) => join(home, '.bashrc'),
+    rcBlockBody: (scriptPath) => [`[ -f "${scriptPath}" ] && source "${scriptPath}"`],
+    // Either startup file counts as "bash is in use": a fresh install may
+    // carry only .bash_profile, and an existing one only .bashrc.
+    detectPaths: (home) => [join(home, '.bashrc'), join(home, '.bash_profile')],
+    warnAbout: bashWarnAbout,
+  },
+  {
+    shell: 'zsh',
+    label: 'Zsh',
+    scriptPath: (_home, _configHome, userDataDir) => join(userDataDir, 'completions', '_ailoud'),
+    rcPath: (home) => join(home, '.zshrc'),
+    // zsh completions are functions named `_ailoud`, found via `fpath` rather
+    // than sourced directly; the completion system is what makes zsh look them
+    // up at all.
+    //
+    // Two branches, because adding to `fpath` after compinit has already run
+    // registers nothing -- compinit scans `fpath` once and builds `_comps` from
+    // what it finds. `_comps` set is therefore the reliable "someone already
+    // ran compinit" signal (oh-my-zsh and prezto both do, before the end of
+    // .zshrc where this block lands), and in that case `compdef` registers the
+    // one function directly instead of re-running compinit and rebuilding a
+    // table of ~1700 entries for a single addition.
+    //
+    // `compinit -i`, never `-u`. `-u` means "use every insecure directory in
+    // fpath without asking", which silently re-enables completion files zsh was
+    // deliberately refusing -- a Homebrew user with a group-writable
+    // /opt/homebrew/share/zsh/site-functions would start sourcing every `_*`
+    // file there at each shell start because ailoud edited their .zshrc. `-i`
+    // reaches the same goal (never prompt during startup) by skipping the
+    // insecure directories instead of trusting them.
+    rcBlockBody: (scriptPath) => [
+      `fpath=("${dirname(scriptPath)}" $fpath)`,
+      'if (( ${+_comps} )); then',
+      '  autoload -Uz _ailoud && compdef _ailoud ailoud',
+      'else',
+      '  autoload -Uz compinit && compinit -i',
+      'fi',
+    ],
+    detectPaths: (home) => [join(home, '.zshrc')],
+  },
+  {
+    shell: 'fish',
+    label: 'Fish',
+    // fish autoloads every file under its own completions directory, keyed
+    // by the XDG config home rather than the user data directory the other
+    // two shells use.
+    scriptPath: (_home, configHome, _userDataDir) =>
+      join(configHome, 'fish', 'completions', 'ailoud.fish'),
+    rcPath: () => null,
+    rcBlockBody: () => [],
+    detectPaths: (_home, configHome) => [join(configHome, 'fish', 'config.fish')],
+  },
+];
+
+// Keeps this table from drifting out of sync with the renderer: generate.ts
+// would silently produce no script for a shell missing here, and TypeScript
+// cannot catch that because SHELL_TARGETS is a plain array, not a record
+// keyed by Shell.
+if (
+  SHELL_TARGETS.length !== SHELLS.length ||
+  SHELL_TARGETS.some((target, index) => target.shell !== SHELLS[index])
+) {
+  throw new Error('SHELL_TARGETS is out of sync with SHELLS in ./generate.js');
+}
+
+export function findShell(id: string): ShellTarget | undefined {
+  const wanted = id.trim().toLowerCase();
+  return SHELL_TARGETS.find((target) => target.shell === wanted);
+}
+
+export function shellIds(): string {
+  return SHELL_TARGETS.map((target) => target.shell).join(', ');
+}
+
+/**
+ * Whether `target`'s shell looks like one the user actually has.
+ *
+ * Three independent signals, any one sufficient: a startup file already on
+ * disk, the shell's binary somewhere on `$PATH`, or `$SHELL` naming it.
+ *
+ * The binary on `$PATH` is the signal the other two miss, and the design says
+ * so explicitly: a user who installed fish but has not launched it yet has no
+ * `~/.config/fish/` and still has `$SHELL=/bin/zsh`, and is precisely the user
+ * most helped by having completions set up for them. Requiring a startup file
+ * would offer nothing until after they had configured the shell by hand.
+ *
+ * `$SHELL` is compared by basename, not by substring -- `/usr/bin/bash`
+ * contains none of the letters "fish", but a home directory such as
+ * `/home/fisherman` or a shell path containing another shell's name as a
+ * substring is exactly the false positive a substring match invites, and
+ * basename comparison against the full shell name sidesteps it. The `$PATH`
+ * walk joins the shell name onto each entry for the same reason: it asks
+ * whether that exact file exists, never whether some path contains the word.
+ */
+export async function detect(
+  fs: Fs,
+  target: ShellTarget,
+  home: string,
+  configHome: string,
+  env: Record<string, string | undefined>,
+): Promise<boolean> {
+  for (const path of target.detectPaths(home, configHome)) {
+    if (await fs.exists(path)) return true;
+  }
+  const shellEnv = env['SHELL'];
+  if (shellEnv !== undefined && basename(shellEnv) === target.shell) return true;
+  // Empty entries are skipped rather than resolved: POSIX reads an empty
+  // `$PATH` element as the current directory, so `join('', 'fish')` would ask
+  // about `./fish` and report the shell present because the user happened to
+  // be standing in a directory holding a file of that name.
+  for (const dir of (env['PATH'] ?? '').split(delimiter)) {
+    if (dir !== '' && (await fs.exists(join(dir, target.shell)))) return true;
+  }
+  return false;
+}

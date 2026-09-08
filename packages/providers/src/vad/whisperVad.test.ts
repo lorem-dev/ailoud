@@ -41,6 +41,7 @@ describe('WhisperVadSegmenter', () => {
     const segmenter = new WhisperVadSegmenter({
       binary: 'whisper-vad-speech-segments',
       vadModelPath: '/models/vad.bin',
+      threads: 4,
       runner,
     });
 
@@ -48,7 +49,7 @@ describe('WhisperVadSegmenter', () => {
 
     expect(runner).toHaveBeenCalledWith(
       'whisper-vad-speech-segments',
-      ['-f', '/tmp/a.wav', '-vm', '/models/vad.bin', '-np'],
+      ['-f', '/tmp/a.wav', '-vm', '/models/vad.bin', '-t', '4', '-np'],
       expect.anything(),
     );
     expect(spans).toEqual([{ startMs: 0, endMs: 3460 }]);
@@ -58,6 +59,7 @@ describe('WhisperVadSegmenter', () => {
     const segmenter = new WhisperVadSegmenter({
       binary: 'whisper-vad-speech-segments',
       vadModelPath: '/models/vad.bin',
+      threads: 4,
       runner: async () => ({ code: 1, stdout: '', stderr: 'could not load vad model' }),
     });
     await expect(segmenter.segments('/tmp/a.wav')).rejects.toThrow(/could not load vad model/);
@@ -67,10 +69,51 @@ describe('WhisperVadSegmenter', () => {
     const segmenter = new WhisperVadSegmenter({
       binary: 'whisper-vad-speech-segments',
       vadModelPath: '/models/vad.bin',
+      threads: 4,
       runner: async () => ({ code: 0, stdout: 'Detected 0 speech segments:', stderr: '' }),
     });
     await expect(segmenter.segments('/tmp/ailoud-xK9p2/audio.wav')).rejects.toThrow(
       'no speech found; transcribe it without --multilingual',
     );
+  });
+});
+
+describe('resource flags', () => {
+  it('passes the thread count it was given', async () => {
+    const runner = vi.fn().mockResolvedValue({
+      code: 0,
+      stdout: 'Speech segment 0: start = 0.00, end = 100.00',
+      stderr: '',
+    });
+    const segmenter = new WhisperVadSegmenter({
+      binary: 'whisper-vad-speech-segments',
+      vadModelPath: '/vad.bin',
+      threads: 7,
+      runner,
+    });
+    await segmenter.segments('/a.wav');
+    expect(runner.mock.calls[0]![1]).toEqual(expect.arrayContaining(['-t', '7']));
+  });
+
+  it('never passes a GPU flag, because the one this binary has aborts', async () => {
+    // The binary does have one: `-ug, --use-gpu [false]`, opt-in rather than
+    // whisper-cli's opt-out `-ng`/`--no-gpu`. MEASURED that passing it aborts
+    // the process (exit 134, SIGABRT, zero segments on stdout), so it is
+    // never passed and `resources.gpu` has no effect on segmentation.
+    const runner = vi.fn().mockResolvedValue({
+      code: 0,
+      stdout: 'Speech segment 0: start = 0.00, end = 100.00',
+      stderr: '',
+    });
+    const segmenter = new WhisperVadSegmenter({
+      binary: 'whisper-vad-speech-segments',
+      vadModelPath: '/vad.bin',
+      threads: 7,
+      runner,
+    });
+    await segmenter.segments('/a.wav');
+    const args = runner.mock.calls[0]![1] as string[];
+    expect(args).not.toContain('-ng');
+    expect(args).not.toContain('--no-gpu');
   });
 });

@@ -25,9 +25,11 @@ The commands, grouped by the noun they act on:
 | `audio import\|transcribe\|annotate\|search\|ls\|show\|rm` | the library and everything over it        |
 | `audio summarize`                                          | writes a summary and saves it as a report |
 | `report ls\|show\|rm`                                      | saved reports                             |
+| `job ls\|show\|rm`                                         | background jobs started with `--detach`   |
 | `template ls\|new`                                         | what shape a summary of a kind takes      |
 | `mcp` and `mcp install\|uninstall\|update`                 | serve the library to an agent             |
 | `doctor`, `setup`                                          | check and provision the machine           |
+| `self check\|update\|sync`                                 | this installation of ailoud               |
 
 The verbs also answer at the top level (`ailoud search`, `ailoud transcribe`),
 and each second-level verb has a one-letter alias.
@@ -188,6 +190,13 @@ matching the `skillkeeper` repository this project inherits its conventions
 from. They are working notes for driving an implementation, not a published
 record.
 
+**Never commit one, and never put one anywhere else.** Not under `.agents/`,
+not under `docs/`, not beside the code it describes. A spec in the history is
+a second description of the software that stops being true the moment the
+code moves on, and a reader who finds it has no way to tell it is stale. If
+a skill or a habit tells you to write a plan to some other path, `.superpowers/`
+wins.
+
 The consequence is that a fresh clone carries no design document. Anything a
 contributor must know to work here belongs in this file, in README.md, or in
 CONTRIBUTING.md -- not in a plan only the maintainer has.
@@ -218,7 +227,7 @@ whole transcripts into its context.
 A project keeps its own library in `.ailoud/`, found by walking up from the
 working directory the way git finds `.git`. The config stays per-user: it names
 installed binaries and model files, and making it local would mean
-re-downloading a 488 MB model per repository.
+re-downloading a 574 MB model per repository.
 
 ---
 
@@ -237,13 +246,13 @@ Python tooling here is driven by `uv`, never `pip` or a hand-rolled venv.
 
 ### Structure
 
-Four sections, and new pages belong in one of them:
+Four sections, in nav order, and new pages belong in one of them:
 
 | Section         | Holds                                            |
 | --------------- | ------------------------------------------------ |
 | Getting Started | install, set up, first transcript, first summary |
-| Usage           | one page per thing you do with the CLI           |
 | MCP             | configuring and using the MCP server             |
+| Usage           | one page per thing you do with the CLI           |
 | Development     | architecture, the gate, releasing                |
 
 Every page added to `docs/` must appear in `nav:` in `mkdocs.yml`, or the
@@ -408,9 +417,26 @@ succeeds -- deprecating first would, if the publish then failed, leave every
 installable thing.
 
 ```
-node scripts/retire-prereleases.mjs 1.0.0          # prints the plan
-node scripts/retire-prereleases.mjs 1.0.0 --yes    # carries it out
+pnpm retire 1.0.0                       # prints the plan, changes nothing
+NPM_TOKEN=npm_... pnpm retire 1.0.0 --yes   # carries it out
 ```
+
+**Do this after every final release, by hand.** Nothing prompts for it: the
+release workflow cannot, and a release that is otherwise complete looks
+finished. Until it runs, the superseded snapshots stay undeprecated and `@dev`
+still resolves to the last one -- someone installing `ailoud@dev` gets an older
+build than `ailoud`.
+
+`NPM_TOKEN` is **required** for `--yes`, not merely preferred. Falling back on
+the ambient `npm login` sounds accommodating and is not: with 2FA on writes --
+the default -- npm asks for a one-time code on every write, and this makes
+twelve of them, and without a usable credential it drops into an interactive
+web login and waits, so the script looks hung. Refusing up front is the
+difference between one authentication and twelve prompts.
+
+Use a granular access token with read-and-write on the three packages. It goes
+into a temporary 0600 npmrc and never onto a command line. The plan (no
+`--yes`) needs no credential at all.
 
 This is a manual step, run under `npm login`. Automating it was tried and
 removed: the OIDC token cannot deprecate (above). If the npm side does not
@@ -418,8 +444,11 @@ complete, the script leaves the tags alone and exits non-zero -- the tags are
 what name which pre-releases to retire, so deleting them after a failed
 deprecation would destroy the only record of what was missed.
 
-It deprecates every `1.0.0-dev.*` of all three packages, drops the `dev`
-dist-tag, and deletes the tags. Two things it deliberately does not do:
+It deprecates every `1.0.0-dev.*` of all three packages, moves the `dev`
+dist-tag onto the release, and deletes the tags. Which versions exist comes
+from the registry, not from the git tags: the tags used to be the list, which
+made them the only record of what still needed retiring, and a tag is a thing
+that gets deleted. Three things it deliberately does not do:
 
 - **Unpublish.** Allowed for 72 hours only, the version number can never be
   reused after, and anyone who pinned it has their install broken. A deprecated
@@ -427,6 +456,9 @@ dist-tag, and deletes the tags. Two things it deliberately does not do:
 - **Delete a tag whose commit is not on `origin/main`.** The published
   provenance attests that commit; unreachable, it can be collected, leaving the
   attestation pointing at nothing. Those tags are reported and kept.
+- **Remove the `dev` dist-tag.** `npm dist-tag rm` makes `install <pkg>@dev`
+  fail outright for anyone who uses it. It is pointed at the release instead,
+  so `@dev` keeps working and never hands out something older than `latest`.
 
 ### npm facts that constrain all of the above
 
@@ -506,7 +538,7 @@ about to add an entry will actually see them.
 
 ## Local Development Skills
 
-Nine skills live under `.agents/skills/`. Invoke them when the situation
+Ten skills live under `.agents/skills/`. Invoke them when the situation
 calls for it:
 
 | Skill                   | When to use                                                                                                                                                                                                                      |
@@ -520,6 +552,7 @@ calls for it:
 | `check-dependencies`    | Before every release and after any dependency change -- audit for advisories, report funding, and update what is behind, refusing any version published less than 14 days ago unless it fixes a critical advisory.               |
 | `pre-release-check`     | Before cutting a release -- runs the `check-*` and `run-tests-and-linters` skills above (not `bump-version`) plus version-bump and commit-format checks.                                                                         |
 | `dev-tag`               | To publish a snapshot to npm under the `dev` dist-tag without promising a release -- cuts a `v<version>-dev.<n>` tag.                                                                                                            |
+| `check-migrations`      | After touching `packages/core/src/db/schema.ts` -- run the migration lock and snapshot tests, and judge from git history whether an edited migration has already shipped (which the tests cannot see).                           |
 
 ---
 

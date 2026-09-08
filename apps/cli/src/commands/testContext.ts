@@ -1,4 +1,16 @@
-import type { Diarizer, SpeechSegmenter, Summarizer, TranscriptionProvider } from '@ailoud/core';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DEFAULT_MAX_CPU_PERCENT, resourceBudget } from '@ailoud/core';
+import type {
+  Diarizer,
+  PublishedVersion,
+  ResourceBudget,
+  SpeechSegmenter,
+  Summarizer,
+  TranscriptionProvider,
+  VersionSource,
+} from '@ailoud/core';
 import { parseConfig } from '../config.js';
 import {
   FakeAudioTool,
@@ -29,12 +41,29 @@ export function context(): CliContext & {
   segmenterInstances: FakeSegmenter[];
   diarizerInstances: FakeDiarizer[];
   summarizerPrompts: string[];
+  /**
+   * Every budget each factory was called with, in call order -- `undefined`
+   * where a caller passed none. Kept as four separate arrays, one per
+   * factory, rather than one shared array: a shared array is how a dropped
+   * argument at one call site went undetected, since `toContainEqual`
+   * against it passes as long as *any* factory received a matching budget,
+   * and `createStt` always does. A per-factory array can only be satisfied by
+   * that factory's own call sites.
+   */
+  sttBudgets: Array<ResourceBudget | undefined>;
+  segmenterBudgets: Array<ResourceBudget | undefined>;
+  diarizerBudgets: Array<ResourceBudget | undefined>;
+  summarizerBudgets: Array<ResourceBudget | undefined>;
 } {
   const lines: string[] = [];
   const sttInstances: FakeStt[] = [];
   const segmenterInstances: FakeSegmenter[] = [];
   const diarizerInstances: FakeDiarizer[] = [];
   const summarizerPrompts: string[] = [];
+  const sttBudgets: Array<ResourceBudget | undefined> = [];
+  const segmenterBudgets: Array<ResourceBudget | undefined> = [];
+  const diarizerBudgets: Array<ResourceBudget | undefined> = [];
+  const summarizerBudgets: Array<ResourceBudget | undefined> = [];
   const write = (line: string): void => {
     lines.push(line);
   };
@@ -44,12 +73,19 @@ export function context(): CliContext & {
     segmenterInstances,
     diarizerInstances,
     summarizerPrompts,
+    sttBudgets,
+    segmenterBudgets,
+    diarizerBudgets,
+    summarizerBudgets,
     paths: {
-      configFile: '/c',
+      configFile: '/c/ailoud/config.yaml',
+      configHome: '/c',
       dataDir: '/d',
       dbFile: '/d/ailoud.db',
       mediaRoot: '/d/media',
+      jobsDir: '/d/jobs',
       isProjectLibrary: false,
+      userDataDir: '/d',
     },
     config: {
       stt: {
@@ -67,6 +103,9 @@ export function context(): CliContext & {
         },
       },
       llm: parseConfig(null).llm,
+      resources: parseConfig(null).resources,
+      audio: parseConfig(null).audio,
+      update: parseConfig(null).update,
     },
     store: new InMemoryStore(),
     fs: new MemFs({ [FIXTURE_PATH]: 'AUDIO' }),
@@ -78,7 +117,19 @@ export function context(): CliContext & {
     // output through `lines` and asserts on exact strings, the same
     // property the end-to-end suite leans on when it runs through a pipe.
     ui: new PlainUi(write),
-    createStt: (): TranscriptionProvider => {
+    // A fixed hybrid-cpu topology, not the real machine's: command tests in
+    // this package never assert on thread counts, and a value that changed
+    // with whatever ran the suite would be a fake worth distrusting.
+    resources: async (overrides = {}): Promise<ResourceBudget> =>
+      resourceBudget(
+        { logical: 10, performance: 8 },
+        {
+          maxCpuPercent: overrides.maxCpuPercent ?? DEFAULT_MAX_CPU_PERCENT,
+          gpu: overrides.gpu ?? true,
+        },
+      ),
+    createStt: (budget?: ResourceBudget): TranscriptionProvider => {
+      sttBudgets.push(budget);
       const stt = new FakeStt({
         language: 'ru',
         model: 'base.bin',
@@ -87,17 +138,20 @@ export function context(): CliContext & {
       sttInstances.push(stt);
       return stt;
     },
-    createSegmenter: (): SpeechSegmenter => {
+    createSegmenter: (budget?: ResourceBudget): SpeechSegmenter => {
+      segmenterBudgets.push(budget);
       const segmenter = new FakeSegmenter([{ startMs: 0, endMs: 1500 }]);
       segmenterInstances.push(segmenter);
       return segmenter;
     },
-    createDiarizer: (): Diarizer => {
+    createDiarizer: (budget?: ResourceBudget): Diarizer => {
+      diarizerBudgets.push(budget);
       const diarizer = new FakeDiarizer([{ startMs: 0, endMs: 1500, speaker: 'speaker_00' }]);
       diarizerInstances.push(diarizer);
       return diarizer;
     },
-    createSummarizer: (): Summarizer => {
+    createSummarizer: (budget?: ResourceBudget): Summarizer => {
+      summarizerBudgets.push(budget);
       // Echoes back what it was asked, so a test can assert on the prompt the
       // pipeline built without needing a model. Specs that care about the
       // summary itself override this.
@@ -112,6 +166,15 @@ export function context(): CliContext & {
       };
       return summarizer;
     },
+    // Reports no update by default -- a fixed list, never the network.
+    // Specs that care about `self check` override this field directly.
+    versionSource: {
+      published: async (): Promise<readonly PublishedVersion[]> => [
+        { version: '1.0.0', deprecated: false },
+      ],
+    } satisfies VersionSource,
+    updateRegistryHost: 'registry.npmjs.org',
+    updateTimeoutMs: 10_000,
   };
 }
 
@@ -141,14 +204,26 @@ export interface ContextWithTranscriptOptions {
  * actually do. `skipImport` yields an empty library; `skipTranscribe`
  * yields a recording with no transcript.
  */
-export async function contextWithTranscript(
-  opts: ContextWithTranscriptOptions = {},
-): Promise<CliContext & { lines: string[]; sttInstances: FakeStt[]; summarizerPrompts: string[] }> {
+export async function contextWithTranscript(opts: ContextWithTranscriptOptions = {}): Promise<
+  CliContext & {
+    lines: string[];
+    sttInstances: FakeStt[];
+    summarizerPrompts: string[];
+    sttBudgets: Array<ResourceBudget | undefined>;
+    segmenterBudgets: Array<ResourceBudget | undefined>;
+    diarizerBudgets: Array<ResourceBudget | undefined>;
+    summarizerBudgets: Array<ResourceBudget | undefined>;
+  }
+> {
   const ctx = context();
   const done = (): CliContext & {
     lines: string[];
     sttInstances: FakeStt[];
     summarizerPrompts: string[];
+    sttBudgets: Array<ResourceBudget | undefined>;
+    segmenterBudgets: Array<ResourceBudget | undefined>;
+    diarizerBudgets: Array<ResourceBudget | undefined>;
+    summarizerBudgets: Array<ResourceBudget | undefined>;
   } => {
     if (opts.clearLines === true) ctx.lines.length = 0;
     return ctx;
@@ -158,4 +233,27 @@ export async function contextWithTranscript(
   if (opts.skipTranscribe === true) return done();
   await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe']);
   return done();
+}
+
+/**
+ * Points `context.paths.dataDir` at a real, writable temporary directory for
+ * the duration of `body`, then removes it.
+ *
+ * `withJobLock` (and the exclusive lock underneath it) takes its lock
+ * through node:fs directly rather than through the injected `Fs` port -- see
+ * `exclusiveLock.ts`'s own module comment for why -- so a `--job` test that
+ * exercises the lock needs a real directory underneath it, not the
+ * in-memory one every other command test runs against.
+ */
+export async function withRealDataDir<T>(ctx: CliContext, body: () => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), 'ailoud-cli-test-'));
+  // `paths` is declared readonly on CliContext so ordinary commands cannot
+  // repoint it mid-run; Object.assign does not go through that check, and
+  // this helper's entire job is to override it for one test.
+  Object.assign(ctx, { paths: { ...ctx.paths, dataDir: dir } });
+  try {
+    return await body();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }

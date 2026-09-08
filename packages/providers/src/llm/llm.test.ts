@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { FailureError } from '@ailoud/core';
 import { LlamaCppSummarizer, cleanCompletion } from './llamaCpp.js';
 import { OpenAiCompatibleSummarizer, extractCompletion } from './openAiCompatible.js';
@@ -40,6 +40,7 @@ describe('LlamaCppSummarizer', () => {
       modelPath: '/m.gguf',
       contextTokens: 8192,
       maxOutputTokens: 512,
+      threads: 4,
       runner: runnerFn as never,
     });
   }
@@ -76,6 +77,38 @@ describe('LlamaCppSummarizer', () => {
     // saves the user guessing.
     const { fn } = runner({ code: 0, stdout: '   ', stderr: '' });
     await expect(make(fn).complete('p')).rejects.toThrow(/too large for the configured context/);
+  });
+
+  it('passes the thread count it was given', async () => {
+    const runner = vi.fn().mockResolvedValue({ code: 0, stdout: 'a summary', stderr: '' });
+    const summarizer = new LlamaCppSummarizer({
+      binary: 'llama-cli',
+      modelPath: '/m.gguf',
+      contextTokens: 8192,
+      maxOutputTokens: 1024,
+      threads: 7,
+      runner,
+    });
+    await summarizer.complete('prompt');
+    expect(runner.mock.calls[0]![1]).toEqual(expect.arrayContaining(['-t', '7']));
+  });
+
+  it('never passes -ngl', async () => {
+    // Dropped for want of a measurement: llama-cli is not installed on the
+    // machine this feature was built on, so neither the flag's presence nor
+    // its benefit could be confirmed. Recent llama.cpp offloads to Metal and
+    // CUDA by default when built for them, so the default is already right.
+    const runner = vi.fn().mockResolvedValue({ code: 0, stdout: 'a summary', stderr: '' });
+    const summarizer = new LlamaCppSummarizer({
+      binary: 'llama-cli',
+      modelPath: '/m.gguf',
+      contextTokens: 8192,
+      maxOutputTokens: 1024,
+      threads: 7,
+      runner,
+    });
+    await summarizer.complete('prompt');
+    expect(runner.mock.calls[0]![1]).not.toContain('-ngl');
   });
 });
 

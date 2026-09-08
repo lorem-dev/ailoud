@@ -1,8 +1,34 @@
-import { describe, expect, it } from 'vitest';
-import { FailureError } from '@ailoud/core';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Command } from 'commander';
+import { FailureError, UsageError } from '@ailoud/core';
+import type { Recording } from '@ailoud/core';
+import { FakeStt } from '@ailoud/core/testing';
+import type { FakeAudioTool } from '@ailoud/core/testing';
 import { buildProgram } from '../program.js';
-import { context } from './testContext.js';
+import { context, withRealDataDir } from './testContext.js';
 import { parseLanguages } from './transcribe.js';
+import { group } from './groups.js';
+import { PlainUi } from '../ui/plain.js';
+import { createJob, getJob, listJobs } from '../jobs/store.js';
+import { withJobLock } from '../jobs/lock.js';
+import { spawnDetachedJob } from '../jobs/spawn.js';
+
+vi.mock('../jobs/spawn.js', () => ({ spawnDetachedJob: vi.fn() }));
+
+describe('group', () => {
+  it('gives a noun without a plural exactly one name', () => {
+    const program = new Command();
+    group(program, 'self', undefined, 'manage this installation');
+    const self = program.commands.find((c) => c.name() === 'self')!;
+    expect(self.aliases()).toEqual([]);
+  });
+
+  it('still aliases a noun that has a plural', () => {
+    const program = new Command();
+    group(program, 'report', 'reports', 'saved reports');
+    expect(program.commands.find((c) => c.name() === 'report')!.aliases()).toEqual(['reports']);
+  });
+});
 
 describe('ailoud import', () => {
   it('prints the id of an imported recording', async () => {
@@ -216,6 +242,512 @@ describe('ailoud transcribe --diarize', () => {
       ).rejects.toThrow(/--speakers must be a positive integer/);
     },
   );
+});
+
+describe('ailoud transcribe --max-cpu, --no-gpu, --denoise', () => {
+  afterEach(() => {
+    vi.mocked(spawnDetachedJob).mockReset();
+  });
+
+  it.each(['0', '101', 'abc', '-5', '2.5'])(
+    'refuses --max-cpu %s, naming the accepted range',
+    async (value) => {
+      const ctx = context();
+      await expect(
+        buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--max-cpu', value]),
+      ).rejects.toThrow(/1.*100/);
+    },
+  );
+
+  it('accepts a --max-cpu inside the range and forwards the resulting budget to createStt', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--max-cpu', '50']);
+    // testContext's fixed topology is { logical: 10, performance: 8 }: 50% of the
+    // 8 performance cores, rounded, is 4 -- the proof the budget actually reached
+    // createStt (transcribe.ts:333) rather than that factory's own "no budget"
+    // fallback of 4. Checked against ctx.sttBudgets rather than a shared array:
+    // a shared array would still pass if this call site's own argument were
+    // dropped, as long as some other factory in the run still received a
+    // budget -- which is exactly the hole a whole-branch review found.
+    expect(ctx.sttBudgets).toEqual([expect.objectContaining({ threads: 4, gpu: true })]);
+  });
+
+  it('uses the configured default share when --max-cpu is not given', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe']);
+    // 90% (the schema default) of 8 performance cores, rounded, is 7 -- distinct
+    // from both 4 above and the factory's own unrelated fallback of 4, so this
+    // could not pass by accident.
+    expect(ctx.sttBudgets).toEqual([expect.objectContaining({ threads: 7, gpu: true })]);
+  });
+
+  it('--no-gpu forwards gpu: false, never true', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--no-gpu']);
+    expect(ctx.sttBudgets).toEqual([expect.objectContaining({ gpu: false })]);
+  });
+
+  it('forwards the resulting budget to createSegmenter under --multilingual', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    // createSegmenter(budget) (transcribe.ts:334) runs before the pipeline
+    // checks the fake provider's capabilities, so the expected failure below
+    // (the default fake cannot detect a language -- see the sibling
+    // "--multilingual reaches the pipeline" test) happens after the budget
+    // has already reached the factory and is no obstacle to asserting on it.
+    await expect(
+      buildProgram(ctx).parseAsync([
+        'node',
+        'ailoud',
+        'transcribe',
+        '--multilingual',
+        '--max-cpu',
+        '50',
+      ]),
+    ).rejects.toThrow(/cannot detect a language/);
+    // Pins transcribe.ts:334 (createSegmenter(budget)). Before this test
+    // existed, deleting the budget argument at this call site left build,
+    // lint, typecheck and every unit test green -- the segmenter fell back to
+    // its factory's own "no budget" default of 4 threads regardless of
+    // --max-cpu, silently.
+    expect(ctx.segmenterBudgets).toEqual([expect.objectContaining({ threads: 4, gpu: true })]);
+  });
+
+  it('forwards the resulting budget to createDiarizer under --diarize', async () => {
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync([
+      'node',
+      'ailoud',
+      'transcribe',
+      '--diarize',
+      '--max-cpu',
+      '50',
+    ]);
+    // Pins transcribe.ts:335 (createDiarizer(budget)).
+    expect(ctx.diarizerBudgets).toEqual([expect.objectContaining({ threads: 4, gpu: true })]);
+  });
+
+  it('refuses an unknown --denoise mode, naming the three accepted ones', async () => {
+    const ctx = context();
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--denoise', 'sometimes']),
+    ).rejects.toThrow(UsageError);
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--denoise', 'sometimes']),
+    ).rejects.toThrow(/auto.*on.*off/);
+  });
+
+  it.each(['auto', 'on', 'off'])(
+    'accepts --denoise %s and forwards it to the audio tool',
+    async (mode) => {
+      const ctx = context();
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--denoise', mode]);
+      expect((ctx.audio as FakeAudioTool).denoiseModes).toContain(mode);
+    },
+  );
+
+  it('defaults to "off" (the schema default) when --denoise is not given', async () => {
+    // Asserted against the mode the adapter was ASKED for, not against the
+    // config: this is the wiring between the two, and it is what silently
+    // broke when the flag was added to summarize where nothing consumed it.
+    const ctx = context();
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe']);
+    expect((ctx.audio as FakeAudioTool).denoiseModes).toContain('off');
+    expect((ctx.audio as FakeAudioTool).denoiseModes).not.toContain('auto');
+  });
+
+  it('validates --max-cpu and --denoise before creating a job or spawning anything, under --detach', async () => {
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      await expect(
+        buildProgram(ctx).parseAsync([
+          'node',
+          'ailoud',
+          'transcribe',
+          '--max-cpu',
+          '0',
+          '--detach',
+        ]),
+      ).rejects.toThrow(/1.*100/);
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+
+      await expect(
+        buildProgram(ctx).parseAsync([
+          'node',
+          'ailoud',
+          'transcribe',
+          '--denoise',
+          'sometimes',
+          '--detach',
+        ]),
+      ).rejects.toThrow(/auto.*on.*off/);
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+    });
+  });
+
+  it('forwards --max-cpu, --no-gpu and --denoise to the detached child, unmodified', async () => {
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      await buildProgram(ctx).parseAsync([
+        'node',
+        'ailoud',
+        'transcribe',
+        'ID001',
+        '--max-cpu',
+        '50',
+        '--no-gpu',
+        '--denoise',
+        'on',
+        '--detach',
+      ]);
+      expect(spawnDetachedJob).toHaveBeenCalledTimes(1);
+      const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).toEqual([
+        'transcribe',
+        'ID001',
+        '--max-cpu',
+        '50',
+        '--no-gpu',
+        '--denoise',
+        'on',
+      ]);
+    });
+  });
+
+  it('forwards none of the three to the detached child when nothing was asked for', async () => {
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', 'ID001', '--detach']);
+      const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).not.toContain('--max-cpu');
+      expect(commandArgs).not.toContain('--no-gpu');
+      expect(commandArgs).not.toContain('--denoise');
+    });
+  });
+});
+
+/** Captures every `(stage, fraction)` pair `transcribing` reports, in order. */
+class SpyUi extends PlainUi {
+  public readonly reports: Array<{ readonly stage: string; readonly fraction: number }> = [];
+
+  public override async transcribing<T>(
+    _recording: Recording,
+    task: (report: (stage: string, fraction: number) => void) => Promise<T>,
+  ): Promise<T> {
+    return task((stage, fraction) => {
+      this.reports.push({ stage, fraction });
+    });
+  }
+}
+
+describe('ailoud transcribe: an unmeasurable stage never lowers the percentage', () => {
+  it('reuses the last fraction when the diarizer reports its stage with none of its own', async () => {
+    const ctx = context();
+    const spy = new SpyUi((line) => ctx.lines.push(line));
+    // `ui` is declared readonly on CliContext; Object.assign does not go
+    // through that check, and this test's entire job is to swap it out for
+    // one that records what transcribing() reports.
+    Object.assign(ctx, { ui: spy });
+    // Drives transcribe()'s onProgress up near the end of the transcribing
+    // stage before diarizing (which reports no fraction of its own) starts.
+    ctx.createStt = () => {
+      const stt = new FakeStt(
+        {
+          language: 'ru',
+          model: 'base.bin',
+          segments: [{ startMs: 0, endMs: 1500, text: 'Privet.' }],
+        },
+        undefined,
+        [],
+        [0.5, 1],
+      );
+      ctx.sttInstances.push(stt);
+      return stt;
+    };
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--diarize']);
+
+    const fractions = spy.reports.map((r) => r.fraction);
+    for (let i = 1; i < fractions.length; i += 1) {
+      expect(fractions[i]).toBeGreaterThanOrEqual(fractions[i - 1]!);
+    }
+    // The diarizer's first event carries no fraction of its own (see
+    // transcribeRecording's "No fraction" comment). Reused, not treated as
+    // 0, so the number the UI was told does not walk backwards.
+    const noFractionStage = spy.reports.findIndex((r) => r.stage === 'diarizing');
+    expect(noFractionStage).toBeGreaterThan(0);
+    expect(spy.reports[noFractionStage]!.fraction).toBe(spy.reports[noFractionStage - 1]!.fraction);
+  });
+});
+
+describe('ailoud transcribe --job', () => {
+  it('is hidden from --help', () => {
+    const ctx = context();
+    const program = buildProgram(ctx);
+    const transcribeCmd = program.commands.find((c) => c.name() === 'transcribe')!;
+    const jobOption = transcribeCmd.options.find((o) => o.long === '--job');
+    expect(jobOption?.hidden).toBe(true);
+  });
+
+  it('never appears in rendered --help text either', () => {
+    // The option-object check above pins commander's `hidden` flag, but not
+    // that commander actually honours it when rendering. Checked against the
+    // pinned commander version in use.
+    const ctx = context();
+    const program = buildProgram(ctx);
+    const transcribeCmd = program.commands.find((c) => c.name() === 'transcribe')!;
+    expect(transcribeCmd.helpInformation()).not.toContain('--job');
+  });
+
+  it('rejects an id with no matching job', async () => {
+    const ctx = context();
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--job', 'nope']),
+    ).rejects.toThrow(UsageError);
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--job', 'nope']),
+    ).rejects.toThrow(/nope/);
+  });
+
+  it('reports success into the job state file', async () => {
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'transcribe', recordings: 1, declared: null },
+      );
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--job', job.id]);
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
+      expect(state?.state).toBe('done');
+      expect(state?.percent).toBe(100);
+      // The full four-field shape the spec asks for (recordingId,
+      // transcriptId, language, segments) -- not just the recording id the
+      // caller already had. transcriptId is 'ID003': 'ID001' is the
+      // recording (import, above), 'ID002' is the job itself (createJob,
+      // above), and the pipeline's own ids.next() calls start after that.
+      expect(state?.result).toEqual({
+        transcribed: [
+          {
+            recordingId: 'ID001',
+            transcriptId: 'ID003',
+            language: 'ru',
+            segments: 1,
+            // Empty because the fake transcriber attributes nothing: this
+            // run had no diarization. The field is what `job_status` reads
+            // to decide whether to ask the user for speaker names.
+            speakers: [],
+          },
+        ],
+      });
+    });
+  });
+
+  it('records a failure when the job lock is already held on the way in', async () => {
+    // I2: withJobLock itself can throw, before body() -- and therefore
+    // transcribeRecording -- ever runs, which is exactly what losing the
+    // advisory race against another process looks like. The try/catch used
+    // to sit inside withJobLock's own callback and never saw this throw, so
+    // the state file stayed 'running' forever with nothing to explain why.
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'transcribe', recordings: 1, declared: null },
+      );
+      await withJobLock(ctx.paths.dataDir, async () => {
+        await expect(
+          buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--job', job.id]),
+        ).rejects.toThrow(FailureError);
+      });
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
+      expect(state?.state).toBe('failed');
+      expect(state?.error).toMatch(/already running/);
+    });
+  });
+
+  it('reports a failure into the job state file and still rethrows, exit code unchanged', async () => {
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'transcribe', recordings: 1, declared: null },
+      );
+      await expect(
+        buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', 'ID999', '--job', job.id]),
+      ).rejects.toThrow(FailureError);
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
+      expect(state?.state).toBe('failed');
+      expect(state?.error).toContain('ID999');
+    });
+  });
+});
+
+describe('ailoud transcribe --detach', () => {
+  afterEach(() => {
+    vi.mocked(spawnDetachedJob).mockReset();
+  });
+
+  it('is not hidden from --help, unlike --job', () => {
+    const ctx = context();
+    const program = buildProgram(ctx);
+    const transcribeCmd = program.commands.find((c) => c.name() === 'transcribe')!;
+    const detachOption = transcribeCmd.options.find((o) => o.long === '--detach');
+    expect(detachOption?.hidden).toBeFalsy();
+  });
+
+  it('rejects --detach together with --job before doing anything', async () => {
+    const ctx = context();
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--detach', '--job', 'X']),
+    ).rejects.toThrow(UsageError);
+    expect(spawnDetachedJob).not.toHaveBeenCalled();
+  });
+
+  it('validates --lang before creating a job or spawning anything', async () => {
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      await expect(
+        buildProgram(ctx).parseAsync([
+          'node',
+          'ailoud',
+          'transcribe',
+          '--lang',
+          'xx yy',
+          '--detach',
+        ]),
+      ).rejects.toThrow(UsageError);
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+    });
+  });
+
+  it('validates --speakers before creating a job or spawning anything', async () => {
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      await expect(
+        buildProgram(ctx).parseAsync([
+          'node',
+          'ailoud',
+          'transcribe',
+          '--speakers',
+          '2',
+          '--detach',
+        ]),
+      ).rejects.toThrow(/--speakers needs --diarize/);
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+    });
+  });
+
+  it('refuses an empty default selection before creating a job or spawning anything', async () => {
+    // The default selector means "everything not yet transcribed"; once
+    // every recording already has a transcript, --detach would otherwise
+    // hand back a job id for a child that does nothing at all.
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe']);
+      await expect(
+        buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--detach']),
+      ).rejects.toThrow(/--detach has nothing to transcribe/);
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+    });
+  });
+
+  it('refuses when another job already holds the lock, without creating a job', async () => {
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      await withJobLock(ctx.paths.dataDir, async () => {
+        await expect(
+          buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--detach']),
+        ).rejects.toThrow(FailureError);
+      });
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+    });
+  });
+
+  it('creates a running job, spawns the build args without --detach, and returns at once', async () => {
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      ctx.lines.length = 0;
+      await buildProgram(ctx).parseAsync([
+        'node',
+        'ailoud',
+        'transcribe',
+        'ID001',
+        '--lang',
+        'en',
+        '--detach',
+      ]);
+      expect(spawnDetachedJob).toHaveBeenCalledTimes(1);
+      const [, commandArgs, job] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).toEqual(['transcribe', 'ID001', '--lang', 'en']);
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
+      expect(state?.state).toBe('running');
+      expect(ctx.lines.join('\n')).toContain(job.id);
+    });
+  });
+
+  it('preserves a --tag value that is itself the literal string "--detach"', async () => {
+    // The child args used to be built by filtering process.argv for the
+    // string '--detach', which stripped every occurrence -- including one
+    // that was actually the value of --tag, not the flag -- and left the
+    // child with a dangling '--tag' and no value. Building from the parsed
+    // options instead means only the real flag is ever left out.
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      await buildProgram(ctx).parseAsync([
+        'node',
+        'ailoud',
+        'transcribe',
+        'ID001',
+        '--tag',
+        '--detach',
+        '--detach',
+      ]);
+      expect(spawnDetachedJob).toHaveBeenCalledTimes(1);
+      const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).toEqual(['transcribe', 'ID001', '--tag', '--detach']);
+    });
+  });
+
+  it('marks the job failed and rethrows when spawning itself throws', async () => {
+    const ctx = context();
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', '/in/a.mp3']);
+      vi.mocked(spawnDetachedJob).mockImplementation(() => {
+        throw new Error('spawn boom');
+      });
+      const before = new Set((await listJobs(ctx.fs, ctx.paths.jobsDir)).map((j) => j.id));
+      await expect(
+        buildProgram(ctx).parseAsync(['node', 'ailoud', 'transcribe', '--detach']),
+      ).rejects.toThrow(/spawn boom/);
+      const after = await listJobs(ctx.fs, ctx.paths.jobsDir);
+      const created = after.find((job) => !before.has(job.id));
+      expect(created?.state).toBe('failed');
+      expect(created?.error).toContain('spawn boom');
+    });
+  });
 });
 
 describe('parseLanguages', () => {

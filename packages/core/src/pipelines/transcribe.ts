@@ -11,8 +11,13 @@ import type {
   TranscriptionProvider,
 } from '../domain/ports.js';
 import type { RawSegment, Recording, Segment, Transcript } from '../domain/model.js';
+import type { WavPrepared } from '../domain/ports.js';
 import { FailureError } from '../domain/errors.js';
 import { assignSpeakers } from '../diarize/assign.js';
+import type { DenoiseMode } from '../audio/noise.js';
+import { snrDb } from '../audio/noise.js';
+import type { OnProgress } from '../progress/events.js';
+import { multilingualStages, singlePassStages, stageScale } from '../progress/scale.js';
 import {
   detectionWindowMs,
   mergeRuns,
@@ -41,6 +46,24 @@ export interface TranscribeDeps {
    * unset, such problems are simply not reported.
    */
   readonly onWarning?: (message: string) => void;
+  /**
+   * Routine facts worth recording but not worth interrupting anyone with.
+   *
+   * Distinct from `onWarning`, which reaches the terminal: the CLI wires this
+   * to the job log only. A denoising decision is a routine decision, and a
+   * foreground run has no log, so it correctly prints nothing.
+   */
+  readonly onNotice?: (message: string) => void;
+  /**
+   * Reports how far along the run is. Supplied by the caller for the same
+   * reason `onWarning` is: core does no I/O and does not know whether this
+   * becomes a spinner, a file, or nothing.
+   *
+   * Every call goes through `report` below, which swallows whatever this
+   * throws. A progress observer that could abort a transcription would be
+   * strictly worse than no progress at all.
+   */
+  readonly onProgress?: OnProgress;
 }
 
 export interface TranscribeOptions {
@@ -75,6 +98,87 @@ export interface TranscribeOptions {
   readonly diarize?: true;
   /** Hint for the diarizer: the known number of speakers, when known. */
   readonly speakers?: number;
+  /**
+   * Whether to denoise the converted audio. Absent means no measurement and
+   * no filtering, which is what every caller predating this option expects.
+   */
+  readonly denoise?: DenoiseMode;
+}
+
+/**
+ * Emits one progress event, and cannot fail.
+ *
+ * The try is the whole point of the function existing. Every emitter in this
+ * file goes through it, so "a progress sink cannot break a transcription" is
+ * true by structure rather than by everyone remembering to wrap their call.
+ * It absorbs both a synchronous throw and, via the guard below, a rejected
+ * promise from a sink that ignored `OnProgress`'s "should be synchronous".
+ */
+function report(deps: TranscribeDeps, stage: string, fraction?: number): void {
+  try {
+    const returned: unknown = deps.onProgress?.({
+      stage,
+      ...(fraction === undefined ? {} : { fraction }),
+    });
+    // `OnProgress` returns void, but TypeScript assigns `() => Promise<void>`
+    // to `() => void` without complaint, and this project does not enable
+    // no-misused-promises. So an async sink is reachable, and its rejection
+    // would surface as an unhandled rejection -- which on Node can end the
+    // process in the middle of an hour of transcription. The synchronous
+    // catch below cannot see that, so the thenable is swallowed here.
+    if (
+      typeof returned === 'object' &&
+      returned !== null &&
+      typeof (returned as { readonly then?: unknown }).then === 'function'
+    ) {
+      void (returned as Promise<unknown>).catch(() => {
+        // Same reason as the catch below. Deliberately empty.
+      });
+    }
+  } catch {
+    // See the doc comment. Deliberately empty.
+  }
+}
+
+/**
+ * Emits one job-log notice, and cannot fail.
+ *
+ * Same guarantee `report` gives, and for the same reason: an observer does
+ * not get to fail a transcription.
+ */
+function notice(deps: TranscribeDeps, message: string): void {
+  try {
+    deps.onNotice?.(message);
+  } catch {
+    // Same guarantee report() gives: an observer does not get to fail a
+    // transcription.
+  }
+}
+
+/**
+ * One line describing what the conversion did about noise, with the numbers
+ * that decided it -- an agent reading a job log has to be able to tell that
+ * the audio was altered, or that it deliberately was not.
+ *
+ * `mode` decides how to read a null SNR: `on` and `off` never measure (see
+ * ffmpeg.ts's `toWav16kMono`), so their profile is always two nulls, and
+ * reporting that as "no measurable noise floor" would claim a measurement
+ * that never happened. Only `auto` actually measures, so only there does a
+ * null SNR mean the measurement ran and found nothing.
+ */
+function denoiseMessage(prepared: WavPrepared, mode: DenoiseMode): string {
+  const snr = snrDb(prepared.profile);
+  const measured =
+    mode === 'on'
+      ? 'not measured, denoising was requested'
+      : mode === 'off'
+        ? 'not measured, denoising is off'
+        : snr === null
+          ? 'no measurable noise floor'
+          : `snr ${snr.toFixed(1)} dB`;
+  return prepared.denoised
+    ? `audio denoised before transcription (${measured})`
+    : `audio not denoised (${measured})`;
 }
 
 /**
@@ -234,17 +338,36 @@ export async function transcribeRecording(
     return transcribeMultilingual(deps, recording, options);
   }
 
+  const scale = stageScale(singlePassStages(options.diarize === true));
   const tempWav = await deps.fs.tempFile('.wav');
   try {
-    await deps.audio.toWav16kMono(`${deps.mediaRoot}/${recording.mediaPath}`, tempWav.path);
+    report(deps, 'converting', scale('converting', 0));
+    const prepared = await deps.audio.toWav16kMono(
+      `${deps.mediaRoot}/${recording.mediaPath}`,
+      tempWav.path,
+      options.denoise === undefined ? undefined : { denoise: options.denoise },
+    );
+    if (options.denoise !== undefined) {
+      notice(deps, denoiseMessage(prepared, options.denoise));
+      // The terminal hears about it only when the audio actually changed: the
+      // transcript no longer comes from the file the user imported, and that
+      // is worth one line.
+      if (prepared.denoised) deps.onWarning?.(denoiseMessage(prepared, options.denoise));
+    }
+    report(deps, 'transcribing', scale('transcribing', 0));
     const result = await deps.stt.transcribe(tempWav.path, {
       ...(options.language === undefined ? {} : { language: options.language }),
       ...(options.model === undefined ? {} : { model: options.model }),
+      onProgress: (fraction) => report(deps, 'transcribing', scale('transcribing', fraction)),
     });
 
     if (result.segments.length === 0) {
       throw new FailureError(`${deps.stt.name} found no speech in ${recording.sourcePath}`);
     }
+
+    // No fraction: the diarizer reports nothing about its own progress, and
+    // a number invented here would be indistinguishable from a measured one.
+    if (options.diarize === true) report(deps, 'diarizing');
 
     // One diarizer pass over the whole recording, on the same full-recording
     // wav the transcript just came from -- before tempWav.remove() runs in
@@ -263,7 +386,12 @@ export async function transcribeRecording(
 
     const segments = buildSegments(deps, transcript.id, withSpeakerLabels);
 
+    // Nothing progress-related between the assembled transcript and its
+    // write to the store -- that boundary stays exactly as bare as it was
+    // before this feature existed. The closing report lands right after,
+    // once the transcript this run exists to produce is already durable.
     await deps.store.insertTranscript(transcript, segments);
+    report(deps, options.diarize === true ? 'diarizing' : 'transcribing', 1);
     return transcript;
   } finally {
     await tempWav.remove();
@@ -326,7 +454,22 @@ async function transcribeMultilingual(
 
   const tempWav = await deps.fs.tempFile('.wav');
   try {
-    await deps.audio.toWav16kMono(`${deps.mediaRoot}/${recording.mediaPath}`, tempWav.path);
+    // The scale cannot be built until the units are known -- their count is
+    // one of its weights. Until then, report stages without a fraction.
+    report(deps, 'converting');
+    const prepared = await deps.audio.toWav16kMono(
+      `${deps.mediaRoot}/${recording.mediaPath}`,
+      tempWav.path,
+      options.denoise === undefined ? undefined : { denoise: options.denoise },
+    );
+    if (options.denoise !== undefined) {
+      notice(deps, denoiseMessage(prepared, options.denoise));
+      // The terminal hears about it only when the audio actually changed: the
+      // transcript no longer comes from the file the user imported, and that
+      // is worth one line.
+      if (prepared.denoised) deps.onWarning?.(denoiseMessage(prepared, options.denoise));
+    }
+    report(deps, 'segmenting');
 
     const declared = options.declaredLanguages ?? [];
 
@@ -349,6 +492,16 @@ async function transcribeMultilingual(
             detectionWindowMs(declared.length),
           );
 
+    const audioSeconds = recording.durationMs / 1000;
+    const scale = stageScale(
+      multilingualStages({
+        unitCount: units.length,
+        audioSeconds,
+        diarize: options.diarize === true,
+      }),
+    );
+    report(deps, 'segmenting', scale('segmenting', 1));
+
     const detected: (DetectedSpan & { speaker?: string })[] = [];
     for (const unit of units) {
       const slice = await deps.fs.tempFile('.wav');
@@ -358,6 +511,7 @@ async function transcribeMultilingual(
           ...(options.model === undefined ? {} : { model: options.model }),
         });
         detected.push({ ...unit, language });
+        report(deps, 'detecting', scale('detecting', detected.length / Math.max(1, units.length)));
       } finally {
         await slice.remove();
       }
@@ -383,13 +537,27 @@ async function transcribeMultilingual(
     }
 
     const outcomes: RunOutcome[] = [];
+    const totalRunMs = runs.reduce((sum, run) => sum + (run.endMs - run.startMs), 0);
+    let doneRunMs = 0;
     for (const run of runs) {
+      const runMs = run.endMs - run.startMs;
       const slice = await deps.fs.tempFile('.wav');
       try {
         await deps.audio.slice(tempWav.path, slice.path, run.startMs, run.endMs);
         const result = await deps.stt.transcribe(slice.path, {
           language: run.language,
           ...(options.model === undefined ? {} : { model: options.model }),
+          // Weighted by audio, not by run: runs differ in length by an order
+          // of magnitude, and counting them makes a bar that crawls then jumps.
+          onProgress: (fraction) =>
+            report(
+              deps,
+              'transcribing',
+              scale(
+                'transcribing',
+                totalRunMs <= 0 ? 0 : (doneRunMs + runMs * fraction) / totalRunMs,
+              ),
+            ),
         });
         outcomes.push({
           run,
@@ -406,6 +574,7 @@ async function transcribeMultilingual(
             language: run.language,
           })),
         });
+        doneRunMs += runMs;
       } finally {
         await slice.remove();
       }
@@ -415,6 +584,13 @@ async function transcribeMultilingual(
     if (allSegments.length === 0) {
       throw new FailureError(`${deps.stt.name} found no speech in ${recording.sourcePath}`);
     }
+
+    // No fraction: the diarizer reports nothing about its own progress, and
+    // a number invented here would be indistinguishable from a measured one.
+    // Announced here, immediately before the labelling work itself, and
+    // deliberately not next to the closing report below -- moving it there
+    // would announce the stage only after it already finished.
+    if (options.diarize === true) report(deps, 'labelling');
 
     // Every run's segments are already shifted onto the recording's absolute
     // timeline (see the comment above), so one diarizer pass over the whole
@@ -451,7 +627,11 @@ async function transcribeMultilingual(
 
     const segments = buildSegments(deps, transcript.id, withSpeakerLabels);
 
+    // Nothing progress-related between the assembled transcript and its
+    // write to the store, for the same reason the single-pass path holds
+    // that boundary bare. The closing report lands right after.
     await deps.store.insertTranscript(transcript, segments);
+    report(deps, options.diarize === true ? 'labelling' : 'transcribing', 1);
     return transcript;
   } finally {
     await tempWav.remove();

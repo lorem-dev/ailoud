@@ -1,12 +1,39 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { MemFs } from '@ailoud/core/testing';
-import { contextWithTranscript } from '../commands/testContext.js';
+import { context, contextWithTranscript, withRealDataDir } from '../commands/testContext.js';
+import { buildProgram } from '../program.js';
+import { createJob, getJob, listJobs } from '../jobs/store.js';
+import { withJobLock } from '../jobs/lock.js';
+import { spawnDetachedJob } from '../jobs/spawn.js';
+import { writeJobState } from '../jobs/state.js';
 import { buildMcpServer } from './server.js';
 import { SERVER_INSTRUCTIONS } from './instructions.js';
 
+// Every transcribe/summarize call under test would otherwise spawn a real
+// node process (see spawn.ts's own doc comment on why `cliEntryPath`
+// resolves to a build that does not exist under a test runner). Mocked at
+// the module boundary, the same way the CLI's own --detach tests mock it
+// (apps/cli/src/commands/commands.test.ts, summarize.test.ts), so what is
+// under test is this tool building the right job and the right argv, not a
+// child process actually running.
+vi.mock('../jobs/spawn.js', () => ({ spawnDetachedJob: vi.fn() }));
+
 type Ctx = Awaited<ReturnType<typeof contextWithTranscript>>;
+
+/**
+ * Imports `path` -- writing its (fake) content into the in-memory fs first,
+ * since nothing has put it there yet -- through the real `import` command,
+ * so the resulting recording has a genuine mediaPath a later `transcribe`
+ * call can actually read. Returns the new recording's id.
+ */
+async function importFixture(ctx: ReturnType<typeof context>, path: string): Promise<string> {
+  (ctx.fs as MemFs).files.set(path, 'AUDIO');
+  await buildProgram(ctx).parseAsync(['node', 'ailoud', 'import', path]);
+  const recordings = await ctx.store.listRecordings({});
+  return recordings[recordings.length - 1]!.id;
+}
 
 /** A real client over an in-memory transport: the wiring is exercised, not mocked. */
 async function connect(context: Ctx) {
@@ -28,6 +55,10 @@ async function connect(context: Ctx) {
   return { client, call, close };
 }
 
+afterEach(() => {
+  vi.mocked(spawnDetachedJob).mockReset();
+});
+
 describe('the MCP surface', () => {
   it('offers a tool for every job an agent needs, and no more', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
@@ -42,6 +73,7 @@ describe('the MCP surface', () => {
         'get_report',
         'get_transcript',
         'import_recording',
+        'job_status',
         'list_recordings',
         'list_reports',
         'list_speakers',
@@ -86,6 +118,7 @@ describe('the MCP surface', () => {
     const { client, close } = await connect(ctx);
     const byName = new Map((await client.listTools()).tools.map((t) => [t.name, t]));
     expect(byName.get('search_transcripts')?.annotations?.readOnlyHint).toBe(true);
+    expect(byName.get('job_status')?.annotations?.readOnlyHint).toBe(true);
     expect(byName.get('delete_recording')?.annotations?.destructiveHint).toBe(true);
     expect(byName.get('delete_report')?.annotations?.destructiveHint).toBe(true);
     await close();
@@ -210,24 +243,82 @@ describe('MCP: refusals are marked as failures', () => {
   });
 });
 
-describe('MCP: summarising', () => {
-  it('uses the template and the caller context it was given, and saves the report', async () => {
+describe('MCP: summarize starts a background job', () => {
+  // The actual summarising -- template applied, context passed to the
+  // model, the report saved -- now happens in the spawned child, which runs
+  // the same `ailoud summarize` pipeline the CLI does (and is covered by
+  // that command's own tests). What this tool owns, and what is under test
+  // here, is building the right job and the right child argv from the
+  // template and context it was given.
+  it('passes the template and caller context through to the child argv', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
-    const { call, close } = await connect(ctx);
-    const body = (
-      await call('summarize', {
-        recordingIds: ['ID001'],
-        template: 'one-on-one',
-        context: 'Ann is the manager.',
-      })
-    ).json();
-    expect(body['template']).toBe('one-on-one');
-    expect(ctx.summarizerPrompts[0]).toContain('Concerns raised');
-    expect(ctx.summarizerPrompts[0]).toContain('Ann is the manager.');
-    const stored = await ctx.store.listSummaries('ID001');
-    expect(stored[0]!.template).toBe('one-on-one');
-    expect(stored[0]!.context).toBe('Ann is the manager.');
-    await close();
+    await withRealDataDir(ctx, async () => {
+      const { call, close } = await connect(ctx);
+      const body = (
+        await call('summarize', {
+          recordingIds: ['ID001'],
+          template: 'one-on-one',
+          context: 'Ann is the manager.',
+        })
+      ).json();
+      expect(body['jobId']).toBeDefined();
+      expect(body['kind']).toBe('summarize');
+      expect(body['summary']).toBeUndefined();
+      expect(vi.mocked(spawnDetachedJob)).toHaveBeenCalledTimes(1);
+      const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).toEqual([
+        'summarize',
+        'ID001',
+        '--template',
+        'one-on-one',
+        '--context',
+        'Ann is the manager.',
+      ]);
+      await close();
+    });
+  });
+
+  it('returns a job id rather than the summary body', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      const { call, close } = await connect(ctx);
+      const body = (await call('summarize', { recordingIds: ['ID001'] })).json();
+      expect(body['jobId']).toBeDefined();
+      expect(body['summary']).toBeUndefined();
+      expect(body['reportId']).toBeUndefined();
+      await close();
+    });
+  });
+
+  it('refuses synchronously when a job already holds the lock', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      await withJobLock(ctx.paths.dataDir, async () => {
+        const { call, close } = await connect(ctx);
+        const result = await call('summarize', { recordingIds: ['ID001'] });
+        expect(result.isError).toBe(true);
+        expect(result.json()['error']).toContain('already running');
+        expect(spawnDetachedJob).not.toHaveBeenCalled();
+        await close();
+      });
+    });
+  });
+
+  it('marks the job failed and reports it when spawning itself throws', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      vi.mocked(spawnDetachedJob).mockImplementation(() => {
+        throw new Error('spawn boom');
+      });
+      const { call, close } = await connect(ctx);
+      const result = await call('summarize', { recordingIds: ['ID001'] });
+      expect(result.isError).toBe(true);
+      const jobId = result.json()['jobId'] as string;
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, jobId);
+      expect(state?.state).toBe('failed');
+      expect(state?.error).toContain('spawn boom');
+      await close();
+    });
   });
 });
 
@@ -365,39 +456,478 @@ describe('MCP: the run directory and its file names', () => {
 });
 
 describe('MCP: one summarisation pipeline, shared with the CLI', () => {
-  it('never re-summarises a single recording from its own stored report', async () => {
-    // The rule that drifted while the pipeline was written twice: fixed in
-    // the CLI command, and it had to be remembered separately here.
-    const ctx = await contextWithTranscript({ clearLines: true });
-    const { call, close } = await connect(ctx);
-    await call('summarize', { recordingIds: ['ID001'] });
-    ctx.summarizerPrompts.length = 0;
-    await call('summarize', { recordingIds: ['ID001'], language: 'ru' });
-    expect(ctx.summarizerPrompts[0]).toContain('Privet.');
-    expect(ctx.summarizerPrompts[0]).not.toMatch(/earlier summary/i);
-    await close();
-  });
-
-  it('reuses stored reports for a group, where they pay', async () => {
+  // Before this task, this tool called runSummary itself -- a second call
+  // site the CLI's own copy could drift from (see the CLI's own
+  // resolveSummarizeRun doc comment). Converting this tool to spawn the same
+  // `ailoud summarize` the CLI runs removes the second call site entirely:
+  // there is now exactly one place that reuses stored reports or refuses to
+  // re-summarise a recording from its own report, and it is covered by that
+  // command's own tests (apps/cli/src/commands/summarize.test.ts). What
+  // remains to check here is that a group of ids reaches the child argv
+  // untouched, in the order given.
+  it('passes every id in a group through to the child, in order', async () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     const first = (await ctx.store.listRecordings({}))[0]!;
     await ctx.store.insertRecording({ ...first, id: 'ID002', sha256: 'other' });
-    for (const id of ['ID001', 'ID002']) {
-      await ctx.store.insertSummary({
-        id: `SUM-${id}`,
-        createdAt: '2026-08-31T00:00:00.000Z',
-        language: 'en',
-        provider: 'fake',
-        model: 'fake-model',
-        body: `summary of ${id}`,
-        template: 'meeting',
-        context: '',
+    await withRealDataDir(ctx, async () => {
+      const { call, close } = await connect(ctx);
+      await call('summarize', { recordingIds: ['ID001', 'ID002'] });
+      const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).toEqual(['summarize', 'ID001', 'ID002']);
+      await close();
+    });
+  });
+});
+
+describe('MCP: transcribe refuses until speakers and languages are declared', () => {
+  it('refuses without a speaker count or languages, and offers a guess', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/2026-08-14-standup-ru-en.m4a');
+    const { call, close } = await connect(ctx);
+    const result = await call('transcribe', { recordingIds: [id] });
+    expect(result.isError).toBe(true);
+    const body = result.json();
+    expect(body['error']).toContain('speaker count');
+    const guess = body['guess'] as { languages: string[]; from: string };
+    expect(guess.languages).toEqual(['ru', 'en']);
+    expect(guess.from).toContain('2026-08-14-standup-ru-en.m4a');
+    expect(body['ask']).toContain('Ask the user');
+    await close();
+  });
+
+  it('refuses with a null guess when the name says nothing', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    const { call, close } = await connect(ctx);
+    const result = await call('transcribe', { recordingIds: [id] });
+    expect(result.isError).toBe(true);
+    const body = result.json();
+    // Null, never a fabrication: a guess invented from nothing gets confirmed
+    // by a user who is skimming.
+    expect(body['guess']).toBeNull();
+    await close();
+  });
+
+  it('refuses when only one of the two is given', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    const { call, close } = await connect(ctx);
+    for (const args of [{ speakers: 3 }, { languages: ['ru'] }]) {
+      const result = await call('transcribe', { recordingIds: [id], ...args });
+      expect(result.isError).toBe(true);
+    }
+    await close();
+  });
+
+  it('accepts the explicit not-knowns', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    await withRealDataDir(ctx, async () => {
+      const { call, close } = await connect(ctx);
+      const result = await call('transcribe', {
         recordingIds: [id],
+        speakers: 'unknown',
+        languages: ['auto'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.json()['jobId']).toBeDefined();
+      await close();
+    });
+  });
+
+  // The diarizer itself no longer runs inside this call -- it runs in the
+  // spawned child, which is mocked here (see the module-level vi.mock) and
+  // covered by the CLI's own transcribe tests. What these two check is that
+  // the child's argv reflects the same rule the inline pipeline used to
+  // apply directly: --speakers only informs the diarizer, and only when a
+  // real count was declared alongside --diarize.
+  it('passes a declared speaker count to the child only when diarize is on', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    await withRealDataDir(ctx, async () => {
+      const { call, close } = await connect(ctx);
+      await call('transcribe', {
+        recordingIds: [id],
+        speakers: 3,
+        languages: ['en'],
+        diarize: true,
+      });
+      const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).toContain('--diarize');
+      expect(commandArgs).toEqual(expect.arrayContaining(['--speakers', '3']));
+      await close();
+    });
+  });
+
+  it('omits --speakers from the child argv when the count is unknown, even with diarize on', async () => {
+    // Distinct from the sibling test above: this one holds diarize === true
+    // fixed and varies only whether speakers is a number, so it actually
+    // exercises the `typeof speakers === 'number'` half of the guard rather
+    // than the `diarize === true` half.
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    await withRealDataDir(ctx, async () => {
+      const { call, close } = await connect(ctx);
+      await call('transcribe', {
+        recordingIds: [id],
+        speakers: 'unknown',
+        languages: ['en'],
+        diarize: true,
+      });
+      const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).toContain('--diarize');
+      expect(commandArgs).not.toContain('--speakers');
+      await close();
+    });
+  });
+
+  it('refuses "auto" mixed with a real language', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    const { call, close } = await connect(ctx);
+    const result = await call('transcribe', {
+      recordingIds: [id],
+      speakers: 'unknown',
+      languages: ['auto', 'en'],
+    });
+    expect(result.isError).toBe(true);
+    expect(result.raw).toContain('auto');
+    await close();
+  });
+
+  it('refuses "auto" mixed with a real language regardless of order', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    const { call, close } = await connect(ctx);
+    const result = await call('transcribe', {
+      recordingIds: [id],
+      speakers: 'unknown',
+      languages: ['en', 'auto'],
+    });
+    expect(result.isError).toBe(true);
+    expect(result.raw).toContain('auto');
+    await close();
+  });
+
+  it('refuses a language entry that is not a two- or three-letter code', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    const { call, close } = await connect(ctx);
+    const result = await call('transcribe', {
+      recordingIds: [id],
+      speakers: 'unknown',
+      languages: ['english'],
+    });
+    expect(result.isError).toBe(true);
+    await close();
+  });
+
+  it('refuses a language declared twice', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    const { call, close } = await connect(ctx);
+    const result = await call('transcribe', {
+      recordingIds: [id],
+      speakers: 'unknown',
+      languages: ['en', 'en'],
+    });
+    expect(result.isError).toBe(true);
+    await close();
+  });
+});
+
+describe('MCP: transcribe starts a background job', () => {
+  it('returns a job id and does not block', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    await withRealDataDir(ctx, async () => {
+      const { call, close } = await connect(ctx);
+      const result = await call('transcribe', {
+        recordingIds: [id],
+        speakers: 2,
+        languages: ['en'],
+      });
+      expect(result.isError).toBe(false);
+      const body = result.json();
+      expect(typeof body['jobId']).toBe('string');
+      expect(body['jobId']).not.toBe('');
+      expect(body['kind']).toBe('transcribe');
+      expect(body['poll']).toContain('job_status');
+      await close();
+    });
+  });
+
+  it('refuses synchronously when a job already holds the lock', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    await withRealDataDir(ctx, async () => {
+      await withJobLock(ctx.paths.dataDir, async () => {
+        const { call, close } = await connect(ctx);
+        const result = await call('transcribe', {
+          recordingIds: [id],
+          speakers: 2,
+          languages: ['en'],
+        });
+        expect(result.isError).toBe(true);
+        expect(result.json()['error']).toContain('already running');
+        expect(spawnDetachedJob).not.toHaveBeenCalled();
+        expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+        await close();
+      });
+    });
+  });
+
+  it('marks the job failed and reports it when spawning itself throws', async () => {
+    // The id handed out must always resolve: a job that never actually
+    // started must not be left saying "running" forever.
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    await withRealDataDir(ctx, async () => {
+      vi.mocked(spawnDetachedJob).mockImplementation(() => {
+        throw new Error('spawn boom');
+      });
+      const { call, close } = await connect(ctx);
+      const result = await call('transcribe', {
+        recordingIds: [id],
+        speakers: 2,
+        languages: ['en'],
+      });
+      expect(result.isError).toBe(true);
+      const jobId = result.json()['jobId'] as string;
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, jobId);
+      expect(state?.state).toBe('failed');
+      expect(state?.error).toContain('spawn boom');
+      await close();
+    });
+  });
+});
+
+describe('MCP: job_status', () => {
+  it('resolves an id the instant transcribe handed it out', async () => {
+    const ctx = context();
+    const id = await importFixture(ctx, '/in/rec0007.wav');
+    await withRealDataDir(ctx, async () => {
+      const { call, close } = await connect(ctx);
+      const started = (
+        await call('transcribe', { recordingIds: [id], speakers: 2, languages: ['en'] })
+      ).json();
+      const status = (await call('job_status', { jobId: started['jobId'] as string })).json();
+      expect(status['id']).toBe(started['jobId']);
+      expect(['running', 'failed', 'done']).toContain(status['state']);
+      await close();
+    });
+  });
+
+  it('reports an unknown job id as unknown, not as a failure', async () => {
+    const ctx = context();
+    const { call, close } = await connect(ctx);
+    const result = await call('job_status', { jobId: '01K4NOSUCHJOBNOSUCHJOB00' });
+    expect(result.isError).toBe(true);
+    expect(result.json()['error']).toContain('no such job');
+    await close();
+  });
+
+  it('never inlines the log, only its path', async () => {
+    const ctx = context();
+    const job = await createJob(
+      { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+      { kind: 'transcribe', recordings: 1, declared: null },
+    );
+    // A stand-in for the ~104 lines of backend chatter one whisper run
+    // writes to the log; the exact line is the one the design doc calls out
+    // by name.
+    await ctx.fs.writeTextFile(
+      job.log,
+      'whisper_print_progress_callback: progress = 42%\n'.repeat(20),
+    );
+    const { call, close } = await connect(ctx);
+    const withId = await call('job_status', { jobId: job.id });
+    expect(withId.json()['log']).toBe(job.log);
+    expect(withId.raw).not.toContain('whisper_print_progress_callback');
+    const listed = await call('job_status', {});
+    expect(listed.raw).not.toContain('whisper_print_progress_callback');
+    await close();
+  });
+
+  it('without an id, lists running jobs plus the five most recent finished ones', async () => {
+    const ctx = context();
+    for (let i = 0; i < 7; i += 1) {
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'transcribe', recordings: 1, declared: null },
+      );
+      if (i < 2) continue; // leave the first two running
+      await writeJobState(ctx.fs, ctx.paths.jobsDir, {
+        ...job,
+        state: 'done',
+        finishedAt: ctx.clock.nowIso(),
       });
     }
     const { call, close } = await connect(ctx);
-    const body = (await call('summarize', { recordingIds: ['ID001', 'ID002'] })).json();
-    expect(body['reusedStoredReports']).toBe(2);
+    const body = (await call('job_status', {})).json();
+    const jobs = body['jobs'] as { state: string }[];
+    expect(jobs.filter((job) => job.state === 'running')).toHaveLength(2);
+    expect(jobs.filter((job) => job.state !== 'running')).toHaveLength(5);
     await close();
+  });
+
+  /**
+   * Only a person knows which `speaker_00` is Ann, and an agent holding a
+   * fresh transcript is the one party able to ask. These cases pin that the
+   * prompt to do so appears exactly when it is actionable -- never as
+   * standing advice on a job that cannot use it.
+   */
+  describe('the speaker follow-up', () => {
+    const doneTranscribe = async (
+      ctx: ReturnType<typeof context>,
+      transcribed: readonly unknown[],
+    ) => {
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'transcribe', recordings: 1, declared: null },
+      );
+      await writeJobState(ctx.fs, ctx.paths.jobsDir, {
+        ...job,
+        state: 'done',
+        finishedAt: ctx.clock.nowIso(),
+        result: { transcribed },
+      });
+      return job.id;
+    };
+
+    it('asks for names when a finished job left labels unnamed', async () => {
+      const ctx = context();
+      const id = await importFixture(ctx, '/in/rec0100.wav');
+      const jobId = await doneTranscribe(ctx, [
+        { recordingId: id, speakers: ['speaker_00', 'speaker_01'] },
+      ]);
+      const { call, close } = await connect(ctx);
+      const body = (await call('job_status', { jobId })).json();
+      expect(body['unnamedSpeakers']).toEqual([
+        { recordingId: id, labels: ['speaker_00', 'speaker_01'] },
+      ]);
+      expect(String(body['nextStep'])).toContain('annotate');
+      await close();
+    });
+
+    it('says nothing about names once every label has one', async () => {
+      const ctx = context();
+      const id = await importFixture(ctx, '/in/rec0101.wav');
+      await ctx.store.setSpeakerName(id, 'speaker_00', 'Ann');
+      await ctx.store.setSpeakerName(id, 'speaker_01', 'Bo');
+      const jobId = await doneTranscribe(ctx, [
+        { recordingId: id, speakers: ['speaker_00', 'speaker_01'] },
+      ]);
+      const { call, close } = await connect(ctx);
+      const body = (await call('job_status', { jobId })).json();
+      expect(body['unnamedSpeakers']).toBeUndefined();
+      expect(body['nextStep']).toBeUndefined();
+      await close();
+    });
+
+    it('asks only about the labels still missing a name', async () => {
+      const ctx = context();
+      const id = await importFixture(ctx, '/in/rec0102.wav');
+      await ctx.store.setSpeakerName(id, 'speaker_00', 'Ann');
+      const jobId = await doneTranscribe(ctx, [
+        { recordingId: id, speakers: ['speaker_00', 'speaker_01'] },
+      ]);
+      const { call, close } = await connect(ctx);
+      const body = (await call('job_status', { jobId })).json();
+      expect(body['unnamedSpeakers']).toEqual([{ recordingId: id, labels: ['speaker_01'] }]);
+      await close();
+    });
+
+    it('says nothing when the run produced no labels at all', async () => {
+      // A transcription without --diarize. There is nothing to name, so a
+      // prompt to name it would be noise on every poll.
+      const ctx = context();
+      const id = await importFixture(ctx, '/in/rec0103.wav');
+      const jobId = await doneTranscribe(ctx, [{ recordingId: id, speakers: [] }]);
+      const { call, close } = await connect(ctx);
+      const body = (await call('job_status', { jobId })).json();
+      expect(body['unnamedSpeakers']).toBeUndefined();
+      await close();
+    });
+
+    it('looks nothing up for a recording that has no labels', async () => {
+      // `job_status` is advertised as cheap enough to poll every few
+      // minutes, which is why the labels travel in the job's own result
+      // rather than being read back. Asserting the outcome alone cannot see
+      // a lookup creeping back in: with no labels the answer is empty either
+      // way. This asserts the cost.
+      const ctx = context();
+      const id = await importFixture(ctx, '/in/rec0106.wav');
+      const jobId = await doneTranscribe(ctx, [{ recordingId: id, speakers: [] }]);
+      const lookups = vi.spyOn(ctx.store, 'listSpeakerNames');
+      const { call, close } = await connect(ctx);
+      await call('job_status', { jobId });
+      expect(lookups).not.toHaveBeenCalled();
+      lookups.mockRestore();
+      await close();
+    });
+
+    it('says nothing while the job is still running', async () => {
+      const ctx = context();
+      const id = await importFixture(ctx, '/in/rec0104.wav');
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'transcribe', recordings: 1, declared: null },
+      );
+      await writeJobState(ctx.fs, ctx.paths.jobsDir, {
+        ...job,
+        result: { transcribed: [{ recordingId: id, speakers: ['speaker_00'] }] },
+      });
+      const { call, close } = await connect(ctx);
+      const body = (await call('job_status', { jobId: job.id })).json();
+      expect(body['state']).toBe('running');
+      expect(body['unnamedSpeakers']).toBeUndefined();
+      await close();
+    });
+
+    it('says nothing for a summarize job, whatever its result holds', async () => {
+      const ctx = context();
+      const id = await importFixture(ctx, '/in/rec0105.wav');
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'summarize', recordings: 1, declared: null },
+      );
+      await writeJobState(ctx.fs, ctx.paths.jobsDir, {
+        ...job,
+        state: 'done',
+        finishedAt: ctx.clock.nowIso(),
+        result: { transcribed: [{ recordingId: id, speakers: ['speaker_00'] }] },
+      });
+      const { call, close } = await connect(ctx);
+      const body = (await call('job_status', { jobId: job.id })).json();
+      expect(body['unnamedSpeakers']).toBeUndefined();
+      await close();
+    });
+
+    it('survives a result that is not the shape it expects', async () => {
+      // The result field is `unknown` by design. A job written by an older
+      // version, or a hand-edited state file, must not turn a poll into an
+      // error.
+      const ctx = context();
+      const jobId = await doneTranscribe(ctx, []);
+      const { call, close } = await connect(ctx);
+      for (const result of [null, 'a string', { transcribed: 'not an array' }, { other: 1 }]) {
+        const job = await createJob(
+          { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+          { kind: 'transcribe', recordings: 1, declared: null },
+        );
+        await writeJobState(ctx.fs, ctx.paths.jobsDir, {
+          ...job,
+          state: 'done',
+          finishedAt: ctx.clock.nowIso(),
+          result,
+        });
+        const body = (await call('job_status', { jobId: job.id })).json();
+        expect(body['state']).toBe('done');
+        expect(body['unnamedSpeakers']).toBeUndefined();
+      }
+      expect(jobId).toBeTruthy();
+      await close();
+    });
   });
 });

@@ -19,6 +19,20 @@ export interface RunOptions {
    * with E2BIG, which is a failure the user can do nothing about.
    */
   readonly stdin?: string;
+  /**
+   * Called once per complete line of stderr, as it arrives, without the
+   * trailing newline. A final fragment that never got a newline is delivered
+   * on close.
+   *
+   * Additive: `stderr` in the result is still the whole stream, byte for
+   * byte, whether or not this is passed. The buffering was not replaced by
+   * this, it was left alone -- every transcription in the tool goes through
+   * this function, and a progress feature is not worth risking it.
+   *
+   * Never lets a sink's exception escape. A caller watching for progress
+   * must not be able to fail the command it is watching.
+   */
+  readonly onStderrLine?: (line: string) => void;
 }
 
 const DEFAULT_TIMEOUT_MS = 30 * 60_000;
@@ -65,11 +79,30 @@ export function run(
       child.kill('SIGKILL');
     }, timeoutMs);
 
+    // Held between chunks: a line is routinely split across two 'data'
+    // events, and splitting each chunk on its own loses whatever straddled
+    // the boundary. Measured on whisper-cli, which emits ~104 stderr lines
+    // per run.
+    let pending = '';
+    const emit = (line: string): void => {
+      try {
+        options.onStderrLine?.(line);
+      } catch {
+        // A progress sink is an observer. It does not get to fail the run.
+      }
+    };
+
     child.stdout.on('data', (chunk: Buffer) => {
       stdout += chunk.toString('utf8');
     });
     child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8');
+      const text = chunk.toString('utf8');
+      stderr += text;
+      if (options.onStderrLine === undefined) return;
+      pending += text;
+      const parts = pending.split('\n');
+      pending = parts.pop() ?? '';
+      for (const part of parts) emit(part);
     });
 
     child.on('error', (error: NodeJS.ErrnoException) => {
@@ -87,6 +120,10 @@ export function run(
 
     child.on('close', (code, signal) => {
       clearTimeout(timer);
+      if (pending !== '') {
+        emit(pending);
+        pending = '';
+      }
       if (timedOut) {
         // A timeout is not "the machine is not set up": the binary was
         // found and started fine, it just did not finish in the time this

@@ -12,6 +12,11 @@ export type Register = (parent: Command, context: CliContext) => void;
  * `gh pr list`, `kubectl get pod`): `ailoud report rm SUM0` reads as removing one
  * report, while `ailoud reports rm SUM0` reads as removing all of them.
  *
+ * `plural` is optional: `self` has no plural. `selves` would put a word in
+ * `--help` nobody would ever type, and passing `self` as both the name and
+ * the alias makes commander throw on an alias equal to the name. A noun
+ * declared without one gets exactly its singular name and nothing else.
+ *
  * No `.action()` handler, deliberately. A bare `ailoud audio` already prints
  * its verb list -- commander does that for any command with subcommands and
  * no action of its own -- and adding one to force it cost two behaviours that
@@ -23,10 +28,12 @@ export type Register = (parent: Command, context: CliContext) => void;
 export function group(
   program: Command,
   name: string,
-  plural: string,
+  plural: string | undefined,
   description: string,
 ): Command {
-  return program.command(name).alias(plural).description(description).showHelpAfterError();
+  const command = program.command(name).description(description).showHelpAfterError();
+  if (plural !== undefined) command.alias(plural);
+  return command;
 }
 
 /**
@@ -70,8 +77,22 @@ export function inGroupAndTopLevel(
  * The one-letter alias for each second-level verb.
  *
  * One table rather than a letter beside each command definition, because the
- * risk here is collision and a table is where you can see it: every letter
- * below appears exactly once, and the test for that reads this map.
+ * risk here is collision and a table is where you can see it.
+ *
+ * A letter is unique WITHIN A GROUP, not across the table: `summarize` and
+ * `sync` both take `s`, and that is fine because they live under different
+ * nouns (`audio summarize`, `self sync`) and commander resolves an alias
+ * against one parent's children. This comment used to claim every letter
+ * appeared exactly once, which the table below already contradicted -- and
+ * the test only checked two of the four groups, so nothing would have caught
+ * a real collision inside `self` or `template`. It checks all of them now.
+ *
+ * `mcp` gets NO letters, and that is deliberate rather than an oversight:
+ * its verbs are `install`, `uninstall` and `update`, and `uninstall` and
+ * `update` both want `u`. A set that cannot be made unique and complete is
+ * better left off entirely than half-assigned, so `program.ts` does not call
+ * `attachLetters` for that group. Widening the collision test is what made
+ * this asymmetry visible; it had never been written down.
  *
  * The same verb gets the same letter in every group -- `l` lists, `v` views,
  * `r` removes -- so the letters are worth learning once instead of per noun.
@@ -91,6 +112,9 @@ const LETTER: Record<string, string> = {
   // `f` for find: `s` is summarize, and search is the verb people reach for
   // most often after `ls`.
   search: 'f',
+  check: 'c',
+  update: 'u',
+  sync: 's',
 };
 
 /** Every letter this build assigns, for the collision test to read. */

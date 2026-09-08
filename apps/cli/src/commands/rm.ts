@@ -43,7 +43,7 @@ export function registerRm(program: Command, context: CliContext): void {
         // ids must not leave the first two gone, and there is no undo.
         const recordings = await resolveRecordings(context.store, ids);
 
-        for (const line of describeDeletion(recordings)) context.write(line);
+        for (const line of describeDeletion(recordings)) context.ui.content(line);
 
         // Reuses setup's guard rather than writing a second one: same
         // question (may this run change things without being asked?), same
@@ -59,7 +59,7 @@ export function registerRm(program: Command, context: CliContext): void {
           consentFlag: '--force',
         });
         if (!consented) {
-          context.write('Nothing was deleted.');
+          context.ui.warn('Nothing was deleted.');
           return;
         }
 

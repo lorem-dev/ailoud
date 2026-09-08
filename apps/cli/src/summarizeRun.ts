@@ -1,5 +1,12 @@
 import { FailureError, buildSummaryRequest } from '@ailoud/core';
-import type { Recording, Summarizer, Summary, SummarySource, SummaryTemplate } from '@ailoud/core';
+import type {
+  Recording,
+  ResourceBudget,
+  Summarizer,
+  Summary,
+  SummarySource,
+  SummaryTemplate,
+} from '@ailoud/core';
 import type { CliContext } from './wiring.js';
 
 /**
@@ -26,6 +33,8 @@ export interface SummaryRun {
   readonly fresh?: boolean;
   /** Store the result. Default true. */
   readonly save?: boolean;
+  /** How much of this machine the summarizer may use. Absent means the engine's own default. */
+  readonly budget?: ResourceBudget;
 }
 
 export interface SummaryRunResult {
@@ -101,7 +110,7 @@ export async function runSummary(
   run: SummaryRun,
   hooks: SummaryHooks = {},
 ): Promise<SummaryRunResult> {
-  const summarizer = context.createSummarizer();
+  const summarizer = context.createSummarizer(run.budget);
 
   // Stored summaries stand in for transcripts only when there are several
   // recordings, which is where they pay: ten meetings from ten stored

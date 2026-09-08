@@ -1,5 +1,35 @@
 # Recordings
 
+## Flags
+
+Where a flag means different things to different verbs, it gets a row each.
+
+| Flag                     | Verb                  | Does                                                                                               |
+| ------------------------ | --------------------- | -------------------------------------------------------------------------------------------------- |
+| `--tag <tag>`            | import                | tag the imported recordings; repeatable                                                            |
+| `--tag <tag>`            | transcribe            | group these recordings under a tag; repeatable                                                     |
+| `--tag <tag>`            | annotate              | group this recording under a tag; repeatable                                                       |
+| `--tag <tag>`            | ls                    | only recordings carrying this tag; repeatable                                                      |
+| `--title <text>`         | import, annotate      | the recording's title                                                                              |
+| `--notes <text>`         | import, annotate      | free-form context about the recording                                                              |
+| `--lang <codes>`         | transcribe            | spoken language, several comma-separated, or `auto`. Naming two or more turns on multilingual mode |
+| `--multilingual`         | transcribe            | segment by speech and language, transcribing each run separately                                   |
+| `--model <name>`         | transcribe            | override the configured model                                                                      |
+| `--diarize`              | transcribe            | attribute segments to speakers                                                                     |
+| `--speakers <n>`         | transcribe            | known number of speakers, to help the diarizer                                                     |
+| `--speakers`             | show                  | list who spoke, instead of the transcript -- takes no value                                        |
+| `--speaker <label=name>` | annotate              | a real name for one diarizer label; repeatable                                                     |
+| `--speaker <who>`        | show                  | only this speaker, by label or by the name you gave them                                           |
+| `--transcript <id>`      | show                  | a specific transcript instead of the newest; a prefix will do                                      |
+| `--format <format>`      | show                  | `text`, `json`, `srt`, `vtt` (default `text`)                                                      |
+| `--json`                 | ls                    | print one JSON array of rows instead of a table                                                    |
+| `--force`                | transcribe            | re-transcribe recordings that already have a transcript                                            |
+| `--force`                | rm                    | delete without asking                                                                              |
+| `--max-cpu <percent>`    | transcribe, summarize | share of this machine to use, 1 to 100                                                             |
+| `--no-gpu`               | transcribe            | do not use the GPU, even where a binary supports it                                                |
+| `--denoise <mode>`       | transcribe            | `auto`, `on` or `off`                                                                              |
+| `--detach`               | transcribe            | start the work in the background and print its job id                                              |
+
 ## Import
 
 ```
@@ -13,8 +43,9 @@ subdirectories.
 The file you point at is never moved or changed. AILoud keeps its own copy.
 
 !!! tip "Always pass `--tag`"
-Tags are how you find a recording later by context. The easiest moment to
-add one is now, while you know what the file is. See [Tags](#tags).
+
+    Tags are how you find a recording later by context. The easiest moment to
+    add one is now, while you know what the file is. See [Tags](#tags).
 
 ## Transcribe
 
@@ -65,6 +96,45 @@ ailoud audio annotate ID001 --speaker speaker_00=Ann --speaker speaker_01=Ben
 
 Names survive `--force`, so re-transcribing does not lose them.
 
+### Run in the background
+
+`--detach` starts the work and prints a job id instead of waiting:
+
+```
+ailoud audio transcribe 01M1YDT42V1RMRB80EXHK4R5EQ --lang ru,en --detach
+```
+
+```
+ok  started job 01M1YDT6XENN575E031PE32AKS -- progress in /private/tmp/ailoud-docs-demo/.ailoud/jobs/01M1YDT6XENN575E031PE32AKS.json
+```
+
+```
+ailoud job ls
+```
+
+```
+01M1YDT6XENN575E031PE32AKS  transcribe  running   56%  detecting
+```
+
+```
+ailoud job show 01M1YDT6XENN575E031PE32AKS
+```
+
+```
+Job 01M1YDT6XENN575E031PE32AKS -- transcribe, done
+Progress: 100% (transcribing)
+Recordings: 1/1
+Started: 2026-09-07T17:14:20.462Z
+Finished: 2026-09-07T17:14:39.096Z
+Declared: unknown speakers, languages ru, en
+Result: {"transcribed":[{"recordingId":"01M1YDT42V1RMRB80EXHK4R5EQ","transcriptId":"01M1YDTS3NX10EKBGHVPMSR2Z8","language":"en","segments":12}]}
+Log: /private/tmp/ailoud-docs-demo/.ailoud/jobs/01M1YDT6XENN575E031PE32AKS.log
+```
+
+`audio summarize --detach` works the same way. `job rm <id>` forgets a
+finished job; it refuses one still running. Letters: `job l`, `job v`,
+`job r`; `jobs` is the plural.
+
 ## Read
 
 ```
@@ -85,8 +155,6 @@ ailoud audio annotate ID001 --tag release --tag backend
 ailoud audio ls --tag release
 ailoud audio ls --tag release --tag backend   # both, not either
 ```
-
-Several tags narrow. A recording must carry all of them.
 
 ## Titles and notes
 

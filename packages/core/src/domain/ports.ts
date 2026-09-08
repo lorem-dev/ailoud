@@ -7,6 +7,8 @@ import type {
   Summary,
   Transcript,
 } from './model.js';
+import type { PublishedVersion } from './version.js';
+import type { DenoiseMode } from '../audio/noise.js';
 
 export interface Clock {
   nowIso(): string;
@@ -61,6 +63,31 @@ export interface Fs {
   writeTextFile(path: string, content: string): Promise<void>;
   /** Reads text. Rejects when the file is not there -- callers check `exists` first. */
   readTextFile(path: string): Promise<string>;
+  /**
+   * Renames within one filesystem, replacing the target. Atomic, which is why
+   * it exists: callers write a temporary file beside the real one and rename it
+   * over the top, so a reader never sees half a file.
+   */
+  rename(from: string, to: string): Promise<void>;
+}
+
+/**
+ * What a noise measurement of one file found.
+ *
+ * Both fields nullable, both nulls meaning the same thing: no usable number.
+ * `noiseFloorDb` is null when ffmpeg reported `-inf`, which is what audio
+ * with no measurable noise produces -- five of this project's eight fixtures.
+ */
+export interface NoiseProfile {
+  readonly noiseFloorDb: number | null;
+  readonly rmsDb: number | null;
+}
+
+/** What `toWav16kMono` did, beyond converting. */
+export interface WavPrepared {
+  /** True when the denoising chain was applied to `output`. */
+  readonly denoised: boolean;
+  readonly profile: NoiseProfile;
 }
 
 export interface AudioTool {
@@ -72,7 +99,26 @@ export interface AudioTool {
    * splitting it would double the cost of importing every file.
    */
   probe(path: string): Promise<{ durationMs: number; recordedAt: string | null }>;
-  toWav16kMono(input: string, output: string): Promise<void>;
+  /**
+   * Converts to the 16 kHz mono wav every engine here is fed, and -- when
+   * asked to -- measures the result and denoises it in place.
+   *
+   * The measurement and the filtering live behind this one call rather than
+   * beside it, on purpose. This method has exactly two production call sites,
+   * both in the transcribe pipeline, and separate port methods would have put
+   * a second temp file and a second nested try/finally into both the
+   * single-pass and the multilingual path. That is the most fragile code in
+   * the project, and a feature five of eight fixtures never even trigger does
+   * not get to restructure it.
+   *
+   * Omitting `opts` means no measurement and no filtering, which is what
+   * every caller predating this option already expects.
+   */
+  toWav16kMono(
+    input: string,
+    output: string,
+    opts?: { readonly denoise?: DenoiseMode },
+  ): Promise<WavPrepared>;
   /**
    * Writes the audio between `startMs` and `endMs` to `output`. This is the
    * audio-splitting work M1 deferred, in the shape the multilingual path
@@ -92,7 +138,20 @@ export interface TranscriptionProvider {
   };
   transcribe(
     audioPath: string,
-    opts: { readonly language?: string; readonly model?: string },
+    opts: {
+      readonly language?: string;
+      readonly model?: string;
+      /**
+       * Called with how far along this one call is, 0..1, when the provider
+       * can tell. Optional on both sides: a provider that cannot report
+       * progress simply never calls it, and a caller that does not care
+       * omits it.
+       *
+       * A provider must not let this throw into its own work. See the
+       * enrichment rule in pipelines/transcribe.ts.
+       */
+      readonly onProgress?: (fraction: number) => void;
+    },
   ): Promise<{ language: string; model: string; segments: RawSegment[] }>;
   /**
    * Detects the language spoken in `audioPath` without transcribing it.
@@ -303,4 +362,21 @@ export interface ManagedRecordingStore extends RecordingStore {
   schemaVersion(): number;
   /** SQLite's own `PRAGMA integrity_check` result; "ok" means the database is healthy. */
   integrityCheck(): string;
+}
+
+/**
+ * What versions of a package exist. Implemented over the npm registry in
+ * packages/providers; a port because packages/core reaches no network.
+ */
+export interface VersionSource {
+  /**
+   * `signal` exists so ONE implementation can serve both callers. Without it,
+   * the background update check could not abandon a request promptly and so
+   * grew a second HTTP client of its own -- which then drifted, missing a
+   * guard the first one had. Measured on Node 24: aborting a `fetch` leaves
+   * the process alive for about 10.5 SECONDS, while `https.request`'s native
+   * `signal` releases it in about 60ms. That measurement is why the provider
+   * uses `https.request`, and why this parameter is not optional cosmetics.
+   */
+  published(packageName: string, signal?: AbortSignal): Promise<readonly PublishedVersion[]>;
 }

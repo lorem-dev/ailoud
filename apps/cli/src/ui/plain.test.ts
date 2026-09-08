@@ -77,6 +77,14 @@ describe('PlainUi', () => {
     expect(lines).toEqual([]);
   });
 
+  it('stays silent while transcribing, whatever progress is reported', async () => {
+    const { ui: sink, lines } = ui();
+    await sink.transcribing(RECORDING, async (report) => {
+      report('transcribing', 0.46);
+    });
+    expect(lines).toEqual([]);
+  });
+
   it('reports a transcribed recording exactly like the old context.out line', () => {
     const { ui: sink, lines } = ui();
     sink.transcribed(RECORDING, TRANSCRIPT, 1, []);

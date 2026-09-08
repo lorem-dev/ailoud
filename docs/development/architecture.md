@@ -40,6 +40,13 @@ the domain, the ports, and pure logic.
 
 Swapping an engine means writing one adapter. Nothing in `core` changes.
 
+Resource limits are computed once per command in `apps/cli/src/wiring.ts` and
+handed to each engine adapter. The arithmetic is a pure function in
+`packages/core/src/resources/budget.ts`, so core keeps doing no I/O; reading
+the CPU topology is a provider. Engines do not all get the same number:
+speaker diarization is measurably slower past a lower thread count than
+whisper, so it gets a capped share of the same ceiling.
+
 ## Database
 
 SQLite through `node:sqlite`, with `PRAGMA foreign_keys = ON`.
@@ -59,16 +66,16 @@ only ever move forward.
 
 ## The summary prompt
 
-The prompt is measured, not guessed. `scripts/eval-summary-prompt.mjs` runs
-variants three times each over seven transcripts -- English, Russian,
-code-switched, long, multi-recording, undiarized, and a language override --
-across haiku, sonnet and opus, scoring each run for stated facts, invented
-ones, language and length.
-
 ```
 node scripts/eval-summary-prompt.mjs --runs 3
 node scripts/eval-summary-prompt.mjs --models haiku --cases one-on-one
 ```
+
+The prompt is measured, not guessed. Each variant runs three times over eight
+transcripts -- English, Russian, code-switched, long, multi-recording,
+one-on-one, undiarized, and a language override -- across haiku, sonnet and
+opus. Every run
+is scored for stated facts, invented facts, language and length.
 
 Change the prompt or a template's headings, then re-run it. The previous
 measurement does not carry over.

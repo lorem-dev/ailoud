@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { DEFAULT_TEMPLATE, transcribeRecording } from '@ailoud/core';
+import { DEFAULT_TEMPLATE, guessLanguages } from '@ailoud/core';
 import type { CliContext } from '../wiring.js';
 import { resolveRecording, resolveRecordings } from '../resolveId.js';
 import { parseTags } from '../tags.js';
@@ -12,13 +12,133 @@ import {
   templatesDir,
   validateTemplateName,
 } from '../templateStore.js';
-import { runSummary } from '../summarizeRun.js';
+import { JobLog } from '../jobs/log.js';
+import { JobReporter } from '../jobs/reporter.js';
+import { createJob } from '../jobs/store.js';
+import { jobBusyMessage, jobLockHolder } from '../jobs/lock.js';
+import { spawnDetachedJob } from '../jobs/spawn.js';
 import type { McpDeps } from './deps.js';
 import { fail, ok } from './reply.js';
 
 const ID = z
   .string()
   .describe('A recording id, or any unambiguous prefix of at least two characters.');
+
+/**
+ * Mirrors parseLanguages's guarantees (apps/cli/src/commands/transcribe.ts) on
+ * the array shape this tool receives, given a non-empty `languages`.
+ *
+ * This is not cosmetic parity: the result reaches resolveDeclaredLanguages
+ * (@ailoud/core) exactly the way the CLI's does, and that function does not
+ * reject a code it cannot use. When no detected span falls inside the
+ * declared set, its fallback branch stamps declared[0] onto every span,
+ * silently writing whatever was passed as though it were a real language
+ * code. "auto" mixed with a real code guarantees that fallback fires --
+ * whisper never detects a span as "auto" -- but a mis-typed code, a
+ * duplicate, or a case mismatch against the lower-case codes providers
+ * return can trigger the exact same corruption. All are refused here, before
+ * any recording is resolved, for the same reason the CLI validates before
+ * starting: the alternative is an hour of transcription whose segments carry
+ * a language that was never real.
+ *
+ * Lower-cases before comparing, same as parseLanguages, so `["RU"]` is
+ * treated as `["ru"]` rather than silently missing every detected span whose
+ * language a provider reports in lower case.
+ *
+ * Returns the normalised list to declare (empty for a lone "auto"), or a
+ * refusal reason to hand to `fail`.
+ */
+function validateLanguages(
+  languages: readonly string[],
+): { readonly declared: readonly string[] } | { readonly refusal: Record<string, string> } {
+  const lowered = languages.map((code) => code.toLowerCase());
+  if (lowered.length > 1 && lowered.includes('auto')) {
+    return {
+      refusal: {
+        error: `"auto" cannot be mixed with a real language, got [${languages.join(', ')}]`,
+        why:
+          '"auto" means detect everything, so naming a language alongside it says two ' +
+          'contradictory things',
+      },
+    };
+  }
+  if (lowered.length === 1 && lowered[0] === 'auto') return { declared: [] };
+  for (const code of lowered) {
+    if (!/^[a-z]{2,3}$/.test(code)) {
+      return {
+        refusal: {
+          error: `"${code}" is not a two- or three-letter language code, in [${languages.join(', ')}]`,
+        },
+      };
+    }
+  }
+  const duplicate = lowered.find((code, index) => lowered.indexOf(code) !== index);
+  if (duplicate !== undefined) {
+    return { refusal: { error: `"${duplicate}" is listed twice, in [${languages.join(', ')}]` } };
+  }
+  return { declared: lowered };
+}
+
+/**
+ * Builds the detached child's argv for `transcribe`, explicitly from this
+ * tool's own validated inputs -- never from `process.argv`. Under the MCP
+ * server that argv is `mcp`, not `transcribe`, so there would be nothing to
+ * filter anyway; see `spawn.ts`'s `buildDetachedArgs` for the rest of the
+ * assembly (the entry path and `--job`).
+ *
+ * A sibling of `transcribeChildArgs` in `../commands/transcribe.ts` rather
+ * than a reuse of it: that one's `TranscribeOptions` speaks the CLI's own
+ * shapes -- one comma-joined `--lang` string, a numeric `--speakers` string
+ * with no "unknown" -- and adapting this tool's already-validated array and
+ * `number | 'unknown'` inputs to that shape would be more indirection than
+ * the function below.
+ */
+function transcribeChildArgs(
+  recordingIds: readonly string[],
+  input: {
+    readonly declared: readonly string[];
+    readonly speakers: number | 'unknown';
+    readonly diarize: boolean | undefined;
+    readonly tags: readonly string[];
+  },
+): string[] {
+  const args: string[] = ['transcribe', ...recordingIds];
+  args.push('--lang', input.declared.length === 0 ? 'auto' : input.declared.join(','));
+  if (input.diarize === true) args.push('--diarize');
+  // Same guard the inline pipeline used to apply: --speakers only informs
+  // the diarizer, and only when a real count was declared.
+  if (input.diarize === true && typeof input.speakers === 'number') {
+    args.push('--speakers', String(input.speakers));
+  }
+  for (const tag of input.tags) args.push('--tag', tag);
+  return args;
+}
+
+/**
+ * Builds the detached child's argv for `summarize`. See
+ * `transcribeChildArgs` above for why this duplicates, rather than reuses,
+ * `summarizeChildArgs` in `../commands/summarize.ts`: that one also handles
+ * `--no-save`, which this tool has no equivalent input for, and takes the
+ * CLI's raw option shapes rather than this tool's already-parsed ones.
+ */
+function summarizeChildArgs(
+  recordingIds: readonly string[],
+  input: {
+    readonly tags: readonly string[];
+    readonly template: string | undefined;
+    readonly context: string | undefined;
+    readonly language: string | undefined;
+    readonly fresh: boolean | undefined;
+  },
+): string[] {
+  const args: string[] = ['summarize', ...recordingIds];
+  for (const tag of input.tags) args.push('--tag', tag);
+  if (input.language !== undefined) args.push('--lang', input.language);
+  if (input.fresh === true) args.push('--fresh');
+  if (input.template !== undefined) args.push('--template', input.template);
+  if (input.context !== undefined) args.push('--context', input.context);
+  return args;
+}
 
 export function registerWriteTools(server: McpServer, context: CliContext, _deps: McpDeps): void {
   server.registerTool(
@@ -141,10 +261,14 @@ export function registerWriteTools(server: McpServer, context: CliContext, _deps
       description:
         'Turns recordings into transcripts with the locally configured speech-to-text engine.\n\n' +
         'COSTS MINUTES OF CPU per recording -- roughly a tenth of the audio duration on a fast ' +
-        "machine, more on a slow one. A long recording may outlast your client's tool timeout; " +
-        'if that happens, the work is not lost, and calling again picks up what has no ' +
-        'transcript yet.\n\n' +
-        'Name the recordings. There is no default selection, deliberately.',
+        'machine, more on a slow one. RUNS IN THE BACKGROUND: this call returns at once with a ' +
+        'job id, and the work continues after it returns. Poll job_status with that id rather ' +
+        'than waiting on this call -- a few minutes between polls is usually enough, since ' +
+        'polling does not make the work go faster.\n\n' +
+        'Name the recordings. There is no default selection, deliberately.\n\n' +
+        'REFUSES until speakers and languages are both given. Whisper cannot be restricted to a ' +
+        'set of languages unless told what to expect, so the first call without them comes back ' +
+        'with a guess and instructions to ask the user, instead of running.',
       inputSchema: {
         recordingIds: z.array(ID).min(1).describe('Recordings to transcribe. Prefixes accepted.'),
         languages: z
@@ -153,7 +277,17 @@ export function registerWriteTools(server: McpServer, context: CliContext, _deps
           .describe(
             'Expected languages, e.g. ["ru","en"]. Giving more than one turns on per-segment ' +
               'detection and confines it to that set, which is far more reliable than letting ' +
-              'it guess freely.',
+              'it guess freely.\n\n' +
+              "ASK THE USER, and offer your own reading of the recording's name as a starting " +
+              'point. Pass ["auto"] only when they do not know.',
+          ),
+        speakers: z
+          .union([z.number().int().positive(), z.literal('unknown')])
+          .optional()
+          .describe(
+            'How many people speak on this recording. ASK THE USER -- do not guess. Pass ' +
+              '"unknown" if they genuinely do not know; that is recorded, and is better than a ' +
+              'number nobody believes.',
           ),
         diarize: z
           .boolean()
@@ -162,46 +296,91 @@ export function registerWriteTools(server: McpServer, context: CliContext, _deps
         tags: z.array(z.string()).optional().describe('Tags to add while you are here.'),
       },
     },
-    async ({ recordingIds, languages, diarize, tags }) => {
-      const warnings: string[] = [];
-      const recordings = await resolveRecordings(context.store, recordingIds);
-      const parsed = parseTags(tags ?? []);
-      const declared = languages ?? [];
-      const multilingual = declared.length > 1;
-      const done = [];
-      for (const recording of recordings) {
-        const transcript = await transcribeRecording(
-          {
-            fs: context.fs,
-            store: context.store,
-            audio: context.audio,
-            stt: context.createStt(),
-            clock: context.clock,
-            ids: context.ids,
-            mediaRoot: context.paths.mediaRoot,
-            // Warnings reach the caller in the result rather than a terminal:
-            // there is no terminal here, and a diarizer that failed silently
-            // would leave an agent believing it has speakers.
-            onWarning: (message) => warnings.push(message),
-            ...(multilingual ? { segmenter: context.createSegmenter() } : {}),
-            ...(diarize === true ? { diarizer: context.createDiarizer() } : {}),
-          },
-          recording,
-          {
-            ...(!multilingual && declared.length === 1 ? { language: declared[0] } : {}),
-            ...(multilingual ? { multilingual: true, declaredLanguages: declared } : {}),
-            ...(diarize === true ? { diarize: true } : {}),
-          },
-        );
-        if (parsed.length > 0) await context.store.addTags(recording.id, parsed);
-        done.push({
-          recordingId: recording.id,
-          transcriptId: transcript.id,
-          language: transcript.language,
-          segments: (await context.store.listSegments(transcript.id)).length,
+    async ({ recordingIds, languages, speakers, diarize, tags }) => {
+      // Refused rather than defaulted, and refused BEFORE the work starts.
+      // Declared languages are the difference between a Russian stretch
+      // transcribed as Russian and the same stretch reported as Polish and
+      // returned as phonetic nonsense -- see TranscribeOptions.declaredLanguages
+      // in @ailoud/core. A default would silently pick the worse outcome for
+      // every caller who never read the rules.
+      if (speakers === undefined || languages === undefined || languages.length === 0) {
+        const first = await resolveRecording(context.store, recordingIds[0]!);
+        const guess = guessLanguages({
+          sourcePath: first.sourcePath,
+          title: first.title,
+          tags: await context.store.listTags(first.id),
+        });
+        return fail({
+          error: 'transcribe needs the speaker count and the expected languages',
+          why:
+            'declared languages stop whisper reporting Polish for a Russian stretch, which then ' +
+            'comes back as phonetic nonsense; a known speaker count is more reliable than ' +
+            'letting the diarizer infer one',
+          guess,
+          ask:
+            'Ask the user how many people speak on this recording and in which languages. Offer ' +
+            'the guess above, plus your own reading of the name, and let them correct it. Ask ' +
+            'per recording when the recordings differ.',
+          then: 'call transcribe again with speakers and languages',
         });
       }
-      return ok({ transcribed: done, ...(warnings.length === 0 ? {} : { warnings }) });
+
+      const validated = validateLanguages(languages);
+      if ('refusal' in validated) return fail(validated.refusal);
+      const declared = validated.declared;
+
+      // Resolved before the lock check, same order the CLI's --detach uses:
+      // an unknown or ambiguous id should cost a refusal, not a job id for a
+      // job about to fail on it.
+      const recordings = await resolveRecordings(context.store, recordingIds);
+      const tagList = parseTags(tags ?? []);
+
+      // Synchronous refusal: handing back an id for a job about to die
+      // against the lock is a worse answer than a plain refusal. Advisory,
+      // like every other read of this lock -- the answer can be stale --
+      // but refusing up front on it is still better than not checking.
+      const holder = await jobLockHolder(context.paths.dataDir);
+      if (holder !== null) return fail({ error: jobBusyMessage(holder) });
+
+      const job = await createJob(
+        { fs: context.fs, ids: context.ids, clock: context.clock, jobsDir: context.paths.jobsDir },
+        {
+          kind: 'transcribe',
+          recordings: recordings.length,
+          // The caller's literal declaration, not `declared` (validateLanguages's
+          // normalised set, which is what reaches the pipeline via
+          // transcribeChildArgs below). ["auto"] means "the user does not
+          // know"; an absent `languages` is refused before this point and
+          // never reaches here at all -- so unlike the CLI's --lang, there is
+          // no "nothing declared" case to preserve, only this one.
+          declared: { speakers, languages },
+        },
+      );
+
+      try {
+        await spawnDetachedJob(
+          { fs: context.fs, jobsDir: context.paths.jobsDir },
+          transcribeChildArgs(recordingIds, { declared, speakers, diarize, tags: tagList }),
+          job,
+        );
+      } catch (error) {
+        // The id below must always resolve: if the child never started, the
+        // job file must say so rather than "running" forever.
+        const message = error instanceof Error ? error.message : String(error);
+        await new JobReporter({
+          fs: context.fs,
+          jobsDir: context.paths.jobsDir,
+          initial: job,
+          log: new JobLog(job.log),
+        }).fail(message);
+        return fail({ jobId: job.id, error: `failed to start the job: ${message}` });
+      }
+
+      return ok({
+        jobId: job.id,
+        kind: job.kind,
+        poll: 'call job_status with this id; a few minutes apart is often enough',
+      });
     },
   );
 
@@ -212,8 +391,12 @@ export function registerWriteTools(server: McpServer, context: CliContext, _deps
       description:
         'Writes a summary of one or several recordings with a language model, and saves it as a ' +
         'report.\n\n' +
-        'COSTS TOKENS on a hosted model, or minutes on a local one. There is no default ' +
-        'selection: name the recordings or a tag.\n\n' +
+        'COSTS TOKENS on a hosted model, or minutes on a local one. RUNS IN THE BACKGROUND: this ' +
+        'call returns at once with a job id rather than the summary text. Poll job_status with ' +
+        'it; once its state is "done", the result carries the saved report\'s id -- read the ' +
+        'text with get_report only when you actually need it, the same trade get_transcript ' +
+        'makes with a transcript. There is no default selection: name the recordings or a ' +
+        'tag.\n\n' +
         'CALL list_templates FIRST and pass a template. The headings differ because the ' +
         'questions differ -- a one-to-one is about agreements and concerns, a design decision ' +
         'about what was rejected. The default meeting shape answers those badly.\n\n' +
@@ -288,26 +471,45 @@ export function registerWriteTools(server: McpServer, context: CliContext, _deps
         return fail({ error: `no recordings carry ${tags.join(' and ')}` });
       }
 
-      // The same pipeline the CLI runs. Written twice before this, and the
-      // copies drifted: the rule that a single recording is never summarised
-      // from its own stored summary was fixed in the command and had to be
-      // remembered separately here.
-      const result = await runSummary(context, {
-        recordings,
-        template,
-        ...(args.language === undefined ? {} : { language: args.language }),
-        ...(args.context === undefined ? {} : { context: args.context }),
-        ...(args.fresh === true ? { fresh: true } : {}),
-      });
+      // Synchronous refusal: handing back an id for a job about to die
+      // against the lock is a worse answer than a plain refusal.
+      const holder = await jobLockHolder(context.paths.dataDir);
+      if (holder !== null) return fail({ error: jobBusyMessage(holder) });
+
+      const job = await createJob(
+        { fs: context.fs, ids: context.ids, clock: context.clock, jobsDir: context.paths.jobsDir },
+        { kind: 'summarize', recordings: recordings.length, declared: null },
+      );
+
+      try {
+        await spawnDetachedJob(
+          { fs: context.fs, jobsDir: context.paths.jobsDir },
+          summarizeChildArgs(ids, {
+            tags,
+            template: args.template,
+            context: args.context,
+            language: args.language,
+            fresh: args.fresh,
+          }),
+          job,
+        );
+      } catch (error) {
+        // The id below must always resolve: if the child never started, the
+        // job file must say so rather than "running" forever.
+        const message = error instanceof Error ? error.message : String(error);
+        await new JobReporter({
+          fs: context.fs,
+          jobsDir: context.paths.jobsDir,
+          initial: job,
+          log: new JobLog(job.log),
+        }).fail(message);
+        return fail({ jobId: job.id, error: `failed to start the job: ${message}` });
+      }
 
       return ok({
-        reportId: result.reportId,
-        template: template.name,
-        model: `${result.provider} ${result.model}`,
-        recordingIds: recordings.map((recording) => recording.id),
-        portions: result.portions,
-        reusedStoredReports: result.reused,
-        summary: result.body,
+        jobId: job.id,
+        kind: job.kind,
+        poll: 'call job_status with this id; a few minutes apart is often enough',
       });
     },
   );

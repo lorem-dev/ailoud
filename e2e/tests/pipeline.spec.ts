@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Sandbox } from '../src/cli';
 import { makeSandbox } from '../src/cli';
+import { installedVadModel, installedWhisperModel } from '../src/models';
 import { wordErrorRate } from '../src/wer';
 
 const REPO_ROOT = join(__dirname, '..', '..');
@@ -40,15 +41,17 @@ const GIT_STATUS_TIMEOUT_MS = 10_000;
  * fixture model -- whisper.cpp models are hundreds of megabytes -- so this
  * points at the same manual-install location the maintainer's own
  * `~/.config/ailoud/config.yaml` uses: a `models/` directory under the real,
- * unsandboxed XDG data dir. `process.env.HOME` here is deliberately the
- * *outer* test-runner process's HOME, not a sandbox's -- `makeSandbox()`
- * only overrides the child process's environment, never this file's own.
+ * unsandboxed XDG data dir. WHICH model is not named here; see
+ * `installedWhisperModel`, which asks that directory what `setup` left.
+ * `process.env.HOME` here is deliberately the *outer* test-runner process's
+ * HOME, not a sandbox's -- `makeSandbox()` only overrides the child
+ * process's environment, never this file's own.
  * `VAD_MODEL` is only needed by the `--multilingual` specs; the others
  * configure `WHISPER_MODEL` alone.
  */
 const REAL_HOME = process.env['HOME'] ?? '';
-const WHISPER_MODEL = join(REAL_HOME, '.local', 'share', 'ailoud', 'models', 'ggml-small.bin');
-const VAD_MODEL = join(REAL_HOME, '.local', 'share', 'ailoud', 'models', 'ggml-silero-v5.1.2.bin');
+const WHISPER_MODEL = installedWhisperModel(REAL_HOME);
+const VAD_MODEL = installedVadModel(REAL_HOME);
 
 /** A distinctive word from the English clause of fixtures/mixed-short.txt. */
 const MIXED_EN_WORD = 'tomorrow';
@@ -274,6 +277,13 @@ describe('ailoud end-to-end', () => {
     // intact and leaves the phonetic drifters out rather than baking today's
     // misspellings in as expectations -- that would turn a guard into a
     // snapshot of a model version.
+    // Two of these are stems, and the transcript has its hyphens removed
+    // before matching, because the comment above means what it says and the
+    // list had quietly become a snapshot of `small`'s spellings. The current
+    // default writes "тайм-аут" -- the dictionary form -- and "деплай", one
+    // vowel off. Neither is the word being replaced by an unrelated one,
+    // which is the only thing this guard is for. A stem still fails on a
+    // replacement: nothing unrelated to deployment starts with "депл".
     const LOANWORDS = [
       'дедлайн',
       'релиз',
@@ -281,7 +291,7 @@ describe('ailoud end-to-end', () => {
       'реквест',
       'митинг',
       'юзер',
-      'деплой',
+      'депл',
       'лог',
       'таймаут',
       'рефакторинг',
@@ -297,7 +307,7 @@ describe('ailoud end-to-end', () => {
 
     const shown = await sandbox.run(['show', id, '--format', 'json']);
     expect(shown.code).toBe(0);
-    const transcript = transcriptTextFromShowJson(shown.stdout).toLowerCase();
+    const transcript = transcriptTextFromShowJson(shown.stdout).toLowerCase().replace(/-/g, '');
 
     const missing = LOANWORDS.filter((word) => !transcript.includes(word));
     if (missing.length > 0) {

@@ -6,10 +6,17 @@ through a large language model. Speech-to-text and the LLM are separate engine
 layers behind stable ports. There is no GUI; the CLI is the only front end, and
 the interface is English-only.
 
+**Never commit a design spec or an implementation plan.** They belong in
+`.superpowers/`, which is git-ignored -- never in `.agents/`, never in
+`docs/`, never in a commit. See "Specs and Plans" in AGENTS.md. This is
+stated here because it is the rule most easily missed by reading only the
+top of that file.
+
 **Must read before touching code:**
 
 - [AGENTS.md](./AGENTS.md) -- project overview, workspace layout, the
   dependency direction, running the gate, conventions, and local skills.
+  Read it in full, not just the opening sections.
 - [CONTRIBUTING.md](./CONTRIBUTING.md) -- commit rules, dependency license
   policy, GPG signing.
 

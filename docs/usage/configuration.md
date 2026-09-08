@@ -12,11 +12,18 @@
 ## A full config file
 
 ```yaml
+resources:
+  maxCpuPercent: 90
+  gpu: true
+
+audio:
+  denoise: off
+
 stt:
   provider: whisper-cpp
   whisperCpp:
     binary: whisper-cli
-    model: ~/.local/share/ailoud/models/ggml-small.bin
+    model: ~/.local/share/ailoud/models/ggml-large-v3-turbo-q5_0.bin
     vadBinary: whisper-vad-speech-segments
     vadModel: ~/.local/share/ailoud/models/ggml-silero-v5.1.2.bin
   diarization:
@@ -33,6 +40,104 @@ llm:
     model: sonnet
     contextTokens: 200000
 ```
+
+| Key                       | Default | Means                                                                                             |
+| ------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `resources.maxCpuPercent` | `90`    | Share of the machine's fast cores an engine may use, 1 to 100.                                    |
+| `resources.gpu`           | `true`  | Use the GPU where a binary supports it.                                                           |
+| `audio.denoise`           | `off`   | `on` cleans the audio before transcription, `auto` cleans only what measures as noisy. See below. |
+| `stt.diarization.threads` | `null`  | Follow `maxCpuPercent`. A number overrides it.                                                    |
+| `llm.llamaCpp.threads`    | `null`  | Follow `maxCpuPercent`. A number overrides it.                                                    |
+
+### Acceleration
+
+`ailoud doctor` reports which backends each engine loaded:
+
+```
+GPU build (BLAS, MTL, CPU): transcription is already fast, and threads mainly affect speaker diarization. Raise resources.maxCpuPercent only if diarization is slow.
+ok    cpu                            10 logical, 8 performance -> 7 threads, 6 for segmentation and diarization, at 90%
+ok    whisper backends               BLAS, MTL, CPU
+n/a   neural engine                  not available: whisper.cpp reaches the Neural Engine only when built with CoreML support and given a converted model, which the packaged build is not
+```
+
+whisper.cpp and llama.cpp use Metal or CUDA automatically when their build
+supports it, so there is no flag to turn that on.
+
+What actually changes the speed, measured on 40 seconds of audio with the
+`small` model:
+
+| Threads | GPU build | CPU-only build |
+| ------- | --------- | -------------- |
+| 1       | 2.6 s     | 77.0 s         |
+| 4       | 2.1 s     | 21.0 s         |
+| 8       | 1.9 s     | 19.6 s         |
+
+- A GPU build is about ten times faster, and needs no flag.
+- On a GPU build the thread count barely matters, so one thread is fine and
+  leaves the CPU free.
+- Without a GPU, threads are worth about four times, and nearly all of that
+  by four threads.
+- Speech segmentation and speaker diarization always run on the CPU, and both
+  get a lower share than the other engines because both were measured to slow
+  down past it -- the segmenter by 39 percent at 7 threads against 6, the
+  diarizer by 25 percent.
+
+Apple's Neural Engine would move the encoder off the GPU onto the Neural
+Engine, freeing the GPU and cutting encoder time on long files. It needs
+whisper.cpp built with `WHISPER_COREML=1` and a model converted to CoreML,
+which the packaged builds do not include. See
+[whisper.cpp's CoreML instructions](https://github.com/ggml-org/whisper.cpp#core-ml-support)
+to build it yourself, then point `stt.whisperCpp.binary` at the result.
+
+### Transcription model
+
+`setup` installs `large-v3-turbo-q5_0` (574 MB). Measured on Russian speech,
+where the models differ most:
+
+| Model       | Read speech | Conversation | At 10 dB noise | rtf, GPU |
+| ----------- | ----------- | ------------ | -------------- | -------- |
+| `small`     | 7.5%        | 32.0%        | 12.6%          | 0.042    |
+| the default | 2.1%        | 23.6%        | 3.5%           | 0.070    |
+
+Word error rate, then seconds of compute per second of audio.
+
+- On a GPU the default costs about 1.7x `small`'s decode time: eight minutes
+  instead of five for a two-hour recording.
+- **Without a GPU, how much it costs depends on the machine, and the spread is
+  wide.** On an Apple Silicon laptop the two are level (0.449 against 0.451
+  seconds per second of audio at eight threads), because quantised weights
+  halve the memory traffic and bandwidth is what limits CPU decoding there. On
+  a four-core x86 CI runner the same comparison came out about five times
+  slower for the default, where the extra compute of 32 layers against 12
+  dominates instead. Measure your own machine before assuming either figure:
+  `ailoud doctor` reports what your build loaded, and `--model small` is one
+  flag away if the default is too slow for you.
+- Bigger is not better. `medium` and the f16 build of `large-v3-turbo` were
+  both dropped from what `setup` offers, because each is beaten by something
+  smaller. Both still install if you name one: `setup --model medium`.
+- `large-v3` is offered as the deliberate maximum. It is measurably better
+  than the default only on hard audio (about 2 points), was 2 points worse on
+  far-field meeting audio, and costs 3.1 GB and roughly twice the decode
+  time.
+- English is a poor guide to this choice: every model from `small` up scores
+  within about a point on clean English narration.
+
+### Denoising
+
+`audio.denoise` is `off`, and the measurements say to leave it there. Across
+six corpora, eight models and noise from clean down to 0 dB signal-to-noise,
+denoising never improved a transcript and several times made one worse -- by
+up to 24 points of word error rate on `base`, and by 4.6 points on `large-v3`.
+On far-field meeting audio, the one condition where `auto` switches itself on,
+it changed the error rate by nothing at all for the default model.
+
+whisper is already robust to steady background noise; the filter chain takes
+speech with it. On a small model it can drop whole passages and still return a
+fluent, correctly punctuated sentence, so nothing in the output says a third of
+it is missing.
+
+`--denoise on` is still there for a recording you have listened to and know
+needs it.
 
 ## Language model
 
@@ -110,7 +215,7 @@ Keys are read from the environment only. They are never written to
 `config.yaml` and never logged. A variable that is set but empty counts as
 unset.
 
-## Choosing a model
+## Choosing a language model
 
 `setup` asks the provider which models your key can use:
 
@@ -125,9 +230,10 @@ ailoud setup --llm claude-api --llm-model claude-opus-5 --yes
 ```
 
 !!! warning "Context size is not adjusted for you"
-No provider reports a model's context window, so switching to a
-small-context model needs `contextTokens` set by hand. The symptom is a
-context error from the API on a long transcript.
+
+    No provider reports a model's context window, so switching to a
+    small-context model needs `contextTokens` set by hand. The symptom is a
+    context error from the API on a long transcript.
 
 ## When doctor is unhappy
 
@@ -157,6 +263,11 @@ Three states, not two:
 `doctor` fail.
 
 Exit codes: `0` ok, `1` failure, `2` usage, `3` environment.
+
+A corrupted file passes its check -- it still exists -- so `doctor` cannot see
+the problem. `ailoud setup --force` reinstalls everything regardless of what
+the checks say, ffmpeg through every model, for exactly that case -- see the
+[CLI reference](cli.md#setup) for what it costs with a local summariser.
 
 ## Concurrency
 

@@ -40,6 +40,78 @@
 
 ## Development
 
+## Version 1.2.0
+
+### Added
+
+- `mcp install` can add `ailoud` to an agent's command allow-list, so the agent
+  runs it without asking each time. `--allow-shell` answers without a prompt.
+- `ailoud setup --force` reinstalls everything ailoud needs, even when every
+  check already passes, useful for a corrupted install.
+- `self completions` installs, uninstalls, updates and prints completions for
+  bash, zsh and fish. `setup` offers to install them after a successful run
+  (skip with `--no-completions`), and `self sync` keeps installed ones current.
+- `transcribe` and `summarize` take `--detach`, running in the background and
+  printing a job id; `job ls|show|rm` follow them. Both report an approximate
+  percentage while they run, on the spinner and in the job's state file.
+- `--max-cpu` and `resources.maxCpuPercent` cap how much of the machine each
+  engine takes; `--no-gpu` opts out (transcribe only). Segmentation and
+  diarization get a lower, measured share, and `doctor` reports the CPU split,
+  the GPU backends each binary loaded, and the thread counts derived from them.
+- `--denoise on` cleans audio before transcription, and `auto` cleans only
+  what measures as noisy. Both are off by default: benchmarked over six
+  corpora, denoising never improved a transcript and sometimes cost accuracy.
+
+### Changed
+
+- `setup` installs `large-v3-turbo-q5_0` (574 MB) instead of `small`, and no
+  longer offers `medium` or the f16 `large-v3-turbo`, each of which is beaten
+  on accuracy, size and speed by a smaller model. `large-v3` (3.1 GB) is
+  offered for a hard recording worth it. Retired models still install when
+  named, and an installed model is never replaced without being asked for.
+  Without a GPU the new default can be several times slower than `small`,
+  depending on the machine; `--model small` goes back.
+- `setup --model <name>` now switches the transcription model even on a
+  healthy machine, instead of being ignored, and prints where the previous
+  model file was left, since ailoud never deletes it.
+- New rules blocks now go to `.claude/CLAUDE.md`; blocks already in a
+  project's own rules files stay there and are all kept current.
+- The MCP `transcribe` and `summarize` tools return a job id and a `job_status`
+  tool to poll, instead of blocking until the work is done, and `transcribe`
+  refuses until the speaker count and expected languages are declared,
+  suggesting languages from the recording's name. A finished transcription
+  reports the speakers still to be named, so an agent offers to name them.
+
+### Fixed
+
+- A rules file holding a stray `AILOUD_END` marker is found again, instead of
+  gaining a duplicate block on every `mcp install` and never being refreshed.
+
+## Version 1.1.0
+
+### Added
+
+- `ailoud self update` installs a newer version, then refreshes the agent
+  rules block in every project ailoud has been used in.
+- `ailoud self check` reports whether a newer version exists without
+  installing it, and takes `--json`.
+- `ailoud self sync` refreshes the agent rules block in every registered
+  project without updating anything.
+- Other commands mention a newer version at most once a day. Turn it off with
+  `AILOUD_NO_UPDATE_CHECK=1` or `update.check: false`.
+
+### Changed
+
+- `ailoud report ls` exits 0 when there are no reports, matching `ls` on an
+  empty library and its own `--json` form.
+- Command output now stays inside the terminal frame instead of printing
+  around it.
+
+### Fixed
+
+- `ailoud mcp install` and `mcp update` no longer empty a rules file when the
+  write fails part-way, such as on a full disk.
+
 ## Version 1.0.0
 
 ### Added

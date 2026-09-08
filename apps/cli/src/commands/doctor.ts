@@ -2,7 +2,7 @@ import { access, constants, stat } from 'node:fs/promises';
 import type { Command } from 'commander';
 import { EnvironmentError, installHint, isHostedLlm } from '@ailoud/core';
 import type { Remedy } from '@ailoud/core';
-import { run } from '@ailoud/providers';
+import { cpuTopology, probeBackends, run } from '@ailoud/providers';
 import type { CliContext } from '../wiring.js';
 import type { Check } from '../ui/index.js';
 import type { AiloudConfig } from '../config.js';
@@ -44,17 +44,22 @@ export async function checkBinary(
   detailOverride?: string,
   remedy?: Remedy,
 ): Promise<Check> {
+  // `remedy` is attached on every branch below, passing included -- see
+  // `Check.remedy`'s doc comment for why, and for the one caveat: a caller
+  // whose `remedy` is a substitute rather than a repair of the exact thing
+  // this function checked (checkLanguageModel's claude-cli branch is the
+  // example) must strip it back off its own passing result.
   try {
     const result = await run(binary, args, { timeoutMs: 10_000 });
     if (result.code !== 0) {
       return { name, ok: false, detail: `exited with code ${result.code}`, fix, remedy };
     }
     if (detailOverride !== undefined) {
-      return { name, ok: true, detail: detailOverride };
+      return { name, ok: true, detail: detailOverride, remedy };
     }
     const output = result.stdout.length > 0 ? result.stdout : result.stderr;
     const firstLine = output.split('\n')[0]?.trim() ?? '';
-    return { name, ok: true, detail: firstLine };
+    return { name, ok: true, detail: firstLine, remedy };
   } catch (error) {
     return { name, ok: false, detail: summarizeRunFailure(error), fix, remedy };
   }
@@ -72,7 +77,11 @@ export async function checkModel(
   }
   try {
     await access(modelPath, constants.F_OK);
-    return { name, ok: true, detail: modelPath };
+    // Attached on the passing branch too, not only the two failing ones:
+    // `ailoud setup --model <name>` on a machine whose configured model is
+    // already present and healthy still needs this remedy, to switch models
+    // rather than doing nothing (see collectRemedies's `switchingModel`).
+    return { name, ok: true, detail: modelPath, remedy };
   } catch {
     return { name, ok: false, detail: `file not found: ${modelPath}`, fix, remedy };
   }
@@ -104,7 +113,10 @@ export async function checkVadModel(
   }
   try {
     await access(vadModelPath, constants.F_OK);
-    return { name, ok: true, detail: vadModelPath, optional: true };
+    // See checkModel's matching comment: a passing check keeps its remedy so
+    // `--force` can still act on it. (There is no `--vad-model` flag, so only
+    // `force` -- never `switchingModel` -- ever widens this one.)
+    return { name, ok: true, detail: vadModelPath, remedy, optional: true };
   } catch {
     return { name, ok: false, detail: `missing: ${vadModelPath}`, fix, remedy, optional: true };
   }
@@ -181,9 +193,12 @@ export async function checkVadBinary(
  * platform ('run "ailoud setup" (ailoud setup)'). The hint alone, exactly as
  * checkVadBinary uses it.
  *
- * NOT VERIFIED AGAINST A REAL BUILD: like the whisper-cli check above, this
- * assumes sherpa-onnx-offline-speaker-diarization exits 0 on "--help". No
- * such binary is available in this environment to confirm that.
+ * VERIFIED against a real build, the same way the whisper-cli check in
+ * runChecks below is: sherpa-onnx-offline-speaker-diarization v1.13.6 does
+ * exit 0 on "--help" (confirmed at the configured
+ * `~/.local/share/ailoud/sherpa/v1.13.6/bin/` path; the binary is not on
+ * PATH). This comment used to say no binary was available to check that;
+ * one is, and it agrees.
  *
  * `optional: true` on every branch: diarization is opt-in (`--diarize`), so
  * this binary being missing means one feature is unavailable, not that ailoud
@@ -248,7 +263,9 @@ export async function checkSegmentationModel(
   }
   try {
     await access(segmentationModelPath, constants.F_OK);
-    return { name, ok: true, detail: segmentationModelPath, optional: true };
+    // See checkModel's matching comment: a passing check keeps its remedy so
+    // `--force` can still act on it.
+    return { name, ok: true, detail: segmentationModelPath, remedy, optional: true };
   } catch {
     return {
       name,
@@ -276,7 +293,9 @@ export async function checkEmbeddingModel(
   }
   try {
     await access(embeddingModelPath, constants.F_OK);
-    return { name, ok: true, detail: embeddingModelPath, optional: true };
+    // See checkModel's matching comment: a passing check keeps its remedy so
+    // `--force` can still act on it.
+    return { name, ok: true, detail: embeddingModelPath, remedy, optional: true };
   } catch {
     return {
       name,
@@ -322,8 +341,18 @@ export async function checkLanguageModel(
     });
     return {
       ...result,
+      // `install-llm` here is a SUBSTITUTE for a missing Claude Code CLI --
+      // "install a local model instead" -- not a repair of the CLI itself,
+      // which is exactly what checkBinary's now-passing remedy would
+      // otherwise carry forward (see Check.remedy's doc comment on that
+      // distinction). Stripped back off on a passing check: `--force` must
+      // never brew-install llama.cpp for someone whose Claude Code is fine
+      // and who never asked for a local summariser.
       ...(result.ok
-        ? { detail: `${llm.claudeCli.binary} (${llm.claudeCli.model}, via subscription)` }
+        ? {
+            detail: `${llm.claudeCli.binary} (${llm.claudeCli.model}, via subscription)`,
+            remedy: undefined,
+          }
         : {}),
       optional: true,
     };
@@ -380,7 +409,16 @@ export async function checkLanguageModel(
       optional: true,
     };
   }
-  return { name, ok: true, detail: settings.model, optional: true };
+  // Remedy kept on the passing branch too, matching every other model/binary
+  // check: `--force` re-downloads this alongside everything else, the same
+  // "widest scope, no carve-outs" rule the ffmpeg/whisper checks follow.
+  return {
+    name,
+    ok: true,
+    detail: settings.model,
+    remedy: { kind: 'download-llm-model' },
+    optional: true,
+  };
 }
 
 /**
@@ -487,11 +525,10 @@ export async function runChecks(
       undefined,
       { kind: 'install-ffmpeg' },
     ),
-    // NOT VERIFIED AGAINST A REAL BUILD: this assumes whisper-cli exits 0 on
-    // "--help", the same way ffmpeg and ffprobe do on "-version". No
-    // whisper-cli binary is available in this environment to confirm that;
-    // if a real build exits non-zero for "--help" instead, this check will
-    // report a working binary as failing.
+    // VERIFIED against a real build: whisper-cli (homebrew, ggml 0.22.0)
+    // does exit 0 on "--help", the same way ffmpeg and ffprobe do on
+    // "-version". This comment used to say no binary was available to
+    // check that; one is, and it agrees.
     // Reported by the configured value, not by the command's first output
     // line: whisper-cli prints backend chatter ("load_backend: loaded BLAS
     // backend from ...") on stderr and nothing on stdout, for --help and
@@ -545,8 +582,85 @@ export async function runChecks(
     await checkConfigFile(paths.configFile),
     checkDatabase(context),
     await checkMediaRoot(paths.mediaRoot, { kind: 'create-directory', path: paths.mediaRoot }),
+    ...(await accelerationChecks(context)),
   ];
 }
+
+/**
+ * Informational, not a gate: every one of these is `optional`, carries no
+ * remedy, and reports what the machine offers rather than whether it is
+ * ready. `blocksReadiness` ignores an optional failure, so a machine with no
+ * GPU at all still passes `doctor`.
+ */
+export async function accelerationChecks(context: CliContext): Promise<Check[]> {
+  const topology = await cpuTopology();
+  const budget = await context.resources();
+  const split =
+    topology.performance === null
+      ? `${topology.logical} logical`
+      : `${topology.logical} logical, ${topology.performance} performance`;
+
+  const binary = context.config.stt.whisperCpp.binary;
+  const backends = await probeBackends(binary);
+
+  return [
+    {
+      name: 'cpu',
+      ok: true,
+      // Both numbers: they differ, and the lower one's being shared by
+      // segmentation and diarization is a measured decision rather than an
+      // accident (see budget.ts).
+      detail:
+        `${split} -> ${budget.threads} threads, ` +
+        `${budget.cappedThreads} for segmentation and diarization, at ` +
+        `${context.config.resources.maxCpuPercent}%`,
+    },
+    backends.length > 0
+      ? { name: 'whisper backends', ok: true, detail: backends.join(', ') }
+      : {
+          name: 'whisper backends',
+          ok: false,
+          optional: true,
+          detail: `could not ask ${binary} which backends it loads`,
+        },
+    {
+      name: 'neural engine',
+      ok: false,
+      optional: true,
+      detail:
+        'not available: whisper.cpp reaches the Neural Engine only when built with ' +
+        'CoreML support and given a converted model, which the packaged build is not',
+    },
+  ];
+}
+
+/**
+ * One line an outside agent can act on, chosen by what this machine actually
+ * loaded rather than printed as boilerplate.
+ *
+ * MEASURED on 40 s of audio with ggml-small.bin: 1.93 s on a Metal build at 8
+ * threads, 19.61 s with the GPU disabled at 8 threads, 76.96 s with it
+ * disabled at 1. So the build having a GPU backend is worth about ten times
+ * the thread count, and on a GPU build the thread count is worth almost
+ * nothing (2.62 s at one thread). The advice differs completely between the
+ * two cases, which is why only one of them is ever printed.
+ *
+ * Null when the whisper binary could not be asked at all: `doctor` already
+ * reports that as a failing check, and a performance hint about a build
+ * nobody could inspect would be invention.
+ */
+export function setupNote(backends: readonly string[], maxCpuPercent: number): string | null {
+  if (backends.length === 0) return null;
+  const gpu = backends.some((name) => GPU_BACKENDS.has(name));
+  return gpu
+    ? `GPU build (${backends.join(', ')}): transcription is already fast, and threads mainly ` +
+        `affect speaker diarization. Raise resources.maxCpuPercent only if diarization is slow.`
+    : `CPU-only build: transcription is about ten times slower than on a GPU build, and thread ` +
+        `count is worth about four times. resources.maxCpuPercent is ${maxCpuPercent}.`;
+}
+
+/** ggml's names for a backend that is not the CPU. `MTL` is Metal. */
+const GPU_BACKENDS = new Set(['MTL', 'CUDA', 'ROCM', 'VULKAN', 'SYCL']);
 
 export interface DoctorOptions extends SetupOptions {
   readonly fix?: boolean;
@@ -566,7 +680,10 @@ export function registerDoctor(
     .command('doctor')
     .option('--fix', 'provision anything that failed a check, using the same engine as setup')
     .option('--yes', 'confirm the fix plan without prompting')
-    .option('--model <name>', 'transcription model to download if one is needed (default: small)')
+    .option(
+      '--model <name>',
+      'transcription model to download if one is needed (default: the configured one)',
+    )
     .option('--llm <choice>', 'summariser to set up: local, claude-cli, claude-api, openai, skip')
     .option(
       '--llm-model <id>',
@@ -576,6 +693,13 @@ export function registerDoctor(
     .action(async (options: DoctorOptions) => {
       await context.ui.frame('Environment check', async () => {
         const checks = await runChecks(context, platform);
+        // probeBackends is memoised per binary, so this does not double the
+        // probe accelerationChecks (inside runChecks) already made.
+        const note = setupNote(
+          await probeBackends(context.config.stt.whisperCpp.binary),
+          context.config.resources.maxCpuPercent,
+        );
+        if (note !== null) context.ui.note(note);
         context.ui.checks(checks);
         if (options.fix !== true) {
           if (checks.some(blocksReadiness)) {

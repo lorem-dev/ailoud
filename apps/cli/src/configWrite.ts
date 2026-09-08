@@ -104,7 +104,7 @@ export function applyConfigUpdates(source: string | null, updates: ConfigUpdates
   //
   // Rewrapped for the same reason the setIn failure above is: yaml's own
   // "Document with errors cannot be stringified" names neither the file nor
-  // the problem, and this is reached after a download of up to 1.6 GB, so
+  // the problem, and this is reached after a download of up to 3.1 GB, so
   // it is the last message the user gets and has to be actionable on its own.
   //
   // `doc.errors` is what actually distinguishes the two causes: it is only

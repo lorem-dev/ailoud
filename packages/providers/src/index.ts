@@ -26,8 +26,11 @@ export type { InstallSherpaOptions } from './provision/sherpaInstall.js';
 
 export { NodeFs } from './system/nodeFs.js';
 export { SystemClock, UlidIds } from './system/systemClock.js';
+export { cpuTopology, parsePerformanceCores } from './system/cpuTopology.js';
+export { parseBackends, probeBackends } from './system/accelerator.js';
 
 export { FfmpegAudioTool } from './audio/ffmpeg.js';
+export { astatsArgs, denoiseArgs, parseNoiseProfile } from './audio/noise.js';
 
 export { WhisperCppProvider, parseWhisperJson } from './stt/whisperCpp.js';
 export type { WhisperCppOptions } from './stt/whisperCpp.js';
@@ -51,3 +54,10 @@ export { listOpenAiModels, listAnthropicModels, isChatModel } from './llm/models
 export type { ModelOption } from './llm/models.js';
 export { LLAMA_VERSION, installLlama, llamaTarballUrl } from './provision/llamaInstall.js';
 export type { InstallLlamaOptions, InstallLlamaResult } from './provision/llamaInstall.js';
+
+export { DEFAULT_REGISTRY, DEFAULT_TIMEOUT_MS, NpmRegistry } from './update/npmRegistry.js';
+export type { RegistryTransport } from './update/npmRegistry.js';
+export type { NpmRegistryOptions } from './update/npmRegistry.js';
+
+export { detectInstallMethod, installCommandFor, sweepCommandFor } from './update/installMethod.js';
+export type { InstallMethod, DetectOptions } from './update/installMethod.js';

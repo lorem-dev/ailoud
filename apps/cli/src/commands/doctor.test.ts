@@ -20,6 +20,7 @@ import {
   checkVadModel,
   registerDoctor,
   runChecks,
+  setupNote,
 } from './doctor.js';
 import { collectRemedies } from './setup.js';
 
@@ -222,6 +223,10 @@ describe('checkLanguageModel', () => {
     );
     expect(check.ok).toBe(true);
     expect(check.detail).toContain(process.execPath);
+    // download-llm-model REPAIRS exactly what this check inspects (the local
+    // GGUF file) -- unlike the claude-cli branch below, it belongs on the
+    // passing branch too, so --force can reinstall it.
+    expect(check.remedy).toEqual({ kind: 'download-llm-model' });
   });
 
   it('wants a key for a hosted endpoint, and says keys never live in the config file', async () => {
@@ -291,6 +296,12 @@ describe('checkLanguageModel', () => {
     );
     expect(check.ok).toBe(true);
     expect(check.detail).toContain('via subscription');
+    // install-llm is a SUBSTITUTE here (a fallback local model), not a repair
+    // of the Claude Code CLI this check actually inspects -- it must not
+    // survive onto a passing check, or --force would brew-install llama.cpp
+    // for someone whose Claude Code works fine. See Check.remedy's doc
+    // comment for the general rule this is the example of.
+    expect(check.remedy).toBeUndefined();
   });
 
   it('names the config key to switch away when the Claude CLI is absent', async () => {
@@ -372,15 +383,17 @@ describe('checkBinary', () => {
     expect(check.remedy).toEqual({ kind: 'install-ffmpeg' });
   });
 
-  it('attaches no remedy to a passing check', async () => {
+  it('keeps the remedy on a passing check too, so --force can still reinstall it', async () => {
     // node is guaranteed present in the test environment and exits 0 on
     // --version, unlike ffmpeg or whisper-cli which this suite cannot
-    // assume are installed.
+    // assume are installed. `Check.remedy` means "repairable", not
+    // "currently broken" -- see its doc comment -- and `ailoud setup --force`
+    // reads it off passing checks to reinstall something that already works.
     const check = await checkBinary('node', 'node', ['--version'], 'install it', undefined, {
       kind: 'install-ffmpeg',
     });
     expect(check.ok).toBe(true);
-    expect(check.remedy).toBeUndefined();
+    expect(check.remedy).toEqual({ kind: 'install-ffmpeg' });
   });
 });
 
@@ -394,15 +407,17 @@ describe('checkModel', () => {
     expect(check.remedy).toEqual({ kind: 'download-model', slot: 'transcription' });
   });
 
-  it('attaches no remedy to a passing check', async () => {
+  it('keeps the remedy on a passing check too, for --force and for switching models', async () => {
     // process.execPath is a real file guaranteed to exist on disk, so the
     // access() check this exercises succeeds without needing a fixture.
+    // `ailoud setup --model <other>` on a machine whose configured model is
+    // already present needs this remedy to switch models at all.
     const check = await checkModel('/c', process.execPath, {
       kind: 'download-model',
       slot: 'transcription',
     });
     expect(check.ok).toBe(true);
-    expect(check.remedy).toBeUndefined();
+    expect(check.remedy).toEqual({ kind: 'download-model', slot: 'transcription' });
   });
 });
 
@@ -497,6 +512,109 @@ describe('runChecks', () => {
   });
 });
 
+describe('acceleration checks', () => {
+  // context()'s default whisper binary ('w', looked up on PATH) points at a
+  // real path that does not exist on disk, so probeBackends and checkBinary
+  // see the same ENOENT a machine with no whisper.cpp installed at all would.
+  // Not '/no/such/whisper-cli' but a MemFs-unrelated real path, because both
+  // probeBackends and checkBinary spawn a real child process (they never
+  // touch context.fs), so only a genuinely absent path on the real
+  // filesystem reproduces "the binary is missing".
+  function contextWithMissingBinaries(): CliContext {
+    const ctx = context();
+    return {
+      ...ctx,
+      config: {
+        ...ctx.config,
+        stt: {
+          ...ctx.config.stt,
+          whisperCpp: { ...ctx.config.stt.whisperCpp, binary: '/no/such/whisper-cli' },
+        },
+      },
+    };
+  }
+
+  it('reports the cores and the thread counts derived from them', async () => {
+    const checks = await runChecks(context());
+    const cpu = checks.find((c) => c.name === 'cpu');
+    expect(cpu?.ok).toBe(true);
+    // Both numbers, because they differ and the difference is the point.
+    expect(cpu?.detail).toMatch(/threads/);
+    expect(cpu?.detail).toMatch(/segmentation/);
+    expect(cpu?.detail).toMatch(/diarization/);
+  });
+
+  it('names the backends the whisper binary loaded', async () => {
+    const checks = await runChecks(context());
+    expect(checks.find((c) => c.name === 'whisper backends')).toBeDefined();
+  });
+
+  it('marks the neural engine unavailable without failing readiness', async () => {
+    // CoreML in whisper.cpp is a compile-time option plus a converted model.
+    // There is no runtime flag, and homebrew does not build it. Reporting
+    // that must not make doctor say the machine is broken.
+    const checks = await runChecks(context());
+    const ane = checks.find((c) => c.name === 'neural engine');
+    expect(ane?.optional).toBe(true);
+    expect(checks.filter(blocksReadiness)).not.toContain(ane);
+  });
+
+  it('carries no remedy on any of them, so --fix ignores them', async () => {
+    const checks = await runChecks(context());
+    for (const name of ['cpu', 'whisper backends', 'neural engine']) {
+      expect(checks.find((c) => c.name === name)?.remedy).toBeUndefined();
+    }
+  });
+
+  it('does not fail when the whisper binary is missing entirely', async () => {
+    const checks = await runChecks(contextWithMissingBinaries());
+    const backends = checks.find((c) => c.name === 'whisper backends');
+    expect(backends?.optional).toBe(true);
+    expect(backends?.ok).toBe(false);
+  });
+});
+
+describe('setupNote', () => {
+  it('tells a GPU machine that threads are for diarization', () => {
+    const note = setupNote(['MTL', 'BLAS', 'CPU'], 90);
+    expect(note).toContain('GPU build');
+    expect(note).toMatch(/diarization/);
+    // Must NOT tell a GPU machine to raise threads for transcription: on a
+    // GPU build that is worth 0.7 s on 40 s of audio.
+    expect(note).not.toMatch(/ten times slower/);
+  });
+
+  it('tells a CPU-only machine that threads are worth multiples', () => {
+    const note = setupNote(['BLAS', 'CPU'], 90);
+    expect(note).toContain('CPU-only');
+    expect(note).toMatch(/four times/);
+    // Not a substring check against "GPU build": the CPU-only sentence
+    // legitimately contains that phrase ("...slower than on a GPU build...").
+    // What must not happen is the note being LABELLED as the GPU case.
+    expect(note?.startsWith('GPU build')).toBe(false);
+  });
+
+  it('treats every ggml gpu backend name as a gpu', () => {
+    for (const name of ['MTL', 'CUDA', 'ROCM', 'VULKAN', 'SYCL']) {
+      expect(setupNote([name, 'CPU'], 90)).toContain('GPU build');
+    }
+  });
+
+  it('says nothing at all when the binary could not be asked', () => {
+    // Better silent than inventing advice about a build nobody inspected.
+    expect(setupNote([], 90)).toBeNull();
+  });
+
+  it('never mentions the flag an agent should not ask about', () => {
+    // The rule: an agent must understand what makes ailoud fast without being
+    // invited to interrogate the user about --max-cpu. The note names the
+    // config key, which a user edits once, not the per-run flag.
+    for (const backends of [['MTL', 'CPU'], ['CPU']]) {
+      expect(setupNote(backends, 90)).not.toContain('--max-cpu');
+    }
+  });
+});
+
 /**
  * `doctor --fix` (registerDoctor, apps/cli/src/commands/doctor.ts) builds
  * its remedy list the same way registerSetup does: filter runChecks' output
@@ -546,10 +664,13 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
       ...context(),
       paths: {
         configFile: join(scopedDir, 'config.yaml'),
+        configHome: scopedDir,
         dataDir: scopedDir,
         dbFile: join(scopedDir, 'ailoud.db'),
         mediaRoot: join(scopedDir, 'media'),
+        jobsDir: join(scopedDir, 'jobs'),
         isProjectLibrary: false,
+        userDataDir: scopedDir,
       },
       config: {
         stt: {
@@ -580,6 +701,9 @@ describe('doctor --fix scope: remedies come only from failing checks', () => {
             model: join(scopedDir, 'llm-model.gguf'),
           },
         },
+        resources: parseConfig(null).resources,
+        audio: parseConfig(null).audio,
+        update: parseConfig(null).update,
       },
     };
   }
@@ -687,10 +811,13 @@ describe('doctor: an unconfigured optional feature does not mean "not ready"', (
       ...context(),
       paths: {
         configFile: join(dataDir, 'config.yaml'),
+        configHome: dataDir,
         dataDir,
         dbFile: join(dataDir, 'ailoud.db'),
         mediaRoot: join(dataDir, 'media'),
+        jobsDir: join(dataDir, 'jobs'),
         isProjectLibrary: false,
+        userDataDir: dataDir,
       },
       config: {
         stt: {
@@ -710,6 +837,9 @@ describe('doctor: an unconfigured optional feature does not mean "not ready"', (
           },
         },
         llm: parseConfig(null).llm,
+        resources: parseConfig(null).resources,
+        audio: parseConfig(null).audio,
+        update: parseConfig(null).update,
       },
     };
   }
@@ -829,10 +959,13 @@ describe('a corrupt database: every entry point must refuse', () => {
       ...ctx,
       paths: {
         configFile: join(corruptDir, 'config.yaml'),
+        configHome: corruptDir,
         dataDir: corruptDir,
         dbFile: join(corruptDir, 'ailoud.db'),
         mediaRoot: join(corruptDir, 'media'),
+        jobsDir: join(corruptDir, 'jobs'),
         isProjectLibrary: false,
+        userDataDir: corruptDir,
       },
       config: {
         stt: {
@@ -864,6 +997,9 @@ describe('a corrupt database: every entry point must refuse', () => {
             model: join(corruptDir, 'llm-model.gguf'),
           },
         },
+        resources: parseConfig(null).resources,
+        audio: parseConfig(null).audio,
+        update: parseConfig(null).update,
       },
     };
   }
@@ -930,7 +1066,7 @@ describe('a corrupt database: every entry point must refuse', () => {
  * The Windows guard lives in runProvisioning (the shared engine) now, not
  * in registerSetup, precisely so `doctor --fix` inherits it too. Before
  * this fix, `ailoud doctor --fix --yes` on win32 built a plan, took consent,
- * downloaded the transcription model and the VAD model (up to 1.6 GB), and
+ * downloaded the transcription model and the VAD model (up to 3.1 GB), and
  * only then failed both installs and exited non-zero. registerDoctor is
  * called directly (not through buildProgram) so `platform` can be pinned to
  * 'win32' without a real Windows box, mirroring the equivalent

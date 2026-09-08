@@ -1,10 +1,15 @@
-import { describe, expect, it } from 'vitest';
-import { UsageError } from '@ailoud/core';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { FailureError, UsageError } from '@ailoud/core';
 import type { Summarizer } from '@ailoud/core';
 import { buildProgram } from '../program.js';
-import { contextWithTranscript } from './testContext.js';
+import { contextWithTranscript, withRealDataDir } from './testContext.js';
 import type { MemFs } from '@ailoud/core/testing';
 import { transcriptBudget } from './summarize.js';
+import { createJob, getJob, listJobs } from '../jobs/store.js';
+import { withJobLock } from '../jobs/lock.js';
+import { spawnDetachedJob } from '../jobs/spawn.js';
+
+vi.mock('../jobs/spawn.js', () => ({ spawnDetachedJob: vi.fn() }));
 
 const summarizer = (contextTokens: number): Summarizer => ({
   name: 'fake',
@@ -285,6 +290,322 @@ describe('ailoud summarize: progress', () => {
     const ctx = await contextWithTranscript({ clearLines: true });
     await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--fresh']);
     expect(ctx.lines.filter((line) => /%\)/.test(line))).toEqual([]);
+  });
+});
+
+describe('ailoud summarize --job', () => {
+  it('is hidden from --help', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    const program = buildProgram(ctx);
+    const summarizeCmd = program.commands.find((c) => c.name() === 'summarize')!;
+    const jobOption = summarizeCmd.options.find((o) => o.long === '--job');
+    expect(jobOption?.hidden).toBe(true);
+  });
+
+  it('never appears in rendered --help text either', async () => {
+    // The option-object check above pins commander's `hidden` flag, but not
+    // that commander actually honours it when rendering. Checked against the
+    // pinned commander version in use.
+    const ctx = await contextWithTranscript({ clearLines: true });
+    const program = buildProgram(ctx);
+    const summarizeCmd = program.commands.find((c) => c.name() === 'summarize')!;
+    expect(summarizeCmd.helpInformation()).not.toContain('--job');
+  });
+
+  it('rejects an id with no matching job', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--job', 'nope']),
+    ).rejects.toThrow(UsageError);
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--job', 'nope']),
+    ).rejects.toThrow(/nope/);
+  });
+
+  it('reports success into the job state file, without the summary body', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'summarize', recordings: 1, declared: null },
+      );
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--job', job.id]);
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
+      expect(state?.state).toBe('done');
+      expect(state?.percent).toBe(100);
+      expect(state?.result).toMatchObject({ reportId: expect.any(String) });
+      expect(JSON.stringify(state?.result)).not.toContain('a summary');
+    });
+  });
+
+  it('reports a failure into the job state file and still rethrows, exit code unchanged', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'summarize', recordings: 1, declared: null },
+      );
+      await expect(
+        buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'NOPE', '--job', job.id]),
+      ).rejects.toThrow();
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
+      expect(state?.state).toBe('failed');
+      expect(state?.error).toBeTruthy();
+    });
+  });
+
+  it('records a failure when the job lock is already held on the way in', async () => {
+    // See the identical test in commands.test.ts (transcribe --job) for why:
+    // withJobLock itself can throw before body() ever runs, and the
+    // try/catch has to wrap the lock call, not just its body, to catch that.
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      const job = await createJob(
+        { fs: ctx.fs, ids: ctx.ids, clock: ctx.clock, jobsDir: ctx.paths.jobsDir },
+        { kind: 'summarize', recordings: 1, declared: null },
+      );
+      await withJobLock(ctx.paths.dataDir, async () => {
+        await expect(
+          buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--job', job.id]),
+        ).rejects.toThrow(FailureError);
+      });
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
+      expect(state?.state).toBe('failed');
+      expect(state?.error).toMatch(/already running/);
+    });
+  });
+});
+
+describe('ailoud summarize --detach', () => {
+  afterEach(() => {
+    vi.mocked(spawnDetachedJob).mockReset();
+  });
+
+  it('is not hidden from --help, unlike --job', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    const program = buildProgram(ctx);
+    const summarizeCmd = program.commands.find((c) => c.name() === 'summarize')!;
+    const detachOption = summarizeCmd.options.find((o) => o.long === '--detach');
+    expect(detachOption?.hidden).toBeFalsy();
+  });
+
+  it('rejects --detach together with --job before doing anything', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await expect(
+      buildProgram(ctx).parseAsync([
+        'node',
+        'ailoud',
+        'summarize',
+        'ID001',
+        '--detach',
+        '--job',
+        'X',
+      ]),
+    ).rejects.toThrow(UsageError);
+    expect(spawnDetachedJob).not.toHaveBeenCalled();
+  });
+
+  it('validates an unknown --template before creating a job or spawning anything', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      await expect(
+        buildProgram(ctx).parseAsync([
+          'node',
+          'ailoud',
+          'summarize',
+          'ID001',
+          '--template',
+          'retrospective',
+          '--detach',
+        ]),
+      ).rejects.toThrow(/unknown --template "retrospective"/);
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+    });
+  });
+
+  it('validates the id/--tag selection before creating a job or spawning anything', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      await expect(
+        buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', '--detach']),
+      ).rejects.toThrow(/needs recording ids or --tag/);
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+    });
+  });
+
+  it('refuses when another job already holds the lock, without creating a job', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      await withJobLock(ctx.paths.dataDir, async () => {
+        await expect(
+          buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--detach']),
+        ).rejects.toThrow(FailureError);
+      });
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+    });
+  });
+
+  it('creates a running job, spawns the build args without --detach, and returns at once', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      ctx.lines.length = 0;
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--detach']);
+      expect(spawnDetachedJob).toHaveBeenCalledTimes(1);
+      const [, commandArgs, job] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).toEqual(['summarize', 'ID001']);
+      const state = await getJob(ctx.fs, ctx.paths.jobsDir, job.id);
+      expect(state?.state).toBe('running');
+      expect(ctx.lines.join('\n')).toContain(job.id);
+    });
+  });
+
+  it('preserves a --context value that is itself the literal string "--detach"', async () => {
+    // The child args used to be built by filtering process.argv for the
+    // string '--detach', which stripped every occurrence -- including one
+    // that was actually the value of --context, not the flag -- corrupting
+    // the child's invocation. Building from the parsed options instead
+    // means only the real flag is ever left out.
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync([
+        'node',
+        'ailoud',
+        'summarize',
+        'ID001',
+        '--context',
+        '--detach',
+        '--detach',
+      ]);
+      expect(spawnDetachedJob).toHaveBeenCalledTimes(1);
+      const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).toEqual(['summarize', 'ID001', '--context', '--detach']);
+    });
+  });
+
+  it('marks the job failed and rethrows when spawning itself throws', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      vi.mocked(spawnDetachedJob).mockImplementation(() => {
+        throw new Error('spawn boom');
+      });
+      const before = new Set((await listJobs(ctx.fs, ctx.paths.jobsDir)).map((j) => j.id));
+      await expect(
+        buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--detach']),
+      ).rejects.toThrow(/spawn boom/);
+      const after = await listJobs(ctx.fs, ctx.paths.jobsDir);
+      const created = after.find((job) => !before.has(job.id));
+      expect(created?.state).toBe('failed');
+      expect(created?.error).toContain('spawn boom');
+    });
+  });
+});
+
+describe('ailoud summarize --max-cpu', () => {
+  afterEach(() => {
+    vi.mocked(spawnDetachedJob).mockReset();
+  });
+
+  it.each(['0', '101', 'abc', '-5', '2.5'])(
+    'refuses --max-cpu %s, naming the accepted range',
+    async (value) => {
+      const ctx = await contextWithTranscript({ clearLines: true });
+      await expect(
+        buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--max-cpu', value]),
+      ).rejects.toThrow(/1.*100/);
+    },
+  );
+
+  it('accepts a --max-cpu inside the range and forwards the resulting budget to the summarizer', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--max-cpu', '50']);
+    // testContext's fixed topology is { logical: 10, performance: 8 }: 50% of the
+    // 8 performance cores, rounded, is 4.
+    //
+    // createSummarizer is called twice per `summarize` run -- once at
+    // summarize.ts:216 for the summarizer's name (used in a progress note),
+    // once inside runSummary at summarizeRun.ts:113, which is the call that
+    // actually does the work -- and both must carry the budget. Asserting the
+    // whole array, not just toContainEqual, is what makes this catch a
+    // dropped argument at summarizeRun.ts:113 specifically: before this test
+    // was tightened, that call site could fall back to createSummarizer's own
+    // "no budget" default of 4 threads while the name-only call at
+    // summarize.ts:216 still supplied a real budget, and `toContainEqual`
+    // against a shared array could not tell the two apart.
+    expect(ctx.summarizerBudgets).toEqual([
+      expect.objectContaining({ threads: 4, gpu: true }),
+      expect.objectContaining({ threads: 4, gpu: true }),
+    ]);
+  });
+
+  it('does not register --denoise: summarizing reads stored transcripts, not audio', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    const program = buildProgram(ctx);
+    const summarizeCmd = program.commands.find((c) => c.name() === 'summarize')!;
+    expect(summarizeCmd.options.find((o) => o.long === '--denoise')).toBeUndefined();
+  });
+
+  it('does not register --no-gpu: no summariser reads budget.gpu', async () => {
+    // --no-gpu was removed from summarize because it provably did nothing:
+    // llama's -ngl was deliberately dropped for want of a measurement, and
+    // the three hosted providers (claude-cli, anthropic, openai-compatible)
+    // have no GPU to disable. It stays on transcribe, where it reaches
+    // whisper's -ng.
+    const ctx = await contextWithTranscript({ clearLines: true });
+    const program = buildProgram(ctx);
+    const summarizeCmd = program.commands.find((c) => c.name() === 'summarize')!;
+    expect(summarizeCmd.options.find((o) => o.long === '--no-gpu')).toBeUndefined();
+    await expect(
+      buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--no-gpu']),
+    ).rejects.toThrow(/unknown option/);
+  });
+
+  it('validates --max-cpu before creating a job or spawning anything, under --detach', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      await expect(
+        buildProgram(ctx).parseAsync([
+          'node',
+          'ailoud',
+          'summarize',
+          'ID001',
+          '--max-cpu',
+          '0',
+          '--detach',
+        ]),
+      ).rejects.toThrow(/1.*100/);
+      expect(spawnDetachedJob).not.toHaveBeenCalled();
+      expect(await listJobs(ctx.fs, ctx.paths.jobsDir)).toEqual([]);
+    });
+  });
+
+  it('forwards --max-cpu to the detached child, unmodified', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync([
+        'node',
+        'ailoud',
+        'summarize',
+        'ID001',
+        '--max-cpu',
+        '50',
+        '--detach',
+      ]);
+      expect(spawnDetachedJob).toHaveBeenCalledTimes(1);
+      const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).toEqual(['summarize', 'ID001', '--max-cpu', '50']);
+    });
+  });
+
+  it('forwards nothing to the detached child when nothing was asked for', async () => {
+    const ctx = await contextWithTranscript({ clearLines: true });
+    await withRealDataDir(ctx, async () => {
+      await buildProgram(ctx).parseAsync(['node', 'ailoud', 'summarize', 'ID001', '--detach']);
+      const [, commandArgs] = vi.mocked(spawnDetachedJob).mock.calls[0]!;
+      expect(commandArgs).not.toContain('--max-cpu');
+    });
   });
 });
 

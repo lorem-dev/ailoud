@@ -55,21 +55,97 @@ export const TRANSCRIPTION_MODELS: readonly ModelChoice[] = [
     file: 'ggml-small.bin',
     url: `${HF_WHISPER}/ggml-small.bin`,
     bytes: 487_601_967,
-    summary: 'the default -- what multilingual mode was tuned against',
+    summary: 'lighter -- what multilingual mode was tuned against',
   },
+  {
+    /**
+     * The default. A 5-bit quantisation of large-v3-turbo, chosen over both
+     * `small` (which it replaced) and its own f16 build.
+     *
+     * MEASURED 2026-09-08 on three corpora -- a 24 kbit/s Russian conference
+     * recording, FLEURS ru_ru, LibriSpeech test-clean -- with word error rates
+     * compared by a bootstrap over clips:
+     *
+     *   Russian read speech   `small` 7.5%   this 2.1%
+     *   Russian conversation  `small` 32.0%  this 23.6%
+     *   Russian at 10 dB SNR  `small` 12.6%  this 3.5%
+     *   English read speech   `small` 2.4%   this 1.6%
+     *
+     * The quantisation is what makes it affordable. Against the f16 build of
+     * the same model the difference is statistically indistinguishable on all
+     * three corpora, while this file is a third the size. It matters most
+     * where there is no GPU: on eight CPU threads this decodes at 0.449 times
+     * real time against `small`'s 0.451 and f16 turbo's 0.846, because 5-bit
+     * weights halve the memory traffic and memory bandwidth is what limits
+     * CPU decoding. So the better model costs nothing at all on a CPU-only
+     * machine, and 1.7x `small`'s decode time on a GPU.
+     *
+     * Do not "upgrade" this entry to the f16 build. That trades 1.1 GB of
+     * download and twice the CPU decode time for an accuracy difference no
+     * measurement here could separate from zero.
+     */
+    name: 'large-v3-turbo-q5_0',
+    file: 'ggml-large-v3-turbo-q5_0.bin',
+    url: `${HF_WHISPER}/ggml-large-v3-turbo-q5_0.bin`,
+    bytes: 574_041_195,
+    summary: 'the default -- most accurate for its size',
+  },
+  {
+    /**
+     * The deliberate maximum. Measurably better than the default only on hard
+     * audio -- about 2 points on the supplied conference recording -- and
+     * indistinguishable from it on clean Russian, on spontaneous Russian and
+     * on far-field meeting audio, where it was in fact 2 points WORSE. It also
+     * decodes at 0.203 against the default's 0.112, so it is the right answer
+     * for a difficult recording somebody cares about and the wrong one for a
+     * library.
+     */
+    name: 'large-v3',
+    file: 'ggml-large-v3.bin',
+    url: `${HF_WHISPER}/ggml-large-v3.bin`,
+    bytes: 3_095_033_483,
+    summary: 'heaviest -- a little better on hard audio',
+  },
+];
+
+/**
+ * Models an earlier version offered and this one does not.
+ *
+ * MEASURED 2026-09-08 (see the default's comment above for the corpora): each
+ * is dominated by something smaller. `medium` is larger, slower AND less
+ * accurate than large-v3-turbo on every corpus tried; `large-v3-turbo` in f16
+ * is 2.8x the default's download and, without a GPU, 1.9x its decode time,
+ * for an accuracy difference no comparison could separate from zero.
+ *
+ * Still resolvable rather than deleted, for two reasons that both bite
+ * existing installations:
+ *
+ *   - `ailoud setup --model medium` keeps working. Somebody's script says
+ *     that, and the model itself is fine -- it is merely a poor choice.
+ *   - `findModelFile` still recognises an installed one AS itself. Without
+ *     that, `setup --force` on a machine running `medium` would see a
+ *     stranger's file where its own catalogue name should be, fall through to
+ *     DEFAULT_MODEL_NAME, and silently replace a healthy model the user chose
+ *     on purpose. That exact silent switch was found and fixed once already.
+ *
+ * They are absent from TRANSCRIPTION_MODELS, so the interactive picker and
+ * the "choose one of" message offer only the list above. Nothing here should
+ * be recommended to anyone.
+ */
+export const RETIRED_MODELS: readonly ModelChoice[] = [
   {
     name: 'medium',
     file: 'ggml-medium.bin',
     url: `${HF_WHISPER}/ggml-medium.bin`,
     bytes: 1_533_763_059,
-    summary: 'slower, more accurate',
+    summary: 'retired -- large-v3-turbo-q5_0 is smaller, faster and better',
   },
   {
     name: 'large-v3-turbo',
     file: 'ggml-large-v3-turbo.bin',
     url: `${HF_WHISPER}/ggml-large-v3-turbo.bin`,
     bytes: 1_624_555_275,
-    summary: 'most accurate, heaviest',
+    summary: 'retired -- the q5_0 build of it is a third the size, and no worse',
   },
 ];
 
@@ -125,10 +201,43 @@ export const EMBEDDING_MODEL: ModelChoice = {
   summary: 'speaker embedding, needed by --diarize',
 };
 
-export const DEFAULT_MODEL_NAME = 'small';
+/**
+ * What `setup` installs when nobody says otherwise. See the entry's own
+ * comment above for the measurements that chose it over `small`.
+ *
+ * An existing installation is never migrated by this constant: a healthy
+ * configured model is left alone, and `resolveModelName` prefers whatever is
+ * already installed over this default precisely so that changing it here
+ * cannot silently replace a model someone chose on purpose.
+ */
+export const DEFAULT_MODEL_NAME = 'large-v3-turbo-q5_0';
 
+/**
+ * A model by catalogue name, retired ones included.
+ *
+ * Resolving covers more than offering: a name this returns is one `--model`
+ * accepts and `setup` can install. The offered list is TRANSCRIPTION_MODELS,
+ * and only that list belongs in a picker or a "choose one of" message.
+ */
 export function findModel(name: string): ModelChoice | undefined {
-  return TRANSCRIPTION_MODELS.find((model) => model.name === name);
+  return (
+    TRANSCRIPTION_MODELS.find((model) => model.name === name) ??
+    RETIRED_MODELS.find((model) => model.name === name)
+  );
+}
+
+/**
+ * A model by the file name it is stored under, retired ones included.
+ *
+ * This is how an installed model is recognised as itself. Answering
+ * `undefined` for a model that is merely no longer offered would make
+ * `setup --force` treat a healthy install as unrecognised and replace it.
+ */
+export function findModelFile(file: string): ModelChoice | undefined {
+  return (
+    TRANSCRIPTION_MODELS.find((model) => model.file === file) ??
+    RETIRED_MODELS.find((model) => model.file === file)
+  );
 }
 
 /**

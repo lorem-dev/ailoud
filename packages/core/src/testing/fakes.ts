@@ -13,7 +13,9 @@ import type {
   TempDir,
   TempFile,
   TranscriptionProvider,
+  WavPrepared,
 } from '../domain/ports.js';
+import type { DenoiseMode } from '../audio/noise.js';
 import type {
   RawSegment,
   Recording,
@@ -117,12 +119,27 @@ export class MemFs implements Fs {
       throw Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' });
     return content;
   }
+  async rename(from: string, to: string): Promise<void> {
+    const content = this.files.get(from);
+    if (content === undefined)
+      throw Object.assign(new Error(`ENOENT: ${from}`), { code: 'ENOENT' });
+    this.files.set(to, content);
+    this.files.delete(from);
+  }
 }
 
 export class FakeAudioTool implements AudioTool {
   readonly converted: Array<[string, string]> = [];
   /** Every slice() call this fake was given, in call order. */
   readonly sliced: Array<{ input: string; output: string; startMs: number; endMs: number }> = [];
+  /** Every denoise mode this fake was asked for, in call order. */
+  readonly denoiseModes: Array<DenoiseMode | undefined> = [];
+  /**
+   * What toWav16kMono answers. Defaults to "measured nothing, changed
+   * nothing", so a test that does not care about denoising exercises the
+   * common path.
+   */
+  prepared: WavPrepared = { denoised: false, profile: { noiseFloorDb: null, rmsDb: null } };
 
   constructor(
     private readonly durationMs = 60_000,
@@ -138,8 +155,14 @@ export class FakeAudioTool implements AudioTool {
   async probe(): Promise<{ durationMs: number; recordedAt: string | null }> {
     return { durationMs: this.durationMs, recordedAt: this.recordedAt };
   }
-  async toWav16kMono(input: string, output: string): Promise<void> {
+  async toWav16kMono(
+    input: string,
+    output: string,
+    opts?: { readonly denoise?: DenoiseMode },
+  ): Promise<WavPrepared> {
     this.converted.push([input, output]);
+    this.denoiseModes.push(opts?.denoise);
+    return this.prepared;
   }
   async slice(input: string, output: string, startMs: number, endMs: number): Promise<void> {
     this.sliced.push({ input, output, startMs, endMs });
@@ -153,7 +176,11 @@ export class FakeStt implements TranscriptionProvider {
   readonly name = 'fake';
   readonly capabilities: TranscriptionProvider['capabilities'];
   /** Every opts object this fake was called with, in call order. */
-  readonly calls: Array<{ readonly language?: string; readonly model?: string }> = [];
+  readonly calls: Array<{
+    readonly language?: string;
+    readonly model?: string;
+    readonly onProgress?: (fraction: number) => void;
+  }> = [];
   /** Every audio path handed to transcribe(), in call order. */
   readonly transcribePaths: string[] = [];
   /** Every audio path handed to detectLanguage(), in call order. */
@@ -167,6 +194,7 @@ export class FakeStt implements TranscriptionProvider {
     segments: RawSegment[];
   }>;
   private readonly languageQueue: string[];
+  private readonly progressFractions: readonly number[];
 
   constructor(
     result:
@@ -174,9 +202,19 @@ export class FakeStt implements TranscriptionProvider {
       | ReadonlyArray<{ language: string; model: string; segments: RawSegment[] }>,
     capabilities?: Partial<TranscriptionProvider['capabilities']>,
     detectedLanguages: readonly string[] = [],
+    /**
+     * Fractions transcribe() reports through opts.onProgress, in order, on
+     * every call it makes. Empty (the default) is the original behaviour:
+     * the fake never calls onProgress, same as a real provider that cannot
+     * report progress. A test that needs to drive a caller's onProgress
+     * closure -- rather than just supply one that is never invoked -- passes
+     * a sequence here, e.g. [0.5, 1].
+     */
+    progressFractions: readonly number[] = [],
   ) {
     this.results = Array.isArray(result) ? result : [result];
     this.languageQueue = [...detectedLanguages];
+    this.progressFractions = progressFractions;
     this.capabilities = {
       maxBytes: null,
       supportsDiarization: false,
@@ -188,12 +226,22 @@ export class FakeStt implements TranscriptionProvider {
 
   async transcribe(
     audioPath: string,
-    opts: { readonly language?: string; readonly model?: string },
+    opts: {
+      readonly language?: string;
+      readonly model?: string;
+      readonly onProgress?: (fraction: number) => void;
+    },
   ): Promise<{ language: string; model: string; segments: RawSegment[] }> {
     this.transcribePaths.push(audioPath);
     const result = this.results[this.calls.length] ?? this.results.at(-1);
     this.calls.push(opts);
     if (result === undefined) throw new Error('FakeStt has no canned result to return');
+    // Mirrors a real provider: reports its own progress synchronously,
+    // before the call resolves, and does not guard the callback itself --
+    // that guarantee belongs to the caller (see report() in transcribe.ts).
+    for (const fraction of this.progressFractions) {
+      opts.onProgress?.(fraction);
+    }
     return result;
   }
 

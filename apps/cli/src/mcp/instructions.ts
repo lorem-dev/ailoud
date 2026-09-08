@@ -62,9 +62,40 @@ Six rules, in the order they matter:
    told you and pass it again on the next summary of the same material; it is
    the one thing you know that the transcript does not say.
 
-6. TRANSCRIBING AND SUMMARISING COST SOMETHING. Transcription is minutes of
-   CPU per recording. Summarising spends tokens on a hosted model or minutes
-   on a local one. Neither has a default selection: name the recordings.
+6. TRANSCRIBING AND SUMMARISING COST SOMETHING, AND RUN IN THE BACKGROUND.
+   Transcription is minutes of CPU per recording. Summarising spends tokens on
+   a hosted model or minutes on a local one. Neither has a default selection:
+   name the recordings.
+
+   Both return a JOB ID instead of a result. Poll \`job_status\` with it -- a
+   few minutes between calls is plenty, and polling faster does not make the
+   work finish sooner. A finished transcribe job lists the recordings it
+   transcribed; a finished summarize job carries the report id to read with
+   \`get_report\`.
+
+   When a finished transcribe job reports \`unnamedSpeakers\`, ask the user who
+   those speakers are and record the answer with \`annotate\`. Only a person
+   knows which label is which, the transcript itself usually says enough to
+   guess and offer, and a name given once survives re-transcription and is
+   used by every later summary.
+
+   How fast that is depends on the machine, not on anything you pass. A
+   build with a GPU backend transcribes about ten times faster than one
+   without, and on a GPU machine the thread count barely changes anything.
+   Without a GPU, more threads are worth about four times the speed. Speaker
+   diarization always runs on the CPU, so it is where a thread limit shows
+   most. Do not ask the user about CPU or GPU settings: the defaults are
+   already right. If they say transcription is slow, run \`doctor\` -- its
+   first line reports what this machine's build actually loaded, which
+   answers the question.
+
+   \`transcribe\` will REFUSE until you say how many people speak and which
+   languages to expect. That is not bureaucracy: whisper's detector answers
+   with any language in the world, so on a Russian and English recording it
+   will sometimes report Polish for a Russian stretch, and that stretch comes
+   back as phonetic nonsense. Ask the user. Offer your own guess from the
+   recording's name -- you can see the conversation, and ailoud can only see
+   a filename. Ask per recording when the recordings differ.
 
 Deleting is deliberately awkward. \`delete_recording\` and \`delete_report\`
 never delete on the first call: they describe what would go and return a

@@ -64,3 +64,33 @@ describe('NodeFs.exists / isDirectory', () => {
     }
   });
 });
+
+describe('NodeFs.rename', () => {
+  it('replaces the target and removes the source, atomically', async () => {
+    const fs = new NodeFs();
+    const dir = mkdtempSync(join(tmpdir(), 'ailoud-test-'));
+    try {
+      const from = join(dir, 'source.tmp');
+      const to = join(dir, 'target.json');
+      writeFileSync(from, 'new content');
+      writeFileSync(to, 'old content');
+
+      await fs.rename(from, to);
+
+      expect(existsSync(from)).toBe(false);
+      expect(await fs.readTextFile(to)).toBe('new content');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects when the source does not exist', async () => {
+    const fs = new NodeFs();
+    const dir = mkdtempSync(join(tmpdir(), 'ailoud-test-'));
+    try {
+      await expect(fs.rename(join(dir, 'missing'), join(dir, 'target'))).rejects.toBeTruthy();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

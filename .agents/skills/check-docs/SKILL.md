@@ -22,11 +22,17 @@ release, or right after adding or changing a CLI command or option.
    - Confirm every `pnpm` command shown in README.md exists as a script in
      the root `package.json` (`pnpm lint`, `pnpm typecheck`, `pnpm test:cov`,
      `pnpm build`, `pnpm format:check`, `pnpm test:e2e`, etc.).
-   - Confirm every `ailoud` CLI command shown (`import`, `transcribe`, `ls`,
-     `show`, `doctor`) is a command M1 actually ships, per the "Project
-     Overview" section of AGENTS.md. `ailoud` has no `search`, `collection`,
-     `tag`, `summarize`, `export`, or `config` command yet; flag any of
-     those names if they appear in README.md or AGENTS.md.
+   - Confirm every `ailoud` command shown really exists, by asking the
+     BINARY rather than any prose:
+     `node apps/cli/dist/bin/ailoud.js --help` after `pnpm build`, then
+     `--help` on each group and verb. AGENTS.md says outright not to trust a
+     list of commands in prose over the binary, and this skill used to name a
+     fixed set of commands and assert that `search` and `summarize` did not
+     exist -- both had shipped long before anyone noticed the skill was
+     telling agents otherwise.
+     Note that zsh does NOT word-split an unquoted variable, so `$cmd --help`
+     with `cmd="audio ls"` passes one argument and commander prints the
+     TOP-LEVEL help, making every subcommand look like it has no flags.
    - Confirm every relative link in README.md and AGENTS.md resolves to a
      file that exists in the repository. Links into `.superpowers/` are a
      defect: that directory is git-ignored and absent from a fresh clone.
@@ -45,7 +51,13 @@ release, or right after adding or changing a CLI command or option.
 5. **Check version references.**
    Search `README.md`, `AGENTS.md` and `CONTRIBUTING.md` for version
    strings. Any hardcoded version must match the version in root
-   `package.json`. This project ships no documentation site.
+   `package.json`.
+
+   This project DOES ship a documentation site: `docs/` built with mkdocs and
+   published per release to `gh-pages`. Build it with `pnpm docs:build`
+   (strict) and check the rendering with `node scripts/check-docs-render.mjs`
+   -- the strict build cannot see an admonition whose content fell outside its
+   box, which has shipped here before.
 
 6. **Check CHANGES.md structure.**
    Confirm the file starts with a `## Development` section and that

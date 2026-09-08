@@ -1,6 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import { EnvironmentError, LLM_PROVIDERS, UsageError } from '@ailoud/core';
+import { DENOISE_MODES, EnvironmentError, LLM_PROVIDERS, UsageError } from '@ailoud/core';
 
 // Zod 4's `.default()` short-circuits: when the key is missing it substitutes
 // the default value as-is, without re-running it through the inner schema.
@@ -9,7 +9,7 @@ import { EnvironmentError, LLM_PROVIDERS, UsageError } from '@ailoud/core';
 // contradicts the requirement that `.default({})` fills in the rest, so
 // nested objects use `.prefault()` instead, which re-parses the default
 // value through the inner schema (the pre-Zod-4 `.default()` behaviour).
-const ConfigSchema = z.object({
+export const ConfigSchema = z.object({
   stt: z
     .object({
       provider: z.enum(['whisper-cpp']).default('whisper-cpp'),
@@ -27,16 +27,14 @@ const ConfigSchema = z.object({
           segmentationModel: z.string().nullable().default(null),
           embeddingModel: z.string().nullable().default(null),
           threshold: z.number().default(0.6),
-          // Threads for both diarizer passes (segmentation and embedding).
-          // The binary itself defaults to 1, which halves the throughput the
-          // design measured and the README quotes: 16 s of audio in 2.58 s on
-          // one thread against 57 s in 5.19 s on four. Four is the default
-          // here because it is the configuration those numbers were taken on,
-          // and because any machine that can run a 465 MB whisper model has
-          // four cores. Configurable rather than baked into the adapter: a
-          // 2-core VM wants fewer, and a workstation transcribing a long
-          // meeting wants more.
-          threads: z.number().int().min(1).default(4),
+          /**
+           * Null means: follow the resource budget, which gives this engine a
+           * share capped below the ceiling because it has an optimum rather
+           * than a maximum (the curve is in sherpaDiarizer.ts). A number is a
+           * hard override, exempt from the cap -- someone who measured their
+           * own machine outranks a constant measured on one laptop.
+           */
+          threads: z.number().int().min(1).nullable().default(null),
         })
         .prefault({}),
     })
@@ -53,7 +51,8 @@ const ConfigSchema = z.object({
           model: z.string().nullable().default(null),
           contextTokens: z.number().int().min(512).default(8192),
           maxOutputTokens: z.number().int().min(64).default(1024),
-          threads: z.number().int().min(1).default(4),
+          /** Null means: follow the resource budget. A number overrides it. */
+          threads: z.number().int().min(1).nullable().default(null),
         })
         .prefault({}),
       openaiCompatible: z
@@ -84,17 +83,73 @@ const ConfigSchema = z.object({
         .prefault({}),
     })
     .prefault({}),
+  resources: z
+    .object({
+      /**
+       * A ceiling, not a target. Every engine gets at most this share of the
+       * machine's performance cores; engines measured to slow down past a
+       * lower count get a capped share of it (see core/resources/budget.ts).
+       */
+      maxCpuPercent: z.number().int().min(1).max(100).default(90),
+      /**
+       * True adds no flag at all -- a homebrew whisper-cli already loads
+       * Metal on its own. False adds `-ng` where a binary has one.
+       */
+      gpu: z.boolean().default(true),
+    })
+    .prefault({}),
+  audio: z
+    .object({
+      /**
+       * Off by default, on measurement. `auto` measures the converted wav and
+       * denoises when its signal-to-noise ratio is below the threshold in
+       * core/audio/noise.ts -- and a benchmark of that behaviour over six
+       * corpora found no case where denoising improved a transcript, and
+       * several where it hurt. The numbers and the reasoning are in that
+       * file's own comment; the short version is that whisper is already
+       * robust to the noise this chain removes, and the chain takes real
+       * speech with it.
+       *
+       * The modes are kept because `on` is a legitimate thing to ask for on a
+       * recording somebody has listened to. Only the default changed.
+       */
+      denoise: z.enum(DENOISE_MODES).default('off'),
+    })
+    .prefault({}),
+  update: z
+    .object({
+      /** Look for a newer version once a day and mention it after a command. */
+      check: z.boolean().default(true),
+    })
+    .prefault({}),
 });
 
 export type AiloudConfig = z.infer<typeof ConfigSchema>;
 
 export interface AiloudPaths {
   readonly configFile: string;
+  /**
+   * The XDG config home, resolved by the same rules `configFile` uses. fish
+   * keeps its completions under it, and reading `XDG_CONFIG_HOME` a second
+   * time somewhere else would drop the empty-means-default and
+   * relative-is-invalid rules this function is careful about.
+   */
+  readonly configHome: string;
   readonly dataDir: string;
   readonly dbFile: string;
   readonly mediaRoot: string;
+  /** Where background jobs keep their state and log files. */
+  readonly jobsDir: string;
   /** True when the library came from a project's `.ailoud/`, not the user's home. */
   readonly isProjectLibrary: boolean;
+  /**
+   * The user's own `<data home>/ailoud`, regardless of `dataDir`. Things that
+   * are properties of the user rather than of a project -- the registry of
+   * projects ailoud has been used in, the update-check cache, the update log
+   * -- read and write here so that being inside a project library never
+   * scopes them down to that one project.
+   */
+  readonly userDataDir: string;
 }
 
 /** The directory name a project uses to keep its own library. */
@@ -147,7 +202,7 @@ export interface ResolvePathsOptions {
  *
  * The CONFIG stays per-user either way. It names installed binaries, model
  * files and an LLM provider, none of which is a property of a project, and
- * making it local would mean re-downloading a 488 MB model per repository.
+ * making it local would mean re-downloading a 574 MB model per repository.
  */
 export function resolvePaths(
   env: Record<string, string | undefined>,
@@ -178,10 +233,13 @@ export function resolvePaths(
 
   return {
     configFile: `${configHome}/ailoud/config.yaml`,
+    configHome,
     dataDir,
     dbFile: `${dataDir}/ailoud.db`,
     mediaRoot: `${dataDir}/media`,
+    jobsDir: `${dataDir}/jobs`,
     isProjectLibrary: project !== null,
+    userDataDir: `${dataHome}/ailoud`,
   };
 }
 

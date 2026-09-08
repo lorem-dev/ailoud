@@ -15,6 +15,7 @@ ailoud audio summarize --help
 ```
 ailoud audio|recordings   import transcribe summarize search ls show annotate rm
 ailoud report|reports     ls show rm
+ailoud job|jobs           ls show rm
 ailoud template|templates ls show new
 ailoud mcp
 ailoud doctor
@@ -64,15 +65,19 @@ ailoud audio import <path...> [--title <text>] [--notes <text>] [--tag <tag>]
 ailoud audio transcribe [ids...] [options]
 ```
 
-| Option           | Does                                                    |
-| ---------------- | ------------------------------------------------------- |
-| `--lang <codes>` | `ru`, or `ru,en` for several, or `auto`                 |
-| `--model <name>` | override the configured model                           |
-| `--force`        | re-transcribe recordings that already have a transcript |
-| `--multilingual` | segment by speech and language, transcribe each run     |
-| `--diarize`      | attribute segments to speakers                          |
-| `--speakers <n>` | known number of speakers                                |
-| `--tag <tag>`    | tag these recordings; repeatable                        |
+| Option                | Does                                                    |
+| --------------------- | ------------------------------------------------------- |
+| `--lang <codes>`      | `ru`, or `ru,en` for several, or `auto`                 |
+| `--model <name>`      | override the configured model                           |
+| `--force`             | re-transcribe recordings that already have a transcript |
+| `--multilingual`      | segment by speech and language, transcribe each run     |
+| `--diarize`           | attribute segments to speakers                          |
+| `--speakers <n>`      | known number of speakers                                |
+| `--tag <tag>`         | tag these recordings; repeatable                        |
+| `--max-cpu <percent>` | share of this machine to use, 1 to 100                  |
+| `--no-gpu`            | do not use the GPU, even where a binary supports it     |
+| `--denoise <mode>`    | `auto`, `on` or `off`                                   |
+| `--detach`            | start the work in the background and print a job id     |
 
 With no ids, transcribes everything that has no transcript yet.
 
@@ -97,14 +102,16 @@ ailoud audio search <query...> [options]
 ailoud audio summarize [ids...] [options]
 ```
 
-| Option              | Does                                               |
-| ------------------- | -------------------------------------------------- |
-| `--tag <tag>`       | summarise everything carrying this tag; repeatable |
-| `--template <name>` | which shape; see `ailoud template ls`              |
-| `--context <text>`  | a sentence the transcript does not say             |
-| `--lang <code>`     | write the summary in this language                 |
-| `--fresh`           | re-read transcripts instead of stored reports      |
-| `--no-save`         | do not store the summary                           |
+| Option                | Does                                                |
+| --------------------- | --------------------------------------------------- |
+| `--tag <tag>`         | summarise everything carrying this tag; repeatable  |
+| `--template <name>`   | which shape; see `ailoud template ls`               |
+| `--context <text>`    | a sentence the transcript does not say              |
+| `--lang <code>`       | write the summary in this language                  |
+| `--fresh`             | re-read transcripts instead of stored reports       |
+| `--no-save`           | do not store the summary                            |
+| `--max-cpu <percent>` | share of this machine to use, 1 to 100              |
+| `--detach`            | start the work in the background and print a job id |
 
 ## audio ls
 
@@ -154,6 +161,27 @@ ailoud report show <id> [--json]
 ailoud report rm <ids...> [--force]
 ```
 
+## job
+
+```
+ailoud job ls [--json]
+ailoud job show <id> [--json]
+ailoud job rm <id>
+```
+
+| Verb   | Letter | Does                                          |
+| ------ | ------ | --------------------------------------------- |
+| `ls`   | `l`    | list background jobs, newest first            |
+| `show` | `v`    | print one job in full, including its log path |
+| `rm`   | `r`    | forget a finished job; refuses a running one  |
+
+`jobs` is the plural alias, as in `job|jobs` elsewhere. A job comes from
+`audio transcribe --detach`, `audio summarize --detach`, or the MCP server.
+
+`--job <id>` is an internal, hidden flag: it tells a detached child process,
+or an MCP-spawned one, which job to report progress into. It is not something
+to pass by hand.
+
 ## template
 
 ```
@@ -180,10 +208,50 @@ ailoud doctor [--fix] [--yes] [--model <name>] [--llm <choice>] [--llm-model <id
 ## setup
 
 ```
-ailoud setup [--yes] [--model <name>] [--llm <choice>] [--llm-model <id>]
+ailoud setup [--yes] [--model <name>] [--force] [--llm <choice>] [--llm-model <id>]
 ```
 
 `--llm` is one of `local`, `claude-cli`, `claude-api`, `openai`, `skip`.
+
+With no `--model`, `setup` installs `large-v3-turbo-q5_0` (574 MB). The names
+it offers are `tiny`, `base`, `small`, `large-v3-turbo-q5_0` and `large-v3`;
+`medium` and the f16 `large-v3-turbo` are no longer offered but still install
+when named, and an installed one is left alone. Which to pick, with the
+measurements, is in
+[Transcription model](configuration.md#transcription-model).
+
+`setup --model <name>` switches the transcription model even when the
+configured one is already healthy -- naming a different model is enough,
+`--force` is not required. (`doctor --fix --model <name>` does not: it only
+names what a genuinely missing model downloads as, same as before.) The old
+model file is never deleted; `setup` prints its path so you can remove it by
+hand. With no `--model` at all, `--force` reinstalls whatever is already
+configured -- it never replaces it with the default. If the configured
+file matches no catalogue name (e.g. a whisper.cpp build of your own), it is
+left alone instead, with a note saying so; pass `--model <name>` to move to a
+catalogue model.
+
+`--force` reinstalls everything ailoud needs, even when every check already
+passes: ffmpeg, whisper.cpp, every whisper model. Use it to replace a
+corrupted file `doctor` cannot see is broken. If you use a local summariser
+(`--llm local`), it also reinstalls llama.cpp and re-downloads its 2.1 GB
+model; a hosted summariser (Claude, OpenAI) is untouched either way.
+
+## self completions
+
+```
+ailoud self completions install [--shell <ids>] [-y]
+ailoud self completions uninstall [--shell <ids>]
+ailoud self completions update
+ailoud self completions print <shell>
+```
+
+Shells: `bash`, `zsh`, `fish`. Fish autoloads its own completions directory,
+so `install` and `uninstall` never touch a fish startup file; bash and zsh
+both get a marker block added to (or removed from) `~/.bashrc` /
+`~/.zshrc`. `setup --yes` installs none of these; accept its prompt, pass
+`--completions` to get them without asking, or `--no-completions` to skip
+the prompt and decline.
 
 ## Exit codes
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RawSegment, Recording } from '../domain/model.js';
 import type { Diarizer, SpeechSpan, TranscriptionProvider } from '../domain/ports.js';
+import type { ProgressEvent } from '../progress/events.js';
 import {
   FakeAudioTool,
   FakeClock,
@@ -26,18 +27,28 @@ const recording: Recording = {
   importedAt: '2026-01-01T00:00:00.000Z',
 };
 
-const deps = () => ({
+/**
+ * @param progressFractions Forwarded to FakeStt so a test can make the
+ * provider drive a caller's onProgress closure. Empty by default, matching
+ * every pre-existing use of deps() where the provider never calls it.
+ */
+const deps = (progressFractions: readonly number[] = []) => ({
   fs: new MemFs({ '/data/media/sh/sha-AUDIO.mp3': 'AUDIO' }),
   store: new InMemoryStore(),
   audio: new FakeAudioTool(),
-  stt: new FakeStt({
-    language: 'ru',
-    model: 'base.bin',
-    segments: [
-      { startMs: 0, endMs: 1500, text: 'Privet.' },
-      { startMs: 1500, endMs: 3200, text: 'Kak dela?' },
-    ],
-  }),
+  stt: new FakeStt(
+    {
+      language: 'ru',
+      model: 'base.bin',
+      segments: [
+        { startMs: 0, endMs: 1500, text: 'Privet.' },
+        { startMs: 1500, endMs: 3200, text: 'Kak dela?' },
+      ],
+    },
+    undefined,
+    [],
+    progressFractions,
+  ),
   clock: new FakeClock(),
   ids: new FakeIds(),
   mediaRoot: '/data/media',
@@ -272,6 +283,12 @@ interface MultilingualScenario {
   readonly languages?: readonly string[];
   readonly texts?: ReadonlyArray<readonly RawSegment[]>;
   readonly supportsLanguageDetection?: boolean;
+  /**
+   * Forwarded to FakeStt so a test can make the provider drive a caller's
+   * onProgress closure on every transcribe() call it makes (one per run).
+   * Empty by default, matching every pre-existing scenario.
+   */
+  readonly progressFractions?: readonly number[];
 }
 
 /** Deps for the multilingual path: a segmenter, a queue of detected languages, and one transcribe result per run. */
@@ -295,6 +312,7 @@ function multilingualDeps(scenario: MultilingualScenario) {
       results,
       { supportsLanguageDetection: scenario.supportsLanguageDetection ?? true },
       languages,
+      scenario.progressFractions ?? [],
     ),
     segmenter: new FakeSegmenter(spans),
     clock: new FakeClock(),
@@ -501,5 +519,438 @@ describe('transcribeRecording --multilingual', () => {
     expect(diarizer.calls).toEqual([{ audioPath: '/tmp/fake-1.wav' }]);
     const segments = await d.store.listSegments(transcript.id);
     expect(segments.map((s) => s.speaker)).toEqual(['speaker_00', 'speaker_01']);
+  });
+});
+
+describe('transcribeRecording progress', () => {
+  it('reports progress that rises to one on the single-pass path', async () => {
+    const events: ProgressEvent[] = [];
+    await transcribeRecording(
+      { ...deps(), onProgress: (event) => events.push(event) },
+      recording,
+      {},
+    );
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.map((e) => e.stage)).toContain('transcribing');
+    const fractions = events.flatMap((e) => (e.fraction === undefined ? [] : [e.fraction]));
+    expect(Math.max(...fractions)).toBe(1);
+  });
+
+  it('never reports a fraction that went backwards', async () => {
+    const events: ProgressEvent[] = [];
+    const d = multilingualDeps({
+      spans: [
+        { startMs: 0, endMs: 1750 },
+        { startMs: 1800, endMs: 3430 },
+      ],
+      languages: ['en', 'ru'],
+    });
+    await transcribeRecording({ ...d, onProgress: (event) => events.push(event) }, recording, {
+      multilingual: true,
+      declaredLanguages: ['en', 'ru'],
+    });
+    const fractions = events.flatMap((e) => (e.fraction === undefined ? [] : [e.fraction]));
+    for (const [i, fraction] of fractions.entries()) {
+      if (i > 0) expect(fraction).toBeGreaterThanOrEqual(fractions[i - 1]!);
+    }
+  });
+
+  it('reports the diarizing stage while it cannot be measured, then again once done', async () => {
+    // Exactly two 'diarizing' events, in this order: the first announces the
+    // stage starting and deliberately carries no fraction (the diarizer
+    // reports nothing about its own progress), and the second is the run's
+    // closing report, which lands on 'diarizing' precisely so the bar
+    // reaches 100% on a diarized run -- see stageScale's doc comment. Pinning
+    // both count and order (not just "some"/"every") is what actually
+    // encodes the honesty rule: [1, undefined] would satisfy a looser check
+    // but would mean the close arrived before the start, or a second
+    // measured value was invented mid-run.
+    const events: ProgressEvent[] = [];
+    const diarizer = new FakeDiarizer([{ startMs: 0, endMs: 3200, speaker: 'speaker_00' }]);
+    await transcribeRecording(
+      { ...deps(), diarizer, onProgress: (event) => events.push(event) },
+      recording,
+      { diarize: true },
+    );
+    const diarizing = events.filter((e) => e.stage === 'diarizing');
+    expect(diarizing.map((e) => e.fraction)).toEqual([undefined, 1]);
+  });
+
+  it(
+    'multilingual stage names carry increasing fractions -- segmenting, then ' +
+      'detecting, then labelling at 1 when diarize is on',
+    async () => {
+      // stageScale returns 0 for a stage name it does not recognise, and
+      // nothing throws when that happens -- a typo in one of these three
+      // string literals (each also hardcoded in transcribe.ts) would stall
+      // the bar silently through that whole phase with no test failing.
+      // This pins the literal names by asserting the shape only a CORRECTLY
+      // named stage can produce.
+      const events: ProgressEvent[] = [];
+      const d = multilingualDeps({
+        spans: [
+          { startMs: 0, endMs: 1750 },
+          { startMs: 1800, endMs: 3430 },
+        ],
+        languages: ['en', 'ru'],
+      });
+      // Two speaker turns, one per language span: with --diarize on, the
+      // turns become the detection units instead of the segmenter's spans
+      // (see transcribeMultilingual's own comment), so this is what makes
+      // units.length 2 rather than 1.
+      const diarizer = new FakeDiarizer([
+        { startMs: 0, endMs: 1775, speaker: 'speaker_00' },
+        { startMs: 1775, endMs: 3430, speaker: 'speaker_01' },
+      ]);
+      await transcribeRecording(
+        { ...d, diarizer, onProgress: (event) => events.push(event) },
+        recording,
+        { multilingual: true, declaredLanguages: ['en', 'ru'], diarize: true },
+      );
+
+      const segmenting = events.filter((e) => e.stage === 'segmenting');
+      const detecting = events.filter((e) => e.stage === 'detecting');
+      expect(segmenting.length).toBeGreaterThan(0);
+      // Two detection units (one per span above): strictly increasing, not
+      // merely non-decreasing, is what proves each unit actually advanced
+      // the bar rather than reporting the same number twice.
+      expect(detecting.length).toBe(2);
+      const segmentingEnd = segmenting.at(-1)!.fraction!;
+      expect(detecting[0]!.fraction!).toBeGreaterThan(segmentingEnd);
+      expect(detecting[1]!.fraction!).toBeGreaterThan(detecting[0]!.fraction!);
+
+      // The run's closing report, with --diarize on, lands on 'labelling' at
+      // exactly 1 -- the multilingual sibling of the single-pass
+      // 'diarizing'/1 pair pinned in the test above.
+      expect(events.at(-1)).toEqual({ stage: 'labelling', fraction: 1 });
+    },
+  );
+
+  it('still produces a transcript when the progress sink throws', async () => {
+    const transcript = await transcribeRecording(
+      {
+        ...deps(),
+        onProgress: () => {
+          throw new Error('sink exploded');
+        },
+      },
+      recording,
+      {},
+    );
+    expect(transcript.id).toBeDefined();
+  });
+
+  it('still produces a transcript when no progress sink is supplied at all', async () => {
+    const transcript = await transcribeRecording(deps(), recording, {});
+    expect(transcript.id).toBeDefined();
+  });
+
+  it("scales the provider's own progress into the transcribing stage on the single-pass path", async () => {
+    // Unlike the other single-pass tests above, this one actually drives the
+    // onProgress closure passed to deps.stt.transcribe -- the thing the
+    // provider itself calls -- rather than only the direct report() calls
+    // transcribeRecording makes on its own. FakeStt(..., [0.5, 1]) reports
+    // those two fractions synchronously from inside transcribe().
+    const events: ProgressEvent[] = [];
+    await transcribeRecording(
+      { ...deps([0.5, 1]), onProgress: (event) => events.push(event) },
+      recording,
+      {},
+    );
+    const transcribing = events.filter((e) => e.stage === 'transcribing');
+    const fractions = transcribing.flatMap((e) => (e.fraction === undefined ? [] : [e.fraction]));
+    // scale('converting', 0), scale('transcribing', 0) precede the provider's
+    // own two reports, so at least two, and the provider's 1.0 must reach
+    // the top of the transcribing stage's share -- which is the whole run
+    // here, since there is no diarizing stage to follow it.
+    expect(fractions.length).toBeGreaterThanOrEqual(2);
+    for (const [i, fraction] of fractions.entries()) {
+      if (i > 0) expect(fraction).toBeGreaterThanOrEqual(fractions[i - 1]!);
+    }
+    expect(fractions.at(-1)).toBe(1);
+  });
+
+  it(
+    "weights the provider's progress across multilingual runs by their audio " +
+      'duration, never decreasing or exceeding one',
+    async () => {
+      // Two runs of unequal length (see the sliced-bounds test above for
+      // where 1775 -- the merge boundary -- comes from): run one is ~1775ms,
+      // run two ~1655ms of the 3430ms total. Each run's FakeStt call reports
+      // [0.5, 1] through the onProgress closure under test -- the one that
+      // computes (doneRunMs + runMs * fraction) / totalRunMs. If that
+      // arithmetic weighted by run count instead of audio duration, or reset
+      // to 0 rather than carrying doneRunMs forward, the run boundary
+      // (fractions[1] to fractions[2]) would go backwards or jump to
+      // implausible values instead of stepping forward from run one's own
+      // share to run two's.
+      const events: ProgressEvent[] = [];
+      const d = multilingualDeps({
+        spans: [
+          { startMs: 0, endMs: 1750 },
+          { startMs: 1800, endMs: 3430 },
+        ],
+        languages: ['en', 'ru'],
+        progressFractions: [0.5, 1],
+      });
+      await transcribeRecording({ ...d, onProgress: (event) => events.push(event) }, recording, {
+        multilingual: true,
+      });
+      const transcribing = events.filter((e) => e.stage === 'transcribing');
+      const fractions = transcribing.flatMap((e) => (e.fraction === undefined ? [] : [e.fraction]));
+      // Two runs x two reported fractions each, at minimum (the closing
+      // report may add one more, also 'transcribing' since diarize is off).
+      expect(fractions.length).toBeGreaterThanOrEqual(4);
+      for (const fraction of fractions) {
+        expect(fraction).toBeLessThanOrEqual(1);
+      }
+      for (const [i, fraction] of fractions.entries()) {
+        if (i > 0) expect(fraction).toBeGreaterThanOrEqual(fractions[i - 1]!);
+      }
+      // The run boundary: run two's first (0.5-of-its-own-share) report must
+      // not fall below run one's last (1.0-of-its-own-share, i.e. run one
+      // fully done) report -- proof the weighting carries doneRunMs forward
+      // rather than resetting per run.
+      expect(fractions[2]!).toBeGreaterThanOrEqual(fractions[1]!);
+      expect(fractions.at(-1)).toBe(1);
+    },
+  );
+
+  it('still produces a transcript when the sink invoked from inside the single-pass provider throws', async () => {
+    // The other "sink throws" test above only proves transcribeRecording's
+    // own direct report() calls are safe. This one proves the guarantee
+    // holds for the closure the provider itself calls mid-transcribe --
+    // FakeStt(..., [0.5, 1]) actually invokes it, from inside transcribe(),
+    // rather than leaving it unused like every deps() call before this task.
+    const transcript = await transcribeRecording(
+      {
+        ...deps([0.5, 1]),
+        onProgress: () => {
+          throw new Error('sink exploded from inside the provider');
+        },
+      },
+      recording,
+      {},
+    );
+    expect(transcript.id).toBeDefined();
+  });
+
+  it('still produces a transcript when the sink invoked from inside a multilingual run throws', async () => {
+    // The highest-risk closure in the multilingual path: it closes over
+    // doneRunMs, runMs and totalRunMs, runs inside the run loop's try/finally
+    // that removes each temporary slice, and is invoked by the provider, not
+    // by transcribeRecording directly. A throw here must neither abort the
+    // run nor skip the slice cleanup in that finally.
+    const d = multilingualDeps({
+      spans: [
+        { startMs: 0, endMs: 1750 },
+        { startMs: 1800, endMs: 3430 },
+      ],
+      languages: ['en', 'ru'],
+      progressFractions: [0.5, 1],
+    });
+    const filesBefore = d.fs.files.size;
+    const transcript = await transcribeRecording(
+      {
+        ...d,
+        onProgress: () => {
+          throw new Error('sink exploded from inside the provider');
+        },
+      },
+      recording,
+      { multilingual: true },
+    );
+    expect(transcript.id).toBeDefined();
+    // The throw did not skip a slice's finally-cleanup either.
+    expect(d.fs.files.size).toBeLessThanOrEqual(filesBefore);
+  });
+
+  it('still produces a transcript when the sink returns a rejected promise', async () => {
+    // TranscribeDeps.onProgress is typed `() => void`, but TypeScript assigns
+    // an async function to a void-returning type without complaint (see the
+    // report() doc comment), so this is reachable despite the type. report()'s
+    // synchronous try/catch cannot see a rejection that arrives after the
+    // call already returned -- only report()'s explicit thenable guard does.
+    // Without that guard this rejection would be unhandled: vitest fails a
+    // run on an unhandled rejection, which is what makes the guard's absence
+    // observable here rather than merely theoretical.
+    const transcript = await transcribeRecording(
+      {
+        ...deps(),
+        onProgress: async () => {
+          throw new Error('sink rejected asynchronously');
+        },
+      },
+      recording,
+      {},
+    );
+    expect(transcript.id).toBeDefined();
+  });
+});
+
+describe('denoising', () => {
+  it('passes the mode it was given to the converter', async () => {
+    const audio = new FakeAudioTool();
+    await transcribeRecording({ ...deps(), audio }, recording, { denoise: 'auto' });
+    expect(audio.denoiseModes).toEqual(['auto']);
+  });
+
+  it('passes nothing when no mode was given', async () => {
+    // Library callers and every pre-existing test keep the old behaviour.
+    const audio = new FakeAudioTool();
+    await transcribeRecording({ ...deps(), audio }, recording, {});
+    expect(audio.denoiseModes).toEqual([undefined]);
+  });
+
+  it('notices that denoising was not measured, only requested, when the mode is "on"', async () => {
+    // "on" skips the measurement entirely (see ffmpeg.ts), so the profile is
+    // two nulls -- reporting that as "no measurable noise floor" would claim
+    // a measurement that never ran.
+    const notices: string[] = [];
+    const audio = new FakeAudioTool();
+    audio.prepared = { denoised: true, profile: { rmsDb: null, noiseFloorDb: null } };
+    await transcribeRecording(
+      { ...deps(), audio, onNotice: (message) => notices.push(message) },
+      recording,
+      { denoise: 'on' },
+    );
+    expect(notices.join('\n')).toMatch(/not measured, denoising was requested/);
+  });
+
+  it('notices that denoising was not measured, only skipped, when the mode is "off"', async () => {
+    const notices: string[] = [];
+    const audio = new FakeAudioTool();
+    await transcribeRecording(
+      { ...deps(), audio, onNotice: (message) => notices.push(message) },
+      recording,
+      { denoise: 'off' },
+    );
+    expect(notices.join('\n')).toMatch(/not measured, denoising is off/);
+  });
+
+  it('notices that it left the audio alone, without warning about it', async () => {
+    // The job log gets the decision in both directions; the terminal only
+    // hears about it when the audio was actually altered. "I left your audio
+    // alone" is not worth a line on every run.
+    const notices: string[] = [];
+    const warnings: string[] = [];
+    const audio = new FakeAudioTool();
+    await transcribeRecording(
+      {
+        ...deps(),
+        audio,
+        onNotice: (message) => notices.push(message),
+        onWarning: (message) => warnings.push(message),
+      },
+      recording,
+      { denoise: 'auto' },
+    );
+    expect(notices.join('\n')).toMatch(/not denoised/i);
+    expect(warnings).toEqual([]);
+  });
+
+  it('warns as well as notices when the audio was altered', async () => {
+    const notices: string[] = [];
+    const warnings: string[] = [];
+    const audio = new FakeAudioTool();
+    // The fake reports no denoising by default; override for this one case.
+    audio.prepared = { denoised: true, profile: { rmsDb: -22.18, noiseFloorDb: -38.53 } };
+    await transcribeRecording(
+      {
+        ...deps(),
+        audio,
+        onNotice: (message) => notices.push(message),
+        onWarning: (message) => warnings.push(message),
+      },
+      recording,
+      { denoise: 'auto' },
+    );
+    expect(warnings.join('\n')).toMatch(/denoised/i);
+    // The numbers travel with the decision, so a reader can judge it.
+    expect(notices.join('\n')).toContain('16.4');
+  });
+
+  it('does not fail a transcription when the notice sink throws', async () => {
+    // Same guarantee onProgress already has: an observer does not get to fail
+    // a transcription.
+    const audio = new FakeAudioTool();
+    await expect(
+      transcribeRecording(
+        {
+          ...deps(),
+          audio,
+          onNotice: () => {
+            throw new Error('sink exploded');
+          },
+        },
+        recording,
+        { denoise: 'auto' },
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  // The multilingual path hand-duplicates the same notice/warning block
+  // (transcribe.ts's transcribeMultilingual) rather than sharing a helper
+  // with the single-pass path above -- see that function's own comment.
+  // Duplicated code with assertions on only one copy is exactly where the
+  // copies drift, so this mirrors every case above against
+  // { multilingual: true } instead of {}.
+  it('passes the mode it was given to the converter on the multilingual path', async () => {
+    const d = multilingualDeps({});
+    await transcribeRecording(d, recording, { multilingual: true, denoise: 'auto' });
+    expect(d.audio.denoiseModes).toEqual(['auto']);
+  });
+
+  it('notices that it left the audio alone on the multilingual path, without warning about it', async () => {
+    const notices: string[] = [];
+    const warnings: string[] = [];
+    const d = multilingualDeps({});
+    await transcribeRecording(
+      {
+        ...d,
+        onNotice: (message) => notices.push(message),
+        onWarning: (message) => warnings.push(message),
+      },
+      recording,
+      { multilingual: true, denoise: 'auto' },
+    );
+    expect(notices.join('\n')).toMatch(/not denoised/i);
+    expect(warnings).toEqual([]);
+  });
+
+  it('warns as well as notices when the audio was altered on the multilingual path', async () => {
+    const notices: string[] = [];
+    const warnings: string[] = [];
+    const d = multilingualDeps({});
+    // The fake reports no denoising by default; override for this one case.
+    d.audio.prepared = { denoised: true, profile: { rmsDb: -22.18, noiseFloorDb: -38.53 } };
+    await transcribeRecording(
+      {
+        ...d,
+        onNotice: (message) => notices.push(message),
+        onWarning: (message) => warnings.push(message),
+      },
+      recording,
+      { multilingual: true, denoise: 'auto' },
+    );
+    expect(warnings.join('\n')).toMatch(/denoised/i);
+    // The numbers travel with the decision, so a reader can judge it.
+    expect(notices.join('\n')).toContain('16.4');
+  });
+
+  it('does not fail a multilingual transcription when the notice sink throws', async () => {
+    const d = multilingualDeps({});
+    await expect(
+      transcribeRecording(
+        {
+          ...d,
+          onNotice: () => {
+            throw new Error('sink exploded');
+          },
+        },
+        recording,
+        { multilingual: true, denoise: 'auto' },
+      ),
+    ).resolves.toBeDefined();
   });
 });

@@ -1,14 +1,30 @@
+import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import type { Fs } from '@ailoud/core';
 import { PROJECT_DIR } from '../config.js';
 import { addServer, hasServer, isEmptyConfig, removeServer } from './agentConfig.js';
 import type { AgentTarget, Scope } from './agents.js';
+import { addPermission, describeRefusal, hasPermission, removePermission } from './permissions.js';
 import { hasBlock, withBlock, withoutBlock } from './rulesBlock.js';
 
 /** What happened to one file, for the report a command prints. */
 export interface FileOutcome {
   readonly path: string;
-  readonly action: 'created' | 'updated' | 'unchanged' | 'removed' | 'cleaned' | 'absent';
+  /**
+   * `skipped` is the allow-list writer declining to rewrite a settings file
+   * it will not touch safely. Distinct from `unchanged`, which means nothing
+   * needed doing: this one means the user asked for something and did not get
+   * it. `detail` below says which refusal it was.
+   */
+  readonly action:
+    'created' | 'updated' | 'unchanged' | 'removed' | 'cleaned' | 'absent' | 'skipped';
+  /**
+   * Why, for an action that does not say on its own. Only `skipped` carries
+   * one: the reasons the allow-list writer declines are different problems
+   * with different fixes, and one catch-all sentence sent users looking for
+   * a fault their file did not have.
+   */
+  readonly detail?: string;
 }
 
 export interface AgentOutcome {
@@ -26,37 +42,104 @@ export async function detect(fs: Fs, agent: AgentTarget, home: string): Promise<
   return false;
 }
 
+async function readIfPresent(fs: Fs, path: string): Promise<string | null> {
+  return (await fs.exists(path)) ? fs.readTextFile(path) : null;
+}
+
 /**
- * The rules file to write for a scope: the first that exists, else the first
- * listed.
+ * The rules files to write for a scope.
  *
- * Preference order matters for Claude Code, which reads both a repository's
- * own `CLAUDE.md` and a `.claude/CLAUDE.md` beside it. Appending to the one
- * that already exists keeps a project's instructions in one file; creating
- * `.claude/CLAUDE.md` next to an existing `CLAUDE.md` would split them.
+ * Every candidate that already carries the block, or the first candidate when
+ * none does.
+ *
+ * Claude Code reads both a repository's own `CLAUDE.md` and a
+ * `.claude/CLAUDE.md` beside it, which makes both halves of that rule
+ * load-bearing. Writing to both on a fresh install would put the same
+ * instructions in the agent's context twice; writing to only the preferred one
+ * when an earlier install left a block in the other would leave that copy to
+ * go stale and keep telling the agent about tools it no longer has.
  */
-export async function chooseRulesFile(
+export async function rulesTargets(
   fs: Fs,
   agent: AgentTarget,
   scope: Scope,
   home: string,
   cwd: string,
-): Promise<string | null> {
+): Promise<readonly string[]> {
   const candidates = agent.rulesPaths(scope, home, cwd);
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) return [];
+  const carrying: string[] = [];
   for (const path of candidates) {
-    if (await fs.exists(path)) return path;
+    const text = await readIfPresent(fs, path);
+    if (text !== null && hasBlock(text)) carrying.push(path);
   }
-  return candidates[0] ?? null;
+  return carrying.length > 0 ? carrying : [candidates[0]!];
 }
 
-async function readIfPresent(fs: Fs, path: string): Promise<string | null> {
-  return (await fs.exists(path)) ? fs.readTextFile(path) : null;
-}
-
+/**
+ * Writes a file without ever leaving it half-written: a temporary file beside
+ * it, then a rename over the top.
+ *
+ * `writeTextFile` truncates before it writes, so a failure part-way through --
+ * ENOSPC is the realistic one -- leaves the target EMPTY. That was survivable
+ * while these files were only touched by an interactive `mcp install` the user
+ * was watching. It is not survivable now: `self sync` sweeps this writer
+ * across every registered project unattended, and the file it rewrites is
+ * often a repository's own hand-written `CLAUDE.md` or `AGENTS.md`. Truncating
+ * one of those and then reporting `failed` destroys the user's content while
+ * telling them nothing happened.
+ *
+ * Same pattern as `writeRegistry` in `apps/cli/src/projects.ts`, and for the
+ * same reason. The temporary name is randomised so two concurrent writers
+ * cannot corrupt each other's, and it sits in the target's own directory so
+ * the rename stays on one filesystem and therefore stays atomic.
+ */
 async function write(fs: Fs, path: string, content: string): Promise<void> {
   await fs.ensureDir(dirname(path));
-  await fs.writeTextFile(path, content);
+  const temp = `${path}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeTextFile(temp, content);
+  } catch (error) {
+    // The target has not been touched yet, so there is nothing to undo. Clear
+    // the partial temporary file rather than leaving litter beside a config.
+    await fs.removeFile(temp);
+    throw error;
+  }
+  await fs.rename(temp, path);
+}
+
+/**
+ * Writes the agent's command allow-list, when it has one and was asked for.
+ *
+ * Returns nothing to report for an agent with no allow-list, rather than a
+ * row saying so for every agent on every run.
+ */
+async function writePermission(
+  fs: Fs,
+  agent: AgentTarget,
+  scope: Scope,
+  home: string,
+  cwd: string,
+): Promise<FileOutcome | null> {
+  if (agent.permission === undefined) return null;
+  const path = agent.permission.path(scope, home, cwd);
+  const before = await readIfPresent(fs, path);
+  const edit = addPermission(agent.permission.format, before, cwd);
+  if (!edit.ok) {
+    return {
+      path,
+      action: 'skipped',
+      detail: describeRefusal(agent.permission.format, edit.reason),
+    };
+  }
+  const after = edit.text;
+  if (before === null) {
+    await write(fs, path, after);
+    return { path, action: 'created' };
+  }
+  if (before === after) return { path, action: 'unchanged' };
+  await write(fs, path, after);
+  return { path, action: 'updated' };
 }
 
 /**
@@ -65,7 +148,8 @@ async function write(fs: Fs, path: string, content: string): Promise<void> {
  * Both files are written: the MCP configuration, which is what makes the tools
  * reachable, and the rules block, which is what makes the agent use them well.
  * Either alone is half the feature -- an agent with the tools and no guidance
- * reads whole transcripts into its context.
+ * reads whole transcripts into its context. A third, the command allow-list,
+ * is written only when `allowShell` says the user asked for it.
  */
 export async function install(
   fs: Fs,
@@ -73,6 +157,7 @@ export async function install(
   scope: Scope,
   home: string,
   cwd: string,
+  allowShell: boolean,
 ): Promise<AgentOutcome> {
   const files: FileOutcome[] = [];
 
@@ -89,8 +174,7 @@ export async function install(
     files.push({ path: configPath, action: 'unchanged' });
   }
 
-  const rulesPath = await chooseRulesFile(fs, agent, scope, home, cwd);
-  if (rulesPath !== null) {
+  for (const rulesPath of await rulesTargets(fs, agent, scope, home, cwd)) {
     const rulesBefore = await readIfPresent(fs, rulesPath);
     const rulesAfter = withBlock(rulesBefore ?? '');
     if (rulesBefore === null) {
@@ -102,6 +186,11 @@ export async function install(
     } else {
       files.push({ path: rulesPath, action: 'unchanged' });
     }
+  }
+
+  if (allowShell) {
+    const permission = await writePermission(fs, agent, scope, home, cwd);
+    if (permission !== null) files.push(permission);
   }
 
   return { agent, scope, files, note: agent.afterNote };
@@ -158,6 +247,34 @@ export async function uninstall(
     }
   }
 
+  // Symmetric with install, and unconditional: an uninstall that left a
+  // standing permission for a command the user just removed would be a
+  // privilege nobody can see the reason for any more.
+  if (agent.permission !== undefined) {
+    const path = agent.permission.path(scope, home, cwd);
+    const before = await readIfPresent(fs, path);
+    if (before === null) {
+      files.push({ path, action: 'absent' });
+    } else {
+      const after = removePermission(agent.permission.format, before, cwd);
+      if (after === null) {
+        files.push({ path, action: 'unchanged' });
+      } else if (after === '') {
+        // Decided here rather than left to the `isEmptyConfig` check above:
+        // for opencode and Gemini this IS the MCP configuration file, and
+        // that check ran first, while our permission keys were still in it.
+        // It therefore saw a file with settings in and kept it -- so an
+        // install that used the allow-list left `{}` behind where one that
+        // did not deleted the file outright.
+        await fs.removeFile(path);
+        files.push({ path, action: 'removed' });
+      } else {
+        await write(fs, path, after);
+        files.push({ path, action: 'cleaned' });
+      }
+    }
+  }
+
   return { agent, scope, files, note: agent.afterNote };
 }
 
@@ -186,8 +303,18 @@ export async function update(
     if (text !== null && hasBlock(text)) rulesConfigured = true;
   }
 
+  // The allow-list is refreshed where it already is and never created here.
+  // `self sync` sweeps this across every registered project unattended, and
+  // widening an agent's privileges without being asked is the one thing that
+  // sweep must not do.
+  let allowShell = false;
+  if (agent.permission !== undefined) {
+    const text = await readIfPresent(fs, agent.permission.path(scope, home, cwd));
+    allowShell = text !== null && hasPermission(agent.permission.format, text, cwd);
+  }
+
   if (!configured && !rulesConfigured) return null;
-  return install(fs, agent, scope, home, cwd);
+  return install(fs, agent, scope, home, cwd, allowShell);
 }
 
 /**

@@ -20,7 +20,41 @@ describe('rulesBlock', () => {
     expect(rulesBlock()).toMatch(/ailoud audio search/);
   });
 
+  it('tells the agent to ask about speakers and languages', () => {
+    expect(rulesBlock()).toContain('how many people speak');
+  });
+
+  it('tells the agent to poll rather than wait', () => {
+    expect(rulesBlock()).toContain('job_status');
+    // The prompt to name speakers is the one thing an agent cannot infer:
+    // only a person knows which label is which.
+    expect(rulesBlock()).toContain('unnamedSpeakers');
+    expect(rulesBlock()).toContain('annotate');
+  });
+
+  it('tells the agent to prefer MCP tools, since only they enforce the check', () => {
+    expect(rulesBlock()).toMatch(/MCP tools\*\* \(prefer/);
+  });
+
+  it('tells the agent not to ask about cpu or gpu settings', () => {
+    // An agent that asks "what should I set --max-cpu to?" spends a turn on a
+    // question whose answer changes nothing: the default is already right.
+    expect(rulesBlock()).toMatch(/not ask about CPU or GPU/i);
+  });
+
+  it('points at doctor rather than explaining the numbers here', () => {
+    // The room for the reasoning is SERVER_INSTRUCTIONS and docs/, per this
+    // file's own ceiling test below.
+    expect(rulesBlock()).toContain('doctor');
+  });
+
+  it('never names the per-run flag in the rules block', () => {
+    expect(rulesBlock()).not.toContain('--max-cpu');
+  });
+
   it('stays short, since it shares a file with the project instructions', () => {
+    // A ceiling, not a measurement. If a change needs more room than this,
+    // the room belongs in SERVER_INSTRUCTIONS or in docs/, not here.
     expect(rulesBlock().split('\n').length).toBeLessThan(30);
   });
 });

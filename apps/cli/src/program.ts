@@ -9,11 +9,14 @@ import { registerRm } from './commands/rm.js';
 import { registerAnnotate } from './commands/annotate.js';
 import { registerSummarize } from './commands/summarize.js';
 import { registerReports } from './commands/reports.js';
+import { registerJobs } from './commands/jobs.js';
 import { registerTemplate } from './commands/template.js';
 import { registerSearch } from './commands/search.js';
 import { registerMcp } from './commands/mcp.js';
 import { attachLetters, group, inGroupAndTopLevel } from './commands/groups.js';
 import { registerTranscribe } from './commands/transcribe.js';
+import { registerSelfCheck, registerSelfSync, registerSelfUpdate } from './commands/self.js';
+import { registerSelfCompletions } from './commands/selfCompletions.js';
 import type { CliContext } from './wiring.js';
 import { VERSION } from './version.js';
 
@@ -89,6 +92,12 @@ export function buildProgram(context: CliContext): Command {
   registerReports(report, context);
   attachLetters(report);
 
+  // On the group only, not through inGroupAndTopLevel: the top level is for
+  // verbs that act on recordings, and these act on jobs.
+  const job = group(program, 'job', 'jobs', 'Background transcription and summary work');
+  registerJobs(job, context);
+  attachLetters(job);
+
   const template = group(
     program,
     'template',
@@ -101,5 +110,15 @@ export function buildProgram(context: CliContext): Command {
   registerMcp(program, context);
   registerDoctor(program, context);
   registerSetup(program, context);
+
+  const self = group(program, 'self', undefined, 'Manage this installation of ailoud');
+  inGroupAndTopLevel(program, self, registerSelfCheck, context);
+  inGroupAndTopLevel(program, self, registerSelfUpdate, context);
+  inGroupAndTopLevel(program, self, registerSelfSync, context);
+  // On the group only, not through inGroupAndTopLevel: the top level is for
+  // verbs that act on recordings, and this acts on the installation.
+  registerSelfCompletions(self, context);
+  attachLetters(self);
+
   return program;
 }

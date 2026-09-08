@@ -15,6 +15,7 @@ export type {
   Fs,
   Ids,
   ManagedRecordingStore,
+  NoiseProfile,
   RecordingListFilter,
   RecordingStore,
   SegmentSearchFilter,
@@ -25,6 +26,8 @@ export type {
   TempDir,
   TempFile,
   TranscriptionProvider,
+  VersionSource,
+  WavPrepared,
 } from './domain/ports.js';
 
 export type { Migration } from './db/schema.js';
@@ -66,6 +69,9 @@ export { isHostedLlm, withoutTrailingSlashes } from './domain/llmHost.js';
 
 export { mimeForPath } from './domain/mime.js';
 
+export type { PreKind, PublishedVersion, Version } from './domain/version.js';
+export { chooseUpdateTarget, compareVersions, parseVersion } from './domain/version.js';
+
 export { MIGRATIONS, SCHEMA_VERSION, pendingMigrations } from './db/schema.js';
 
 export { importRecording, importPath } from './pipelines/import.js';
@@ -95,6 +101,8 @@ export {
   EMBEDDING_MODEL,
   DEFAULT_MODEL_NAME,
   findModel,
+  findModelFile,
+  RETIRED_MODELS,
 } from './provision/catalogue.js';
 
 export type { Action, PlanOptions } from './provision/plan.js';
@@ -117,3 +125,22 @@ export {
 } from './summarize/templates.js';
 export type { SummaryTemplate } from './summarize/templates.js';
 export type { SummaryRequest, SummarySource } from './summarize/prompt.js';
+
+export type { ProgressEvent, OnProgress } from './progress/events.js';
+export type { StageWeight } from './progress/scale.js';
+export {
+  clampMonotonic,
+  multilingualStages,
+  singlePassStages,
+  stageScale,
+  weightedOverall,
+} from './progress/scale.js';
+
+export type { LanguageGuess } from './transcribe/languageGuess.js';
+export { guessLanguages } from './transcribe/languageGuess.js';
+
+export { DENOISE_MODES, NOISY_SNR_DB, shouldDenoise, snrDb } from './audio/noise.js';
+export type { DenoiseMode } from './audio/noise.js';
+
+export { DEFAULT_MAX_CPU_PERCENT, resourceBudget } from './resources/budget.js';
+export type { CpuTopology, ResourceBudget } from './resources/budget.js';

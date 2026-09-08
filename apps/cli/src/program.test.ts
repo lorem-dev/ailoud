@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseConfig } from './config.js';
-import { EnvironmentError, FailureError, UsageError } from '@ailoud/core';
+import { EnvironmentError, FailureError, resourceBudget, UsageError } from '@ailoud/core';
 import {
   FakeAudioTool,
   FakeClock,
@@ -108,10 +108,13 @@ describe('buildProgram', () => {
     return {
       paths: {
         configFile: '/fake/config.yaml',
+        configHome: '/fake',
         dataDir: '/fake/data',
         dbFile: ':memory:',
         mediaRoot: '/fake/data/media',
+        jobsDir: '/fake/data/jobs',
         isProjectLibrary: false,
+        userDataDir: '/fake/data',
       },
       config: {
         stt: {
@@ -131,6 +134,9 @@ describe('buildProgram', () => {
           },
         },
         llm: parseConfig(null).llm,
+        resources: parseConfig(null).resources,
+        audio: parseConfig(null).audio,
+        update: parseConfig(null).update,
       },
       store,
       fs: new MemFs(),
@@ -139,6 +145,7 @@ describe('buildProgram', () => {
       ids: new FakeIds(),
       write,
       ui: new PlainUi(write),
+      resources: async () => resourceBudget({ logical: 10, performance: 8 }, { maxCpuPercent: 90 }),
       createStt: () => new FakeStt({ language: 'en', model: 'fake', segments: [] }),
       createSegmenter: () => new FakeSegmenter([{ startMs: 0, endMs: 1000 }]),
       createDiarizer: () => new FakeDiarizer([]),
@@ -148,6 +155,11 @@ describe('buildProgram', () => {
         contextTokens: 8192,
         complete: async () => 'x',
       }),
+      // A fixed list, never the network: this suite drives buildProgram
+      // end to end, and no test here exercises `self check` itself.
+      versionSource: { published: async () => [{ version: '1.0.0', deprecated: false }] },
+      updateRegistryHost: 'registry.npmjs.org',
+      updateTimeoutMs: 10_000,
     };
   }
 

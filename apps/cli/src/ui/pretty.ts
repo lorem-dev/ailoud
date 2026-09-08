@@ -141,12 +141,17 @@ export class PrettyUi implements Ui {
     return `${head}  ${ellipsis}${trimmed}`;
   }
 
-  public async transcribing<T>(recording: Recording, task: () => Promise<T>): Promise<T> {
+  public async transcribing<T>(
+    recording: Recording,
+    task: (report: (stage: string, fraction: number) => void) => Promise<T>,
+  ): Promise<T> {
     const label = recording.title ?? recording.sourcePath;
     const s = spinner();
     s.start(this.fitSpinnerLine(`Transcribing ${recording.id}`, label));
     try {
-      const result = await task();
+      const result = await task((stage, fraction) => {
+        s.message(this.fitSpinnerLine(`${stage} ${Math.floor(fraction * 100)}%`, label));
+      });
       s.stop(this.fitSpinnerLine(`Transcribed ${recording.id}`, label));
       return result;
     } catch (error) {
@@ -344,6 +349,10 @@ export class PrettyUi implements Ui {
     // log.info, not log.warn: the rows themselves already carry the warning
     // glyph, and this line exists to say the run is fine in spite of them.
     if (note !== null) log.info(this.wrap(note));
+  }
+
+  public success(message: string): void {
+    log.success(this.wrap(message));
   }
 
   public warn(message: string): void {
