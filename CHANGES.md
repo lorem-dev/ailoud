@@ -33,7 +33,12 @@
     - Name the command or option in backticks, so it is greppable.
     - Wrap at 80 columns. ASCII only (see AGENTS.md).
 
-  Sections: `## Development
+  Sections: `## Development` collects unreleased entries. `bump-version`
+  promotes it to `## Version <v>` and `release-notes.mjs` extracts that section
+  for the GitHub release, so the heading format matters.
+-->
+
+## Development
 
 ### Added
 
