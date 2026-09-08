@@ -257,6 +257,35 @@ async function writeCache(deps: NoticeDeps, target: string | null): Promise<void
  * the fetch is bounded, never the fetch's own right to keep running and to
  * report a genuine answer whenever it actually settles.
  */
+/**
+ * A cached answer, re-judged against the version running NOW.
+ *
+ * The cache is keyed on time alone, and a day is long enough to install the
+ * very version it names. Reported from a real terminal: `self update` moved
+ * 1.1.0 to 1.2.0 and the next line announced "a newer version is available
+ * (1.2.0 -> 1.2.0)", because the entry written while 1.1.0 ran stayed
+ * authoritative afterwards. The same applies to any install that happens
+ * outside ailoud -- `npm i -g ailoud` leaves no trace here to invalidate.
+ *
+ * `chooseUpdateTarget` again rather than a fresh comparison: whether a
+ * version counts as an upgrade is one policy (it also decides what a
+ * pre-release may move to), and asking the same function twice is what keeps
+ * the answer from drifting from the one the fetch path gives. `deprecated`
+ * is false because a deprecated release was already excluded when this
+ * target was chosen; the cache stores only the string that survived.
+ *
+ * Throwing is not an option: this runs outside the try that guards the fetch,
+ * and a notice must never be why a command failed.
+ */
+function stillNewer(deps: NoticeDeps, target: string | null): string | null {
+  if (target === null) return null;
+  try {
+    return chooseUpdateTarget(deps.currentVersion, [{ version: target, deprecated: false }]);
+  } catch {
+    return null;
+  }
+}
+
 export function startUpdateCheck(deps: NoticeDeps): UpdateCheck {
   if (suppressed(deps)) return { finish: async () => null };
 
@@ -264,7 +293,7 @@ export function startUpdateCheck(deps: NoticeDeps): UpdateCheck {
 
   const inflight = (async (): Promise<string | null> => {
     const cached = await readCache(deps);
-    if (cached !== null) return cached.target;
+    if (cached !== null) return stillNewer(deps, cached.target);
     try {
       const versions = await deps.published(controller.signal);
       const target = chooseUpdateTarget(deps.currentVersion, versions);

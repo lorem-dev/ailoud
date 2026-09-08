@@ -66,6 +66,67 @@ describe('startUpdateCheck', () => {
     expect(await notice.finish()).toBeNull();
   });
 
+  /**
+   * Reported from a real terminal: `self update` from 1.1.0 to 1.2.0, and the
+   * line right after it said "a newer version is available (1.2.0 -> 1.2.0)".
+   * The cache is keyed on nothing but time, so the answer written while 1.1.0
+   * was running stayed authoritative for a day after the version it named
+   * became the version in use.
+   */
+  describe('a cached answer this run has already caught up with', () => {
+    const cacheWith = (target: string): MemFs =>
+      new MemFs({
+        [updateCachePath(DATA_DIR)]: JSON.stringify({
+          checkedAt: '2026-01-01T00:00:00.000Z',
+          target,
+        }),
+      });
+
+    it('says nothing when the cached target is the running version', async () => {
+      const deps = baseDeps({
+        fs: cacheWith('1.2.0'),
+        currentVersion: '1.2.0',
+        published: hangingPublished(),
+      });
+
+      expect(await startUpdateCheck(deps).finish()).toBeNull();
+    });
+
+    it('says nothing when the running version is newer than the cached target', async () => {
+      // A local build, or an install from a tarball ahead of the registry.
+      const deps = baseDeps({
+        fs: cacheWith('1.2.0'),
+        currentVersion: '1.3.0',
+        published: hangingPublished(),
+      });
+
+      expect(await startUpdateCheck(deps).finish()).toBeNull();
+    });
+
+    it('still speaks up when the cached target really is newer', async () => {
+      const deps = baseDeps({
+        fs: cacheWith('1.3.0'),
+        currentVersion: '1.2.0',
+        published: hangingPublished(),
+      });
+
+      expect(await startUpdateCheck(deps).finish()).toBe('1.3.0');
+    });
+
+    it('says nothing, rather than throwing, when it cannot read its own version', async () => {
+      // `chooseUpdateTarget` throws on a version it cannot parse, and this
+      // path runs outside the try that guards the fetch. A notice must never
+      // be the reason a command fails.
+      const deps = baseDeps({
+        fs: cacheWith('1.3.0'),
+        currentVersion: 'not-a-version',
+        published: hangingPublished(),
+      });
+
+      expect(await startUpdateCheck(deps).finish()).toBeNull();
+    });
+  });
+
   it('prints from the cache when this run could not refresh it', async () => {
     const fs = new MemFs({
       [updateCachePath(DATA_DIR)]: JSON.stringify({
