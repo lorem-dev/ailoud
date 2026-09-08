@@ -40,6 +40,8 @@
 
 ## Development
 
+## Version 1.2.0
+
 ### Added
 
 - `mcp install` can add `ailoud` to an agent's command allow-list, so the agent
