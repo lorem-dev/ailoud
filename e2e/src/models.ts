@@ -28,7 +28,15 @@ export function modelsDir(home: string): string {
  * missing rather than skipping, and a plausible path is what produces that
  * message.
  */
-export function installedWhisperModel(home: string): string {
+export function installedWhisperModel(home: string, env: NodeJS.ProcessEnv = process.env): string {
+  // An explicit choice wins over discovery. CI sets this to a small model:
+  // the specs here test the pipeline, not model quality, and the shipped
+  // default is several times slower on a four-core runner -- it took the
+  // provisioned suite from five minutes to nineteen. That the real default
+  // downloads and installs is proven by the `setup` step itself, which is a
+  // different question from whether `transcribe` works.
+  const chosen = env['AILOUD_E2E_MODEL'];
+  if (chosen !== undefined && chosen !== '') return chosen;
   const dir = modelsDir(home);
   let entries: readonly string[];
   try {

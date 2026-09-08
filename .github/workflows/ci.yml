@@ -169,7 +169,17 @@ jobs:
         # files. Still the command a user runs, so this remains a test of
         # `setup` and not only a prerequisite for the suite. --llm skip because
         # no spec here summarises, and it would otherwise fetch another 2.1 GB.
+        #
+        # This step is what proves the shipped default downloads and installs.
+        # The suite below then transcribes with `small` instead -- see its own
+        # comment for why -- so the two questions are answered separately.
         run: node apps/cli/dist/bin/ailoud.js setup --yes --llm skip
+
+      - name: Add the model the transcribing specs use
+        # `small` on top of the default. Naming a model is the documented way
+        # to switch, so this also exercises that path, and `setup` never
+        # deletes the previous file, so both end up cached together.
+        run: node apps/cli/dist/bin/ailoud.js setup --model small --yes --llm skip
 
       - name: Put the provisioned binaries on PATH
         # The e2e sandbox writes its own config naming only the MODEL, and
@@ -211,7 +221,23 @@ jobs:
         run: node apps/cli/dist/bin/ailoud.js doctor || true
 
       - name: End-to-end suite
-        run: pnpm test:e2e
+        # Transcribing specs use `small`, not the shipped default. They test
+        # the pipeline, not model quality, and on these four cores the default
+        # is about five times slower: it took this job from under five minutes
+        # to nineteen, and one spec's own wait ran out. Provisioning the real
+        # default is verified by the step above.
+        #
+        # Set in the command, not in `env:`, because the path needs $HOME and
+        # a step-level `env:` cannot expand it. It matches the directory this
+        # workflow already caches.
+        run: |
+          set -euo pipefail
+          export AILOUD_E2E_MODEL="$HOME/.local/share/ailoud/models/ggml-small.bin"
+          test -s "$AILOUD_E2E_MODEL" || {
+            echo "::error::$AILOUD_E2E_MODEL is missing; the provisioning step above should have written it"
+            exit 1
+          }
+          pnpm test:e2e
 
   docs:
     name: Docs build (strict)

@@ -94,15 +94,24 @@ to build it yourself, then point `stt.whisperCpp.binary` at the result.
 `setup` installs `large-v3-turbo-q5_0` (574 MB). Measured on Russian speech,
 where the models differ most:
 
-| Model       | Read speech | Conversation | At 10 dB noise | rtf, GPU | rtf, CPU |
-| ----------- | ----------- | ------------ | -------------- | -------- | -------- |
-| `small`     | 7.5%        | 32.0%        | 12.6%          | 0.042    | 0.451    |
-| the default | 2.1%        | 23.6%        | 3.5%           | 0.070    | 0.449    |
+| Model       | Read speech | Conversation | At 10 dB noise | rtf, GPU |
+| ----------- | ----------- | ------------ | -------------- | -------- |
+| `small`     | 7.5%        | 32.0%        | 12.6%          | 0.042    |
+| the default | 2.1%        | 23.6%        | 3.5%           | 0.070    |
 
 Word error rate, then seconds of compute per second of audio.
 
-- Without a GPU the default is free: quantised weights halve the memory
-  traffic, and memory bandwidth is what limits CPU decoding.
+- On a GPU the default costs about 1.7x `small`'s decode time: eight minutes
+  instead of five for a two-hour recording.
+- **Without a GPU, how much it costs depends on the machine, and the spread is
+  wide.** On an Apple Silicon laptop the two are level (0.449 against 0.451
+  seconds per second of audio at eight threads), because quantised weights
+  halve the memory traffic and bandwidth is what limits CPU decoding there. On
+  a four-core x86 CI runner the same comparison came out about five times
+  slower for the default, where the extra compute of 32 layers against 12
+  dominates instead. Measure your own machine before assuming either figure:
+  `ailoud doctor` reports what your build loaded, and `--model small` is one
+  flag away if the default is too slow for you.
 - Bigger is not better. `medium` and the f16 build of `large-v3-turbo` were
   both dropped from what `setup` offers, because each is beaten by something
   smaller. Both still install if you name one: `setup --model medium`.

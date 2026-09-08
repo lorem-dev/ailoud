@@ -69,6 +69,8 @@
   on accuracy, size and speed by a smaller model. `large-v3` (3.1 GB) is
   offered for a hard recording worth it. Retired models still install when
   named, and an installed model is never replaced without being asked for.
+  Without a GPU the new default can be several times slower than `small`,
+  depending on the machine; `--model small` goes back.
 - `setup --model <name>` now switches the transcription model even on a
   healthy machine, instead of being ignored, and prints where the previous
   model file was left, since ailoud never deletes it.

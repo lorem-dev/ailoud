@@ -85,4 +85,23 @@ describe('installedWhisperModel', () => {
   it('names the vad model the provisioner installs', () => {
     expect(installedVadModel(home)).toBe(join(models, 'ggml-silero-v5.1.2.bin'));
   });
+
+  it('prefers an explicitly chosen model over whatever is installed', async () => {
+    await writeFile(join(models, 'ggml-large-v3-turbo-q5_0.bin'), 'x');
+
+    expect(installedWhisperModel(home, { AILOUD_E2E_MODEL: '/pinned/ggml-small.bin' })).toBe(
+      '/pinned/ggml-small.bin',
+    );
+  });
+
+  it('falls back to discovery when the choice is unset or empty', async () => {
+    // Empty counts as unset, the same rule the app applies to its own
+    // environment variables -- an exported-but-blank value in a workflow
+    // must not pin the specs to a path of "".
+    const installed = join(models, 'ggml-base.bin');
+    await writeFile(installed, 'x');
+
+    expect(installedWhisperModel(home, {})).toBe(installed);
+    expect(installedWhisperModel(home, { AILOUD_E2E_MODEL: '' })).toBe(installed);
+  });
 });
