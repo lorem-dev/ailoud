@@ -175,9 +175,17 @@ describe('registerSelfCompletions: install --yes', () => {
     const isTtyDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
     const originalCi = process.env['CI'];
     const originalHome = process.env['HOME'];
+    const originalShell = process.env['SHELL'];
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     delete process.env['CI'];
     process.env['HOME'] = HOME;
+    // Pinned for the same reason HOME is: `detect` treats `$SHELL` as one of
+    // its three signals (see ../completions/shells.ts), and it reads the real
+    // environment even though the filesystem here is a MemFs holding only
+    // `.zshrc`. Left alone, this test asserted the machine's login shell
+    // rather than its own fixture -- passing wherever `$SHELL` is zsh and
+    // failing wherever it is bash, which is every Linux CI runner.
+    process.env['SHELL'] = '/bin/zsh';
     try {
       const fs = new MemFs({ [`${HOME}/.zshrc`]: '' });
       const { context } = contextWithUi(fs);
@@ -197,6 +205,8 @@ describe('registerSelfCompletions: install --yes', () => {
       else process.env['CI'] = originalCi;
       if (originalHome === undefined) delete process.env['HOME'];
       else process.env['HOME'] = originalHome;
+      if (originalShell === undefined) delete process.env['SHELL'];
+      else process.env['SHELL'] = originalShell;
     }
   });
 });
