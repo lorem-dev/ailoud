@@ -15,7 +15,7 @@
     "string-width": "8.2.2",
     "wrap-ansi": "10.0.1",
     "yaml": "2.9.0",
-    "zod": "4.4.3"
+    "zod": "4.5.4"
   },
   "scripts": {
     "prepack": "node -e \"require('node:fs').copyFileSync('../../README.md','README.md')\"",
