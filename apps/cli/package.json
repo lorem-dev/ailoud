@@ -6,7 +6,7 @@
     "ailoud": "./dist/bin/ailoud.js"
   },
   "dependencies": {
-    "@clack/prompts": "1.7.0",
+    "@clack/prompts": "1.8.1",
     "@ailoud/core": "workspace:*",
     "@ailoud/providers": "workspace:*",
     "@modelcontextprotocol/sdk": "1.30.0",
